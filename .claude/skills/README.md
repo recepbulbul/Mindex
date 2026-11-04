@@ -32,9 +32,9 @@ Tasarım skill'leri neyin çizileceğine, bunlar React kodunun ve arayüz davran
 |---|---|---|
 | `react-best-practices` | Gereksiz render, paket boyutu, veri çekme ve React 19 kalıpları (Next.js'e özgü `server-*` kuralları bu projede geçerli değil) | [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills/tree/1a2c79d4e6c4/skills/react-best-practices) |
 | `composition-patterns` | Bileşen API'si: boolean prop yığını yerine bileşik bileşen ve açık varyant | [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills/tree/1a2c79d4e6c4/skills/composition-patterns) |
-| `web-design-guidelines` | Erişilebilirlik, odak, form, hareket, metin ve dokunma kuralları denetimi | [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills/tree/1a2c79d4e6c4/skills/web-design-guidelines) · kurallar [vercel-labs/web-interface-guidelines](https://github.com/vercel-labs/web-interface-guidelines/blob/434b7f91364665f2f733b310ec54809bf8f37937/command.md) |
+| `web-design-guidelines` | Erişilebilirlik, odak, form, hareket, metin ve dokunma kuralları denetimi | [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills/tree/1a2c79d4e6c4/skills/web-design-guidelines) |
 
-`agent-skills` deposunda LICENSE dosyası yok; skill'ler ön bilgilerinde MIT olarak işaretli. `web-design-guidelines` asıl hâlinde kuralları her çalışmada sabitlenmemiş bir URL'den çekiyordu; kurallar sabit commit'ten `guidelines.md` olarak kopyalandı ve `SKILL.md` bu yerel dosyayı okuyacak şekilde değiştirildi.
+`agent-skills` deposunda LICENSE dosyası yok; skill'ler ön bilgilerinde MIT olarak işaretli. `web-design-guidelines` kuralları her çalışmada [vercel-labs/web-interface-guidelines](https://github.com/vercel-labs/web-interface-guidelines) deposundan güncel hâliyle çeker.
 
 `impeccable` `scripts/` klasörü olmadan eklendi: başlatıcısı bir ikili dosya indirip çalıştırıyor, bu depo onu taşımaz. Skill bu durumda kendi "launcher unavailable" yolunu izler ve proje bağlamını doğrudan okur.
 
