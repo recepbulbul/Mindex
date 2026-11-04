@@ -19,9 +19,11 @@ Demo hesapları giriş ekranında tek tıkla doldurulur (`arastirmaci@mindex.dev
 ## Depo yapısı
 
 ```
-backend/     Python 3.12 paketi (uv) — domain mantığı, ileride FastAPI + işçi
+backend/     Python 3.12 paketi (uv) — veri hattı, simülatör, ajanlar, metrikler; ileride FastAPI + işçi
 frontend/    React 19 + TypeScript + Vite prototipi (MSW sahte API)
-docs/        Use case, mimari, akış, AI pipeline, ER, veri sözlüğü, teknoloji yığını
+docs/        Use case, mimari, akış, AI pipeline, ER, veri sözlüğü, teknoloji yığını, P3 veri hattı ve baseline
+data/        Parquet anlık görüntüleri (gitignore'da) ve commitlenen manifest (SHA-256)
+reports/     `mindex baseline` / `mindex bench-llm` çıktıları
 scripts/     İsterlerin GitHub Issues'a aktarılması
 .github/     CI (lint, tip, test, Trivy, gitleaks), Pages dağıtımı, şablonlar
 ```
@@ -35,6 +37,8 @@ Gereksinimler: Python 3.12, [uv](https://docs.astral.sh/uv/), Node 24.
 cd backend
 uv sync
 uv run pytest
+uv run mindex fetch-data     # Binance verisi → data/snapshots/
+uv run mindex baseline       # doğrulama döneminde baseline → reports/
 
 # Frontend (sahte API ile)
 cd frontend
@@ -51,6 +55,7 @@ cd backend && uv run pre-commit install
 |---|---|
 | 1 | [Use case modeli](docs/01-use-cases.md) · [Sistem mimarisi](docs/02-architecture.md) · [Akış diyagramları](docs/03-flows.md) · [AI pipeline](docs/04-ai-pipeline.md) |
 | 2 | [ER diyagramı](docs/05-er-diagram.md) · [Şema (SQL)](docs/db/schema.sql) · [Veri sözlüğü](docs/06-data-dictionary.md) · [Teknoloji yığını](docs/07-tech-stack.md) |
+| 3 | [Veri hattı, simülatör ve baseline](docs/08-data-pipeline-baseline.md) · [EDA notebook'u](backend/notebooks/01-eda.ipynb) · [Baseline sonuçları](reports/baseline-validation.md) · [Arayüz tasarım sistemi](docs/09-design-system.md) |
 
 İsterler (F1–F9, NF1–NF5) GitHub Issues'ta milestone'lara bağlı olarak takip edilir; bkz. [`scripts/github`](scripts/github/README.md).
 
@@ -60,7 +65,8 @@ cd backend && uv run pre-commit install
 |---|---|---|
 | P1 Analiz, diyagramlar, isterler, repo iskeleti (uv, pre-commit, CI) | 1 | ✅ |
 | P2 Tıklanabilir prototip (6 ekran, GitHub Pages), ER, şema, veri sözlüğü, teknoloji yığını | 2 | ✅ |
-| P3 ccxt veri hattı, EDA, simülatör çekirdeği, baseline ajanlar | 3 | ⏳ |
+| P3 ccxt veri hattı, EDA, test setinin ayrılması, simülatör çekirdeği, kural tabanlı ajanlar, ilk LLM ajanı, ilk metrikler | 3 | ✅ |
+| P4 FastAPI iskeleti, migration'lar, JWT, PPO ve HMM | 4 | ⏳ |
 
 ## Lisans
 

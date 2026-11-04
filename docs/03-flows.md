@@ -53,7 +53,7 @@ flowchart TD
     classDef err fill:#fde2e2,stroke:#c0392b,color:#7b241c
 ```
 
-Bu akışın doğrulama/yeniden deneme kısmı [`backend/src/mindex/domain/decision.py`](../backend/src/mindex/domain/decision.py) içinde uygulanmış ve test edilmiştir.
+Bu akışın doğrulama/yeniden deneme kısmı [`backend/src/mindex/domain/decision.py`](../backend/src/mindex/domain/decision.py) içinde uygulanmış ve test edilmiştir. P3'te gözlem, llama.cpp çağrısı (düşünme kapalı, JSON şeması), zaman aşımı ve pozisyonu koruma dalları [`backend/src/mindex/agents/llm.py`](../backend/src/mindex/agents/llm.py) içinde eklendi; rejim, hafıza, forum ve önbellek adımları P4–P6'dadır.
 
 ## Akış 3 — Canlı paper-trading veri akışı (F4, F5, NF1)
 

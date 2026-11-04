@@ -1,0 +1,21 @@
+{
+  "model": "qwen3.5-9b-q4_k_m",
+  "calls": 30,
+  "invalid_json": 0,
+  "latency": {
+    "n": 30,
+    "p50_s": 4.484541199999512,
+    "p95_s": 5.255903100001888,
+    "max_s": 5.5511464000010164
+  },
+  "budget": {
+    "days": 183,
+    "llm_agents": 4,
+    "conditions": 5,
+    "seeds": 5,
+    "llm_calls": 18300,
+    "hours_at_p50": 22.8,
+    "hours_at_p95": 26.7,
+    "max_seconds_per_call_for_50h": 9.84
+  }
+}

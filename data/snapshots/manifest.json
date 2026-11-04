@@ -1,0 +1,37 @@
+{
+  "created_at": "2026-11-03T17:44:22+00:00",
+  "source": "binance spot 1d + binanceusdm funding + alternative.me",
+  "assets": [
+    "BNB",
+    "BTC",
+    "ETH",
+    "SOL",
+    "XRP"
+  ],
+  "files": {
+    "train": {
+      "rows": 9280,
+      "start": "2020-09-01",
+      "end": "2025-09-30",
+      "sha256": "1713e703da67c1065027ba0358f89e92b9c6b40c4a78c7a3f99bf56b48030989"
+    },
+    "validation": {
+      "rows": 910,
+      "start": "2025-10-01",
+      "end": "2026-03-31",
+      "sha256": "dbd8580ffa3807af5f0dc5cb3a7fd092d9ea6264a88d1dbdb2426e7d4c46b466"
+    },
+    "test": {
+      "rows": 915,
+      "start": "2026-04-01",
+      "end": "2026-09-30",
+      "sha256": "879a02b519abca930576245cb85df1cc31fe7368eab2e32509467d88f72115da"
+    }
+  },
+  "quality": {
+    "rows": 11105,
+    "missing_days": {},
+    "missing_fear_greed": 5,
+    "missing_funding": 12
+  }
+}

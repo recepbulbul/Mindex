@@ -10,10 +10,15 @@ authors = [
 ]
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "ccxt>=4.5.91",
+    "polars>=2.1.0",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
     "structlog>=24.4",
 ]
+
+[project.scripts]
+mindex = "mindex.cli:main"
 
 [dependency-groups]
 dev = [
@@ -22,6 +27,12 @@ dev = [
     "pytest>=8.3",
     "pytest-cov>=6.0",
     "ruff>=0.8",
+]
+eda = [
+    "duckdb>=2.0.0",
+    "ipykernel>=7.4.0",
+    "matplotlib>=3.11.2",
+    "nbconvert>=7.17.2",
 ]
 
 [build-system]

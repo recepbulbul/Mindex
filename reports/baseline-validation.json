@@ -1,0 +1,71 @@
+{
+  "split": "validation",
+  "period": [
+    "2025-10-01",
+    "2026-03-31"
+  ],
+  "agents": [
+    {
+      "agent_id": "buy-hold-btc",
+      "kind": "rule",
+      "total_return": -0.4250838703225257,
+      "sharpe": -1.952042468322293,
+      "max_drawdown": 0.4953425573570811,
+      "trades": 1,
+      "fees": 9.990009990009991,
+      "holds": 180,
+      "decisions": 181
+    },
+    {
+      "agent_id": "equal-weight",
+      "kind": "rule",
+      "total_return": -0.5055613839215811,
+      "sharpe": -1.9375451321521222,
+      "max_drawdown": 0.5750706417189728,
+      "trades": 33,
+      "fees": 11.701966397701367,
+      "holds": 174,
+      "decisions": 181
+    },
+    {
+      "agent_id": "ma-cross",
+      "kind": "rule",
+      "total_return": -0.21798146398031004,
+      "sharpe": -1.8798621560443944,
+      "max_drawdown": 0.26266081472674574,
+      "trades": 61,
+      "fees": 62.095116438015005,
+      "holds": 158,
+      "decisions": 181
+    },
+    {
+      "agent_id": "llm-momentum",
+      "kind": "llm",
+      "total_return": -0.4286279253493658,
+      "sharpe": -2.5970942999109288,
+      "max_drawdown": 0.48117555221755126,
+      "trades": 557,
+      "fees": 512.419634136131,
+      "holds": 0,
+      "decisions": 181
+    }
+  ],
+  "herd_correlation": 0.2592126917529401,
+  "targets": [
+    {
+      "target": "C3 LLM ortalama Sharpe'ı C0'a göre ≥ %15 yüksek",
+      "measured": "Hafıza ve forum P5-P6'da; bu koşu yalnızca C0 baseline",
+      "status": "ölçülmedi"
+    },
+    {
+      "target": "En iyi LLM ajanının MDD'si BTC al-ve-tut'tan ≥ %30 düşük",
+      "measured": "llm-momentum: MDD %48.1 vs %49.5 → %2.9 düşük",
+      "status": "karşılanmadı"
+    },
+    {
+      "target": "Karar çağrısı p95 < 10 sn",
+      "measured": "p95 5.26 sn (n = 30)",
+      "status": "karşılandı"
+    }
+  ]
+}
