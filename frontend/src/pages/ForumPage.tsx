@@ -15,6 +15,7 @@ import { RegimeBadge } from '@/components/common'
 import { AgentAvatar } from '@/components/identity'
 import { segmentClass, segmentedClass } from '@/components/ui/button-variants'
 import { REGIME_LABEL } from '@/lib/labels'
+import { useSearchParam } from '@/lib/search-param'
 import { rovingKeyDown } from '@/lib/roving'
 import {
   Badge,
@@ -29,11 +30,11 @@ import {
 import { agentColor } from '@/lib/identity'
 import { cn, formatDate, formatNum, formatPct } from '@/lib/utils'
 
-type Tab = 'forum' | 'memory'
+const TABS = ['forum', 'memory'] as const
 
 export default function ForumPage() {
   const { id = '' } = useParams()
-  const [tab, setTab] = useState<Tab>('forum')
+  const [tab, setTab] = useSearchParam('view', TABS, 'forum')
 
   return (
     <>

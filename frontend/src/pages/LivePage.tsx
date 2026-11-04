@@ -27,6 +27,7 @@ import {
   Skeleton,
 } from '@/components/ui/primitives'
 import { rovingKeyDown } from '@/lib/roving'
+import { useSearchParam } from '@/lib/search-param'
 import {
   cn,
   formatDate,
@@ -40,7 +41,6 @@ import {
 const SPEEDS = [1, 5, 20] as const
 const BASE_TICK_MS = 600
 const ROW = 46 // leaderboard row height in px; rows slide by this much when ranks change
-const SPARK_DAYS = 30
 
 export default function LivePage() {
   const { id = '' } = useParams()
@@ -48,7 +48,9 @@ export default function LivePage() {
   const isDraft = experiment.data?.status === 'draft'
   const timeline = useTimeline(id, experiment.isSuccess && !isDraft)
 
-  const [asset, setAsset] = useState<Asset>('BTC')
+  // Only the experiment's own assets are valid; the first one is the default.
+  const assets = experiment.data?.assets ?? []
+  const [asset, setAsset] = useSearchParam<Asset>('asset', assets, assets[0] ?? 'BTC')
   const [agentFilter, setAgentFilter] = useState('llm-momentum')
   const [cursor, setCursor] = useState<number | null>(null)
   const [playing, setPlaying] = useState(false)
@@ -58,17 +60,17 @@ export default function LivePage() {
   // Live experiments open at the latest tick; replays open at day 30 so there is history to see.
   const at = cursor ?? (experiment.data?.mode === 'live' ? lastIndex : Math.min(30, lastIndex))
 
+  // Playback stops by itself at the last day; the interval lives as long as playback does,
+  // not one tick (it used to be recreated on every step because it depended on `at`).
+  const isPlaying = playing && at < lastIndex
   useEffect(() => {
-    if (!playing) return
-    const timer = setInterval(() => {
-      setCursor((c) => {
-        const next = (c ?? at) + 1
-        if (next >= lastIndex) setPlaying(false)
-        return Math.min(next, lastIndex)
-      })
-    }, BASE_TICK_MS / speed)
+    if (!isPlaying) return
+    const timer = setInterval(
+      () => setCursor((c) => Math.min((c ?? 0) + 1, lastIndex)),
+      BASE_TICK_MS / speed,
+    )
     return () => clearInterval(timer)
-  }, [playing, speed, lastIndex, at])
+  }, [isPlaying, speed, lastIndex])
 
   const view = useMemo(() => {
     const t = timeline.data
@@ -89,9 +91,9 @@ export default function LivePage() {
     })
     const ranked = [...runs].sort((a, b) => b.equity - a.equity)
     const tickers = (Object.keys(t.candles) as Asset[]).map((a) => {
-      const closes = t.candles[a].slice(Math.max(0, at - SPARK_DAYS), at + 1).map((c) => c.close)
-      const last = closes.at(-1)!
-      return { asset: a, price: last, change: last / (closes.at(-2) ?? last) - 1, closes }
+      const last = t.candles[a][at]!.close
+      const prev = t.candles[a][at - 1]?.close ?? last
+      return { asset: a, price: last, change: last / prev - 1 }
     })
     return {
       day,
@@ -232,12 +234,16 @@ export default function LivePage() {
               <div className="flex items-center gap-1">
                 <Button
                   size="icon"
-                  aria-label={playing ? 'Duraklat' : 'Oynat'}
-                  onClick={() => setPlaying((p) => !p)}
+                  aria-label={isPlaying ? 'Duraklat' : 'Oynat'}
+                  onClick={() => {
+                    // Playback continues from the day on screen.
+                    setCursor(at)
+                    setPlaying(!isPlaying)
+                  }}
                   disabled={at >= lastIndex}
                   className="size-10 rounded-full"
                 >
-                  {playing ? <Pause /> : <Play />}
+                  {isPlaying ? <Pause /> : <Play />}
                 </Button>
                 <Button
                   size="icon"

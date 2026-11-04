@@ -30,7 +30,7 @@ export const segmentedClass =
 /** One option of a segmented control. */
 export const segmentClass = (active: boolean) =>
   cn(
-    'rounded-lg px-2.5 py-1 text-xs font-medium transition-all',
+    'rounded-lg px-2.5 py-1 text-xs font-medium transition-[color,background-color,box-shadow]',
     active
       ? 'bg-white/[0.1] text-foreground shadow-[inset_0_1px_0_oklch(1_0_0/0.12),0_1px_3px_oklch(0_0_0/0.4)]'
       : 'text-muted-foreground hover:text-foreground',
