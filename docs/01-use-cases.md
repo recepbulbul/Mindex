@@ -66,7 +66,7 @@ Son sütundaki isterler [belge dizinindeki](README.md#isterler) GitHub issue'lar
 | ID | Ad | Aktör | Ön koşul | Ana akış | Alternatif / hata akışı | İster |
 |---|---|---|---|---|---|---|
 | UC1 | Kayıt / giriş | Araştırmacı, İzleyici | — | E-posta + parola → JWT | Hatalı parola → 401, 5 denemede hız sınırı (429) | F1, NF3 |
-| UC2 | Deney oluştur | Araştırmacı | Giriş yapılmış, rol `researcher` | Varlık, dönem, ajan seti, koşul (C0–C3), seed, komisyon seç → kaydet | Test dönemi doğrulama penceresiyle çakışırsa uyarı; geçersiz form → alan hatası | F2 |
+| UC2 | Deney oluştur | Araştırmacı | Giriş yapılmış, rol `researcher` | Varlık, dönem, ajan seti, koşul (C0–C3), seed, komisyon seç → kaydet | Seçilen dönem mühürlü test penceresiyle çakışırsa uyarı; geçersiz form → alan hatası | F2 |
 | UC3 | Deneyi başlat / duraklat | Araştırmacı | Deney `draft` veya `paused` | Kuyruğa (Redis Streams) yazılır → işçi simülasyonu yürütür | İşçi çökerse checkpoint'ten devam | F3, F4, NF2 |
 | UC4 | YAML dışa aktar | Araştırmacı | Deney mevcut | Yapılandırma YAML olarak indirilir | — | F2, NF5 |
 | UC5 | Canlı ekranı izle | Herkes | Deney `running` | Mum grafiği, işlem işaretleri, lider tablosu WebSocket ile akar | Bağlantı kopar → istemci otomatik yeniden bağlanır | F5, NF1 |

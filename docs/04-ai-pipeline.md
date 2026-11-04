@@ -34,7 +34,7 @@ flowchart LR
         forum --> llm[Qwen3.5-9B Q4<br/>JSON şeması, düşünme kapalı]
         llm --> val{Pydantic<br/>doğrulama}
         val -- ok --> dec[Hedef ağırlıklar]
-        val -- 2 başarısız --> hold[Pozisyonu koru]
+        val -- 1 + 2 deneme başarısız --> hold[Pozisyonu koru]
     end
 
     subgraph learn[4 · Öğrenme]
@@ -65,7 +65,7 @@ flowchart LR
 
 1. **Veri:** Binance'ten 5 varlığın günlük fiyatları (OHLCV), Fear & Greed endeksi ve funding rate çekilip Parquet dosyalarına yazılır, sonra zamana göre eğitim / doğrulama / test olarak üçe bölünür. 🔒 işareti test verisinin mühürlü olduğunu, yalnızca nihai değerlendirmede açıldığını gösterir.
 2. **Eğitilen modeller:** Eğitim verisiyle piyasa rejimini bulan HMM (gizli Markov modeli, `hmmlearn`) ve pekiştirmeli öğrenme ajanı PPO (Stable-Baselines3 = SB3, Gymnasium ortamında) eğitilir; doğrulama verisiyle prompt ve parametreler ayarlanır.
-3. **LLM karar döngüsü:** Her gün ajan gözlem yapar, rejim etiketini alır, hafızasından ilgili dersleri çağırır (anlam benzerliği + BM25 anahtar kelime araması), forumu okur ve LLM'den hedef portföy ağırlıklarını ister. Doğrulama iki kez başarısız olursa pozisyon korunur ([Akış 2](03-flows.md#akış-2--llm-ajan-karar-döngüsü-nf2-nf3)).
+3. **LLM karar döngüsü:** Her gün ajan gözlem yapar, rejim etiketini alır, hafızasından ilgili dersleri çağırır (anlam benzerliği + BM25 anahtar kelime araması), forumu okur ve LLM'den hedef portföy ağırlıklarını ister. İlk deneme ve 2 yeniden deneme (toplam 3) geçerli karar üretmezse pozisyon korunur ([Akış 2](03-flows.md#akış-2--llm-ajan-karar-döngüsü-nf2-nf3)).
 4. **Öğrenme:** Karar simülatörde ertesi gün komisyon ve kayma ile yürütülür. Pozisyon kapanınca karşı-olgusal kâr/zarar (PnL) tablosu hesaplanır, LLM bundan bir ders yazar. Dersteki sayısal iddialar tabloyla çelişiyorsa ders reddedilir; tutarlıysa vektöre çevrilip (Qwen3-Embedding) rejim etiketiyle hafızaya (pgvector) yazılır. Aynı zamanda forumdaki tavsiyelerin tutup tutmadığı sayılır (`a` / `b`) ve güven skorları güncellenir.
 5. **Değerlendirme:** Test döneminde her koşul (C0–C3) 5 farklı seed ile koşulur; Sharpe, MDD (maksimum düşüş), getiri, sürü korelasyonu ve ders tutarlılık oranı hesaplanır. Koşullar arası farkların tesadüf olup olmadığı blok bootstrap ile %95 güven aralığında (GA) sınanır.
 

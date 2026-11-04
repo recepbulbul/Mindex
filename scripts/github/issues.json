@@ -26,7 +26,7 @@
       "title": "F1 Kimlik doğrulama: JWT, araştırmacı/izleyici rolleri",
       "labels": ["requirement", "functional", "backend", "security"],
       "milestone": "P4 - Hafta 4: Backend iskeleti",
-      "body": "Kayıt/giriş JWT ile yapılır. `researcher` deney kurar, `viewer` yalnızca izler.\n\n**Kabul kriterleri**\n- [ ] `POST /auth/register`, `POST /auth/login` JWT döner\n- [ ] Parolalar Argon2id ile özetlenir\n- [ ] `viewer` rolü deney oluşturma uçlarında 403 alır\n- [ ] Prototipte giriş ekranı ve rol yönlendirmesi (P2)"
+      "body": "Kayıt/giriş JWT ile yapılır. `researcher` deney kurar, `viewer` yalnızca izler.\n\n**Kabul kriterleri**\n- [ ] `POST /auth/register`, `POST /auth/login` JWT döner\n- [ ] Parolalar Argon2id ile özetlenir\n- [ ] `viewer` rolü deney oluşturma uçlarında 403 alır\n- [x] Prototipte giriş ekranı ve rol yönlendirmesi (P2)"
     },
     {
       "title": "F2 Deney yönetimi: oluşturma ve YAML dışa aktarımı",
@@ -38,7 +38,7 @@
       "title": "F3 Replay simülasyonu: hız ayarı, duraklat/devam, deterministik seed",
       "labels": ["requirement", "functional", "backend", "ai"],
       "milestone": "P3 - Hafta 3: Veri hattı ve baseline",
-      "body": "**Kabul kriterleri**\n- [ ] 1×–50× hız ayarı, duraklatma/devam\n- [ ] Aynı seed + aynı LLM önbelleği ile birebir aynı sonuç (regresyon testi)\n- [ ] t kapanışında karar, t+1 açılışında %0,1 komisyon + 5 bp kayma"
+      "body": "**Kabul kriterleri**\n- [ ] 1×–50× hız ayarı, duraklatma/devam\n- [ ] Aynı seed + aynı LLM önbelleği ile birebir aynı sonuç (regresyon testi)\n- [x] t kapanışında karar, t+1 açılışında %0,1 komisyon + 5 bp kayma"
     },
     {
       "title": "F4 Canlı paper-trading: Binance WebSocket, otomatik yeniden bağlanma",
@@ -68,13 +68,13 @@
       "title": "F8 Raporlama: Sharpe, MDD, getiri, sürü korelasyonu, CSV/PDF",
       "labels": ["requirement", "functional", "frontend", "backend"],
       "milestone": "P2 - Hafta 2: Prototip ve veri modeli",
-      "body": "**Kabul kriterleri**\n- [ ] Metrikler `mindex.domain.metrics` ile hesaplanır (birim testli)\n- [ ] Koşul (C0–C3) karşılaştırma grafikleri\n- [ ] CSV ve PDF dışa aktarım"
+      "body": "**Kabul kriterleri**\n- [x] Metrikler `mindex.domain.metrics` ile hesaplanır (birim testli)\n- [ ] Koşul (C0–C3) karşılaştırma grafikleri\n- [ ] CSV ve PDF dışa aktarım"
     },
     {
       "title": "F9 Ajan eklenti arayüzü (BaseAgent) ve MCP sunucusu",
       "labels": ["requirement", "functional", "backend", "ai"],
       "milestone": "P7 - Hafta 7: MVP",
-      "body": "**Kabul kriterleri**\n- [ ] Yerel ajanlar `BaseAgent` alt sınıfıyla eklenir\n- [ ] MCP araçları: `get_market_data`, `get_portfolio`, `place_order`\n- [ ] Araçlar yalnızca çağıran ajanın portföyüne yetkili"
+      "body": "**Kabul kriterleri**\n- [x] Yerel ajanlar `BaseAgent` alt sınıfıyla eklenir\n- [ ] MCP araçları: `get_market_data`, `get_portfolio`, `place_order`\n- [ ] Araçlar yalnızca çağıran ajanın portföyüne yetkili"
     },
     {
       "title": "NF1 Performans: karar p95 < 10 sn, tick→ekran p95 < 500 ms, 50 izleyici",
@@ -86,7 +86,7 @@
       "title": "NF2 Güvenilirlik: şema doğrulama, yeniden deneme, güvenli varsayılan, checkpoint",
       "labels": ["requirement", "non-functional", "backend", "ai"],
       "milestone": "P6 - Hafta 6: Forum, LLM entegrasyonu, C0-C3",
-      "body": "**Kabul kriterleri**\n- [x] Karar JSON sözleşmesi + 2 yeniden deneme + pozisyonu koru (`mindex.domain.decision`, P1)\n- [ ] Simülasyon checkpoint'ten sürdürülebilir\n- [ ] Bozuk JSON, veri boşluğu, aşırı volatilite uç durum testleri"
+      "body": "**Kabul kriterleri**\n- [x] Karar JSON sözleşmesi + 2 yeniden deneme + pozisyonu koru (`mindex.domain.decision`, P1)\n- [x] Simülasyon checkpoint'ten sürdürülebilir\n- [ ] Bozuk JSON, veri boşluğu, aşırı volatilite uç durum testleri"
     },
     {
       "title": "NF3 Güvenlik: Argon2id, .env, hız sınırlama, OWASP LLM01, MCP yetkisi",
