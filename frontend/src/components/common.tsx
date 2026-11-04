@@ -73,18 +73,18 @@ export function PageTitle({
   actions?: React.ReactNode
 }) {
   return (
-    <div className="mb-8 flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
+    <div className="mb-6 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
       <div className="min-w-0">
         {eyebrow && (
-          <div className="mb-3 inline-flex items-center gap-2 rounded-full border bg-white/[0.04] px-2.5 py-1 text-[11px] font-medium text-primary [&_a]:text-muted-foreground [&_a:hover]:text-foreground [&_svg]:size-3.5">
+          <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground [&_a:hover]:text-foreground [&_svg]:size-3.5">
             {eyebrow}
           </div>
         )}
-        <h1 className="text-headline pb-1 text-[2.5rem] leading-[1.05] font-semibold tracking-[-0.04em] text-balance sm:text-[3.25rem]">
+        <h1 className="text-silver text-[1.75rem] leading-tight font-semibold tracking-[-0.025em] text-balance sm:text-[2rem]">
           {title}
         </h1>
         {subtitle && (
-          <p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-pretty text-muted-foreground">
+          <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-pretty text-muted-foreground">
             {subtitle}
           </p>
         )}

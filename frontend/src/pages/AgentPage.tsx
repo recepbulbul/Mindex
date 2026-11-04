@@ -70,7 +70,6 @@ export default function AgentPage() {
   if (!detail.data) return <Skeleton className="h-[480px]" />
 
   const { agent, decisions, trustGiven, trustReceived } = detail.data
-  const tint = agentColor(agent.id)
   const rank = report.data
     ? [...report.data.agents]
         .sort((a, b) => b.sharpe - a.sharpe)
@@ -84,14 +83,10 @@ export default function AgentPage() {
 
   return (
     <>
-      <section
-        className="relative mb-6 overflow-hidden rounded-3xl border glass p-6 sm:p-8"
-        // The agent's own colour tints the panel from the top-left corner.
-        style={{ backgroundImage: `radial-gradient(70% 90% at 0% 0%, ${tint}2e, transparent 60%)` }}
-      >
+      <section className="relative mb-10 border-b pb-10">
         <Link
           to={`/experiments/${id}/live`}
-          className="inline-flex items-center gap-1.5 rounded-full border bg-white/[0.04] px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
         >
           <ArrowLeft className="size-3.5" /> Canlı ekrana dön
         </Link>
@@ -109,9 +104,9 @@ export default function AgentPage() {
                     </span>
                   )}
                 </div>
-                <h1 className="mt-1.5 text-headline pb-1 text-4xl leading-none font-semibold tracking-[-0.04em] sm:text-5xl">
+                <h2 className="mt-1.5 text-silver pb-1 text-3xl leading-none font-semibold tracking-[-0.03em] sm:text-4xl">
                   {agent.name}
-                </h1>
+                </h2>
               </div>
             </div>
             <p className="mt-3 max-w-md text-[15px] leading-relaxed text-muted-foreground">
@@ -133,7 +128,7 @@ export default function AgentPage() {
             )}
           </div>
 
-          <div className="min-w-0 rounded-2xl border bg-black/25 p-4">
+          <div className="stage min-w-0">
             <p className="mb-2 text-sm font-medium">Portföy geçmişi</p>
             <MultiLineChart lines={lines} height={260} label={`${agent.name} portföy değeri`} />
           </div>
@@ -300,7 +295,7 @@ function DecisionRow({
             expanded && 'rotate-90 text-primary',
           )}
         />
-        <span className="w-22 shrink-0 pt-px num text-xs text-muted-foreground">
+        <span className="w-22 shrink-0 pt-px text-xs num text-muted-foreground">
           {formatDate(d.day)}
         </span>
         <span className="flex-1 text-sm leading-relaxed">{d.rationale}</span>
@@ -321,7 +316,7 @@ function DecisionRow({
         <div className="grid gap-4 px-4 pt-1 pb-4 text-xs sm:grid-cols-2 sm:pl-[8.5rem]">
           <div>
             <p className="mb-1.5 eyebrow">Karar (JSON)</p>
-            <pre className="overflow-x-auto rounded-lg border bg-black/30 p-3 num text-[11px] leading-relaxed text-foreground/90">
+            <pre className="overflow-x-auto rounded-lg border bg-black/30 p-3 text-[11px] leading-relaxed num text-foreground/90">
               {JSON.stringify(
                 {
                   allocations: weights.map(([asset, weight]) => ({ asset, weight })),

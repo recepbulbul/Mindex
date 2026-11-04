@@ -1,15 +1,4 @@
-import {
-  Activity,
-  ArrowRight,
-  BarChart3,
-  CalendarRange,
-  Download,
-  FlaskConical,
-  Play,
-  Plus,
-  Sparkles,
-  Users,
-} from 'lucide-react'
+import { Download, FlaskConical, Play, Plus } from 'lucide-react'
 import { lazy, Suspense, useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import { api } from '@/api/client'
@@ -23,10 +12,10 @@ import {
 import { CONDITION_LABELS, type Condition, type Experiment } from '@/api/types'
 import { useAuth } from '@/auth/AuthContext'
 import { PageTitle, StatusBadge } from '@/components/common'
-import { AgentAvatar, AssetOrb } from '@/components/identity'
+import { AssetOrb } from '@/components/identity'
 import { Button } from '@/components/ui/button'
 import { buttonVariants, segmentClass, segmentedClass } from '@/components/ui/button-variants'
-import { Card, EmptyState, ErrorState, Skeleton, Stat } from '@/components/ui/primitives'
+import { Card, EmptyState, ErrorState, Skeleton } from '@/components/ui/primitives'
 import { downloadFile } from '@/lib/download'
 import { rovingKeyDown } from '@/lib/roving'
 import { agentColor } from '@/lib/identity'
@@ -42,7 +31,7 @@ function ConditionChip({ condition, full }: { condition: Condition; full?: boole
   const [code, text] = CONDITION_LABELS[condition].split(' · ')
   return (
     <span className="inline-flex items-center gap-2" title={CONDITION_LABELS[condition]}>
-      <span className="rounded-md bg-primary/12 px-1.5 py-0.5 num text-[11px] font-medium text-primary ring-1 ring-primary/25 ring-inset">
+      <span className="rounded-md bg-primary/12 px-1.5 py-0.5 text-[11px] font-medium num text-primary ring-1 ring-primary/25 ring-inset">
         {code}
       </span>
       {full && <span className="text-xs text-muted-foreground">{text}</span>}
@@ -78,11 +67,6 @@ export function ExperimentsPage() {
   return (
     <>
       <PageTitle
-        eyebrow={
-          <>
-            <FlaskConical /> Çalışma alanı
-          </>
-        }
         title="Deneyler"
         subtitle="Replay ve canlı paper-trading deneyleri. Bir deneyi açarak ajanların yarışını canlı izleyin."
         actions={
@@ -113,7 +97,7 @@ export function ExperimentsPage() {
         <>
           {featured && <FeaturedExperiment experiment={featured} />}
 
-          <div className="mt-10 mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="mt-20 mb-6 flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-3xl font-semibold tracking-[-0.04em]">Tüm deneyler</h2>
             <div
               role="tablist"
@@ -135,7 +119,7 @@ export function ExperimentsPage() {
                     className={cn(segmentClass(filter === key), 'flex items-center gap-1.5')}
                   >
                     {label}
-                    <span className="rounded-full bg-white/[0.08] px-1.5 num text-[10px] text-muted-foreground">
+                    <span className="rounded-full bg-white/[0.08] px-1.5 text-[10px] num text-muted-foreground">
                       {n}
                     </span>
                   </button>
@@ -144,12 +128,12 @@ export function ExperimentsPage() {
             </div>
           </div>
 
-          <ul className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <ul className="rounded-2xl px-2 band">
             {data
               .filter((e) => matches(filter, e))
-              .map((e, i) => (
-                <li key={e.id} className="animate-rise" style={{ animationDelay: `${i * 50}ms` }}>
-                  <ExperimentCard
+              .map((e) => (
+                <li key={e.id} className="border-b">
+                  <ExperimentRow
                     e={e}
                     isResearcher={isResearcher}
                     starting={start.isPending}
@@ -165,7 +149,8 @@ export function ExperimentsPage() {
   )
 }
 
-function ExperimentCard({
+/** One experiment as an open row: big name, quiet facts, actions on hover. No box. */
+function ExperimentRow({
   e,
   isResearcher,
   starting,
@@ -180,65 +165,45 @@ function ExperimentCard({
 }) {
   const isDraft = e.status === 'draft'
   return (
-    <Card
-      className={cn(
-        'group flex h-full flex-col transition-transform duration-300 hover:-translate-y-0.5',
-        isDraft && 'border-dashed',
-      )}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <ConditionChip condition={e.condition} full />
-        <StatusBadge status={e.status} />
+    <div className="group relative grid items-center gap-x-8 gap-y-3 py-6 transition-colors hover:bg-white/[0.025] md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_auto] md:px-3">
+      <div className="min-w-0">
+        <h3 className="text-xl font-semibold tracking-[-0.02em]">
+          {isDraft ? (
+            e.name
+          ) : (
+            // Stretched link: the whole row opens the live screen.
+            <Link
+              to={`/experiments/${e.id}/live`}
+              className="after:absolute after:inset-0 focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-ring"
+            >
+              {e.name}
+            </Link>
+          )}
+        </h3>
+        <p className="mt-1.5 flex flex-wrap items-center gap-x-3 text-sm text-muted-foreground">
+          <ConditionChip condition={e.condition} full />
+          <span>{e.mode === 'live' ? 'Canlı' : 'Replay'}</span>
+          <span>
+            {formatDate(e.startDate)} – {e.endDate ? formatDate(e.endDate) : 'devam ediyor'}
+          </span>
+        </p>
       </div>
 
-      <h3 className="mt-4 text-[17px] leading-snug font-semibold tracking-tight">
-        {isDraft ? (
-          e.name
-        ) : (
-          // Stretched link: the whole card opens the live screen.
-          <Link
-            to={`/experiments/${e.id}/live`}
-            className="after:absolute after:inset-0 after:rounded-2xl focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-ring"
-          >
-            {e.name}
-          </Link>
-        )}
-      </h3>
-
-      <div className="mt-3 flex items-center gap-3">
+      <div className="flex items-center gap-3">
         <div className="flex -space-x-1.5">
           {e.assets.map((a) => (
             <AssetOrb key={a} asset={a} />
           ))}
         </div>
-        <span className="text-xs text-muted-foreground">{e.assets.join(' · ')}</span>
+        <span className="text-sm num text-muted-foreground">
+          {e.agentIds.length} ajan, seed {e.seed}
+        </span>
       </div>
 
-      <dl className="mt-5 grid grid-cols-3 gap-3 border-t pt-4 text-xs">
-        <div className="col-span-2">
-          <dt className="flex items-center gap-1 text-muted-foreground">
-            <CalendarRange className="size-3" /> Dönem
-          </dt>
-          <dd className="mt-1 font-medium">
-            {formatDate(e.startDate)} – {e.endDate ? formatDate(e.endDate) : 'devam ediyor'}
-          </dd>
-          <dd className="text-[11px] text-muted-foreground">
-            {e.mode === 'live' ? 'Canlı (paper)' : 'Replay'}
-          </dd>
-        </div>
-        <div>
-          <dt className="flex items-center gap-1 text-muted-foreground">
-            <Users className="size-3" /> Ajan · seed
-          </dt>
-          <dd className="mt-1 num font-medium">
-            {e.agentIds.length} · {e.seed}
-          </dd>
-        </div>
-      </dl>
-
-      <div className="relative z-10 mt-auto flex items-center justify-end gap-1 pt-4">
+      <div className="relative z-10 flex items-center justify-end gap-2">
+        <StatusBadge status={e.status} />
         {isResearcher && isDraft && (
-          <Button size="sm" disabled={starting} onClick={onStart} className="mr-auto">
+          <Button size="sm" disabled={starting} onClick={onStart}>
             <Play /> Başlat
           </Button>
         )}
@@ -247,7 +212,7 @@ function ExperimentCard({
             to={`/experiments/${e.id}/report`}
             className={buttonVariants({ variant: 'ghost', size: 'sm' })}
           >
-            <BarChart3 /> Rapor
+            Rapor
           </Link>
         )}
         <Button
@@ -260,7 +225,7 @@ function ExperimentCard({
           <Download />
         </Button>
       </div>
-    </Card>
+    </div>
   )
 }
 
@@ -299,91 +264,82 @@ function FeaturedExperiment({ experiment }: { experiment: Experiment }) {
   return (
     <section
       aria-labelledby="featured-title"
-      className="relative overflow-hidden rounded-3xl border glass p-6 sm:p-8"
+      className="grid gap-10 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] xl:gap-14"
     >
-      <div className="relative grid gap-8 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-        <div className="flex flex-col">
-          <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary">
-            <Sparkles className="size-3.5" /> Öne çıkan sonuç
-          </span>
-          <h2
-            id="featured-title"
-            className="mt-4 text-headline text-3xl leading-tight font-semibold tracking-[-0.04em] sm:text-[2.5rem]"
-          >
-            {experiment.name}
-          </h2>
-          <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-            <ConditionChip condition={experiment.condition} full />
-            <span>
-              {formatDate(experiment.startDate)} –{' '}
-              {experiment.endDate ? formatDate(experiment.endDate) : 'devam ediyor'}
-            </span>
-          </div>
+      <div className="flex flex-col">
+        <p className="text-sm text-muted-foreground">
+          <ConditionChip condition={experiment.condition} full /> ·{' '}
+          {formatDate(experiment.startDate)} –{' '}
+          {experiment.endDate ? formatDate(experiment.endDate) : 'devam ediyor'}
+        </p>
+        <h2
+          id="featured-title"
+          className="mt-3 text-4xl leading-[1.05] font-semibold tracking-[-0.045em] text-balance sm:text-5xl"
+        >
+          {experiment.name}
+        </h2>
 
-          {summary?.best ? (
-            <div className="mt-7 grid grid-cols-3 gap-4">
-              <div className="col-span-3 flex items-center gap-3 sm:col-span-1 sm:flex-col sm:items-start">
-                <AgentAvatar
-                  id={summary.best.agentId}
-                  name={nameOf(summary.best.agentId)}
-                  className="size-11 text-sm"
-                  glow
-                />
-                <div>
-                  <p className="eyebrow">En iyi LLM ajanı</p>
-                  <p className="mt-0.5 text-sm font-semibold">
-                    {nameOf(summary.best.agentId).replace('LLM · ', '')}
-                  </p>
-                </div>
-              </div>
-              <Stat
-                size="lg"
-                label="Sharpe · BTC"
-                value={formatNum(summary.best.sharpe)}
-                hint={`al-tut ${formatNum(summary.r.benchmark.sharpe)}`}
-              />
-              <Stat
-                size="lg"
-                label="MDD azalması"
-                value={summary.mddCut === null ? '—' : formatPct(summary.mddCut)}
-                hint="hedef ≥ %30"
-                tone={summary.mddCut !== null && summary.mddCut >= 0.3 ? 'up' : undefined}
-              />
+        {summary?.best ? (
+          <dl className="mt-10 grid grid-cols-2 divide-x border-y">
+            <div className="py-5 pr-6">
+              <dt className="eyebrow">Sharpe oranı</dt>
+              <dd className="mt-2 text-silver text-4xl font-medium num">
+                {formatNum(summary.best.sharpe)}
+              </dd>
+              <dd className="mt-1 text-xs text-muted-foreground">
+                {nameOf(summary.best.agentId).replace('LLM · ', '')}, al-tut{' '}
+                {formatNum(summary.r.benchmark.sharpe)}
+              </dd>
             </div>
-          ) : (
-            <Skeleton className="mt-7 h-20" />
-          )}
+            <div className="py-5 pl-6">
+              <dt className="eyebrow">MDD azalması</dt>
+              <dd
+                className={cn(
+                  'mt-2 text-4xl font-medium num',
+                  summary.mddCut !== null && summary.mddCut >= 0.3 && 'text-up',
+                )}
+              >
+                {summary.mddCut === null ? '—' : formatPct(summary.mddCut)}
+              </dd>
+              <dd className="mt-1 text-xs text-muted-foreground">hedef ≥ %30</dd>
+            </div>
+          </dl>
+        ) : (
+          <Skeleton className="mt-10 h-28" />
+        )}
 
-          <div className="mt-auto flex flex-wrap gap-2 pt-7">
-            <Link to={`/experiments/${experiment.id}/live`} className={buttonVariants()}>
-              <Activity /> Canlı yarışı izle <ArrowRight />
-            </Link>
-            <Link
-              to={`/experiments/${experiment.id}/report`}
-              className={buttonVariants({ variant: 'outline' })}
-            >
-              <BarChart3 /> Raporu aç
-            </Link>
-          </div>
+        <div className="mt-8 flex flex-wrap gap-3 xl:mt-auto xl:pt-8">
+          <Link
+            to={`/experiments/${experiment.id}/live`}
+            className={cn(buttonVariants(), 'h-11 px-5')}
+          >
+            Canlı yarışı izle
+          </Link>
+          <Link
+            to={`/experiments/${experiment.id}/report`}
+            className={cn(buttonVariants({ variant: 'outline' }), 'h-11 px-5')}
+          >
+            Raporu aç
+          </Link>
         </div>
+      </div>
 
-        <div className="min-w-0 rounded-2xl border bg-black/20 p-4">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-sm font-medium">Portföy yarışı</p>
-            <p className="text-xs text-muted-foreground">ilk 3 LLM ajanı ve BTC al-tut</p>
-          </div>
-          {lines.length ? (
-            <Suspense fallback={<Skeleton className="h-[280px]" />}>
-              <MultiLineChart
-                lines={lines}
-                height={250}
-                label="Öne çıkan deneyde en iyi ajanların portföy değeri"
-              />
-            </Suspense>
-          ) : (
-            <Skeleton className="h-[280px]" />
-          )}
+      <div className="stage min-w-0">
+        <div className="mb-3 flex items-baseline justify-between">
+          <p className="text-sm font-medium">Portföy yarışı</p>
+          <p className="text-xs text-muted-foreground">ilk 3 LLM ajanı ve BTC al-tut</p>
         </div>
+        {lines.length ? (
+          <Suspense fallback={<Skeleton className="h-[340px]" />}>
+            <MultiLineChart
+              lines={lines}
+              height={340}
+              label="Öne çıkan deneyde en iyi ajanların portföy değeri"
+            />
+          </Suspense>
+        ) : (
+          <Skeleton className="h-[340px]" />
+        )}
       </div>
     </section>
   )

@@ -4,7 +4,6 @@ import { useForm } from 'react-hook-form'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router'
 import { ApiError } from '@/api/client'
 import { useAuth } from '@/auth/AuthContext'
-import { ArenaPreview } from '@/components/arena-preview'
 import { BrandMark } from '@/components/common'
 import { Button } from '@/components/ui/button'
 import { Field, Input } from '@/components/ui/primitives'
@@ -48,7 +47,7 @@ export function LoginPage() {
   }
 
   return (
-    <main className="grid min-h-dvh lg:grid-cols-[minmax(0,1.15fr)_minmax(440px,0.85fr)]">
+    <main className="grid min-h-dvh lg:h-dvh lg:grid-cols-[minmax(0,1.15fr)_minmax(440px,0.85fr)] lg:overflow-hidden">
       <BrandPanel />
 
       <div className="relative flex items-center justify-center px-4 py-10 sm:px-8">
@@ -174,7 +173,6 @@ function BrandPanel() {
           LLM ajanları kalıcı hafıza ve güven ağırlıklı bir forumla aynı piyasada yarışır. Her
           karar, dayandığı ders ve mesajla izlenebilir.
         </p>
-        <ArenaPreview className="mt-10 hidden xl:block" />
       </div>
 
       <p className="text-xs text-muted-foreground">

@@ -3,9 +3,12 @@ import {
   AreaSeries,
   CandlestickSeries,
   ColorType,
+  CrosshairMode,
   createChart,
   createSeriesMarkers,
+  LastPriceAnimationMode,
   LineSeries,
+  LineStyle,
   type DeepPartial,
   type ChartOptions,
   type IChartApi,
@@ -18,12 +21,12 @@ import type { Candle } from '@/api/types'
 
 // lightweight-charts paints on canvas and does not read CSS variables, so colours are literal.
 const CHART_COLORS = {
-  up: '#7fd3b0',
-  down: '#ec7c94',
-  grid: 'rgba(255, 255, 255, 0.05)',
-  text: '#8d96a8',
-  crosshair: 'rgba(143, 178, 255, 0.45)',
-  label: '#1c2233',
+  up: '#5fdcb0',
+  down: '#ff7d93',
+  grid: 'rgba(255, 255, 255, 0.035)',
+  text: '#6f7890',
+  crosshair: 'rgba(255, 255, 255, 0.18)',
+  label: '#1a2133',
 }
 
 // Categorical palette tuned for the dark card surface (distinct hue and lightness steps).
@@ -49,20 +52,27 @@ const baseOptions: DeepPartial<ChartOptions> = {
     locale: 'tr-TR',
     priceFormatter: (p: number) => (Math.abs(p) >= 100 ? priceFormat : smallFormat).format(p),
   },
+  // Modern exchange look: no frame, no vertical grid, faint horizontals, sans axis labels.
+  // The TradingView attribution required by the licence lives in the app footer instead.
   layout: {
     background: { type: ColorType.Solid, color: 'transparent' },
     textColor: CHART_COLORS.text,
-    fontFamily: "'Geist Mono Variable', ui-monospace, monospace",
+    fontFamily: "'Manrope Variable', ui-sans-serif, sans-serif",
     fontSize: 11,
-    attributionLogo: true,
+    attributionLogo: false,
   },
-  grid: { vertLines: { color: CHART_COLORS.grid }, horzLines: { color: CHART_COLORS.grid } },
+  grid: { vertLines: { visible: false }, horzLines: { color: CHART_COLORS.grid } },
   crosshair: {
-    vertLine: { color: CHART_COLORS.crosshair, labelBackgroundColor: CHART_COLORS.label },
-    horzLine: { color: CHART_COLORS.crosshair, labelBackgroundColor: CHART_COLORS.label },
+    mode: CrosshairMode.Magnet,
+    vertLine: { visible: false, labelBackgroundColor: CHART_COLORS.label },
+    horzLine: {
+      color: CHART_COLORS.crosshair,
+      style: LineStyle.Dashed,
+      labelBackgroundColor: CHART_COLORS.label,
+    },
   },
-  rightPriceScale: { borderVisible: false },
-  timeScale: { borderVisible: false },
+  rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.12, bottom: 0.08 } },
+  timeScale: { borderVisible: false, rightOffset: 3 },
 }
 
 export interface TradeMarker {
@@ -79,7 +89,8 @@ export function CandleChart({
 }: {
   candles: Candle[]
   markers: TradeMarker[]
-  height?: number
+  /** Pixels, or any CSS length (the chart sizes itself to its box). */
+  height?: number | string
   label: string
 }) {
   const el = useRef<HTMLDivElement>(null)
@@ -141,7 +152,8 @@ export function MultiLineChart({
   label,
 }: {
   lines: LineData[]
-  height?: number
+  /** Pixels, or any CSS length (the chart sizes itself to its box). */
+  height?: number | string
   label: string
 }) {
   const el = useRef<HTMLDivElement>(null)
@@ -157,6 +169,8 @@ export function MultiLineChart({
         crosshairMarkerRadius: 3,
         priceLineVisible: false,
         lastValueVisible: false,
+        // A slow pulse on the latest point keeps the race feeling live.
+        lastPriceAnimation: LastPriceAnimationMode.Continuous,
       } as const
       return lines.length === 1
         ? c.addSeries(AreaSeries, {

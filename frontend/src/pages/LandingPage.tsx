@@ -85,7 +85,7 @@ function Hero({ enter, signedIn }: { enter: string; signedIn: boolean }) {
     <section className="relative overflow-hidden border-b">
       <div className="relative mx-auto max-w-7xl px-5 pt-20 pb-16 sm:px-8 sm:pt-28">
         <Orbit className="absolute top-10 -right-24 hidden w-[620px] lg:block xl:-right-10" />
-        <p className="inline-flex items-center gap-2 rounded-full border bg-white/[0.03] px-3 py-1 num text-[11px] tracking-wide text-muted-foreground uppercase">
+        <p className="inline-flex items-center gap-2 rounded-full border bg-white/[0.03] px-3 py-1 text-[11px] num tracking-wide text-muted-foreground uppercase">
           <span className="size-1.5 rounded-full bg-primary" aria-hidden />
           Çok ajanlı LLM ticaret arenası
         </p>
@@ -191,7 +191,7 @@ function HowItWorks() {
           {STEPS.map(({ n, icon: Icon, title, text }) => (
             <li key={n} className="reveal p-8">
               <div className="flex items-center justify-between">
-                <span className="num text-xs text-primary">{n}</span>
+                <span className="text-xs num text-primary">{n}</span>
                 <Icon aria-hidden className="size-5 text-muted-foreground" />
               </div>
               <h3 className="mt-10 text-xl font-semibold tracking-tight">{title}</h3>
@@ -326,7 +326,7 @@ function Results({ enter }: { enter: string }) {
 function SectionHead({ kicker, title, text }: { kicker: string; title: string; text: string }) {
   return (
     <div className="reveal max-w-2xl">
-      <p className="flex items-center gap-3 num text-[11px] tracking-[0.2em] text-primary uppercase">
+      <p className="flex items-center gap-3 text-[11px] num tracking-[0.2em] text-primary uppercase">
         <span aria-hidden className="h-px w-10 rule-accent" />
         {kicker}
       </p>
