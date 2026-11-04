@@ -33,7 +33,7 @@ Bir değişikliği "bitti" saymadan önce ilgili alanın test, lint ve tip kontr
 
 ## Proje skill'leri
 
-`.claude/skills/` altında: `stable-baselines3` (PPO), `backtesting-frameworks`, `risk-metrics-calculation`, `llama-cpp`, `outlines`; arayüz için `frontend-design`, `impeccable`, `emil-design-eng`. Kaynakları [.claude/skills/README.md](.claude/skills/README.md)'de.
+`.claude/skills/` altında: `stable-baselines3` (PPO), `backtesting-frameworks`, `risk-metrics-calculation`, `llama-cpp`, `outlines`; arayüz için `frontend-design`, `impeccable`, `emil-design-eng`; frontend kod kalitesi için `react-best-practices`, `composition-patterns`, `web-design-guidelines`. Kaynakları [.claude/skills/README.md](.claude/skills/README.md)'de.
 
 `.claude/settings.json`: eklentiler, sık kullanılan zararsız komutlar için izin listesi (`.env` okuma ve force-push yasak) ve düzenlenen dosyayı otomatik biçimlendiren hook (`.claude/hooks/format_file.py`: Python → ruff, frontend → prettier).
 
