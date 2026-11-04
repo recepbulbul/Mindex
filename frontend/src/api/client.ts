@@ -32,6 +32,14 @@ export const onUnauthorized = (fn: Listener) => {
   return () => void unauthorizedListeners.delete(fn)
 }
 
+// An HTML page where JSON was expected means no API answered: the dev server's SPA fallback
+// served index.html (e.g. the mock service worker was not controlling the page).
+const offlineListeners = new Set<Listener>()
+export const onApiUnreachable = (fn: Listener) => {
+  offlineListeners.add(fn)
+  return () => void offlineListeners.delete(fn)
+}
+
 async function request(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers)
   const token = tokenStore.get()
@@ -39,6 +47,10 @@ async function request(path: string, init: RequestInit = {}) {
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
 
   const res = await fetch(`${API_BASE}${path}`, { ...init, headers })
+  if (res.headers.get('Content-Type')?.includes('text/html')) {
+    offlineListeners.forEach((fn) => fn())
+    throw new ApiError(503, { detail: 'Sunucuya ulaşılamadı. Sayfa yeniden bağlanıyor…' })
+  }
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as Partial<ApiErrorBody>
     if (res.status === 401 && token) unauthorizedListeners.forEach((fn) => fn())

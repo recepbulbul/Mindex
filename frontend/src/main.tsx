@@ -8,8 +8,10 @@ import './index.css'
 async function enableMocking() {
   // The prototype (dev + GitHub Pages) runs entirely on the MSW mock API.
   if (!import.meta.env.DEV && import.meta.env.VITE_USE_MOCKS !== 'true') return
-  const { startMockApi } = await import('./mocks/browser')
+  const { startMockApi, reloadForMockApi } = await import('./mocks/browser')
   await startMockApi()
+  const { onApiUnreachable } = await import('./api/client')
+  onApiUnreachable(reloadForMockApi)
 }
 
 const router = createBrowserRouter(routes, {

@@ -2,6 +2,18 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { renderApp, signIn } from '@/test/render'
 
+describe('landing page', () => {
+  it('introduces the arena and links anonymous visitors to the demo login', async () => {
+    const { user, router } = renderApp('/')
+    expect(
+      await screen.findByRole('heading', { level: 1, name: /Ajanlar yarışır/ }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('table', { name: /Deney koşullarında/ })).toBeInTheDocument()
+    await user.click(screen.getByRole('link', { name: /Canlı demoyu aç/ }))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/login'))
+  })
+})
+
 describe('login (F1)', () => {
   it('redirects anonymous users to login', async () => {
     const { router } = renderApp('/experiments')
@@ -27,7 +39,8 @@ describe('login (F1)', () => {
     await user.click(screen.getByRole('button', { name: /Araştırmacı · arastirmaci/ }))
     await user.click(screen.getByRole('button', { name: 'Giriş yap' }))
     await waitFor(() => expect(router.state.location.pathname).toBe('/experiments'))
-    expect(await screen.findByText('Test dönemi · güven ağırlıklı forum')).toBeInTheDocument()
+    // The name appears in the featured hero and in its card.
+    expect(await screen.findAllByText('Test dönemi · güven ağırlıklı forum')).not.toHaveLength(0)
   })
 })
 
@@ -53,7 +66,7 @@ describe('experiment setup (F2)', () => {
     await user.click(submit)
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/experiments'))
-    const row = (await screen.findByText('Yeni doğrulama deneyi')).closest('tr')!
+    const row = (await screen.findByText('Yeni doğrulama deneyi')).closest('li')!
     expect(within(row).getByText('Taslak')).toBeInTheDocument()
   })
 
@@ -71,7 +84,7 @@ describe('live screen (F5)', () => {
   it('shows chart, leaderboard and replay controls', async () => {
     signIn('viewer')
     const { user } = renderApp('/experiments/exp-test-c3/live')
-    expect(await screen.findByRole('img', { name: /BTC\/USDT/ })).toBeInTheDocument()
+    expect(await screen.findByRole('figure', { name: /BTC\/USDT/ })).toBeInTheDocument()
     expect(screen.getByText('Lider tablosu')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /LLM · Momentum/ })).toBeInTheDocument()
 

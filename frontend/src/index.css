@@ -1,49 +1,231 @@
 @import 'tailwindcss';
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';
 
-@custom-variant dark (&:where(.dark, .dark *));
-
-/* shadcn/ui-style design tokens. Trading screens default to dark. */
+/*
+ * Mindex design tokens: the "midnight glass" theme (docs/09-design-system.md).
+ * Ink-black canvas lit by cobalt, cyan and violet light; frosted-glass surfaces on top;
+ * white primary actions; one cobalt→cyan accent gradient. Agent/series colours live in
+ * src/lib/identity.ts (validated with the dataviz checker). Print swaps to the light set below.
+ */
 :root {
-  --background: oklch(0.985 0 0);
-  --foreground: oklch(0.2 0.02 260);
-  --card: oklch(1 0 0);
-  --muted: oklch(0.95 0.01 260);
-  --muted-foreground: oklch(0.5 0.02 260);
-  --border: oklch(0.9 0.01 260);
-  --primary: oklch(0.55 0.17 160);
-  --primary-foreground: oklch(0.99 0 0);
-  --destructive: oklch(0.6 0.2 25);
-  --up: oklch(0.7 0.17 160);
-  --down: oklch(0.65 0.2 25);
-  --ring: oklch(0.6 0.15 160);
-}
-
-.dark {
-  --background: oklch(0.16 0.015 260);
-  --foreground: oklch(0.95 0.01 260);
-  --card: oklch(0.2 0.015 260);
-  --muted: oklch(0.25 0.015 260);
-  --muted-foreground: oklch(0.68 0.02 260);
-  --border: oklch(0.3 0.015 260);
-  --primary: oklch(0.72 0.16 160);
-  --primary-foreground: oklch(0.16 0.015 260);
+  color-scheme: dark;
+  --background: #05060b;
+  --surface: rgb(10 12 20 / 0.62);
+  --card: rgb(255 255 255 / 0.04);
+  --elevated: rgb(255 255 255 / 0.07);
+  --muted: rgb(255 255 255 / 0.08);
+  --foreground: #f4f6fb;
+  --muted-foreground: #9aa3b5;
+  --border: rgb(255 255 255 / 0.09);
+  --border-strong: rgb(255 255 255 / 0.16);
+  /* Accent for text, icons and focus; the gradient is for marks (logo, leader, progress). */
+  --primary: #8fb2ff;
+  --primary-foreground: #05060b;
+  --brand-from: #5b7cff;
+  --brand-to: #3fd5f3;
+  /* Gains/losses always ship with a sign or arrow too (red/green is a CVD-weak pair). */
+  --up: #5fdcb0;
+  --down: #ff7d93;
+  --warn: #f4c35c;
+  --info: #8fb2ff;
+  --destructive: var(--down);
+  --ring: var(--primary);
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
+  --color-elevated: var(--elevated);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-destructive: var(--destructive);
   --color-up: var(--up);
   --color-down: var(--down);
+  --color-warn: var(--warn);
+  --color-info: var(--info);
   --color-ring: var(--ring);
-  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, 'SFMono-Regular', monospace;
+  --animate-rise: rise 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  --animate-shimmer: shimmer 1.6s linear infinite;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* Small uppercase label above values, columns and sections. */
+@utility eyebrow {
+  font-size: 0.6875rem;
+  line-height: 1rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+/* Numbers: monospaced, aligned columns, slashed zero, never wrapped. */
+@utility num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  white-space: nowrap;
+}
+
+/* The accent gradient, for marks only: logo, active marker, leader bar, progress. */
+@utility bg-brand {
+  background-image: linear-gradient(120deg, var(--brand-from), var(--brand-to));
+}
+
+/* Headline text: bright at the top, fading toward the canvas. */
+@utility text-headline {
+  background-image: linear-gradient(180deg, var(--foreground) 35%, var(--muted-foreground));
+  background-clip: text;
+  color: transparent;
+}
+
+/* Accent words inside headlines. */
+@utility text-brand {
+  background-image: linear-gradient(100deg, var(--primary), var(--brand-to));
+  background-clip: text;
+  color: transparent;
+}
+
+/* Frosted glass: a whisper of white, blur of what is behind, 1px light rim on top. */
+@utility glass {
+  background-color: var(--card);
+  backdrop-filter: blur(24px) saturate(170%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.09),
+    0 30px 70px -35px rgb(0 0 0 / 0.8);
+}
+
+/* Hairline that fades out at both ends: section kickers. */
+@utility rule-accent {
+  background-image: linear-gradient(90deg, transparent, var(--brand-from), var(--brand-to));
+}
+
+@layer components {
+  /* Transport scrubber: transparent track (the gradient fill is drawn behind it). */
+  .scrubber {
+    appearance: none;
+    height: 20px;
+    background: transparent;
+    cursor: pointer;
+  }
+  .scrubber::-webkit-slider-thumb {
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 999px;
+    background: white;
+    box-shadow:
+      0 0 0 3px rgb(255 255 255 / 0.14),
+      0 1px 3px rgb(0 0 0 / 0.5);
+  }
+  .scrubber::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border: 0;
+    border-radius: 999px;
+    background: white;
+    box-shadow:
+      0 0 0 3px rgb(255 255 255 / 0.14),
+      0 1px 3px rgb(0 0 0 / 0.5);
+  }
+
+  /* Pointer-following light on cards: a soft glow inside and a brighter rim. */
+  .spotlight {
+    position: relative;
+    isolation: isolate;
+  }
+  .spotlight::before,
+  .spotlight::after {
+    content: '';
+    position: absolute;
+    pointer-events: none;
+    border-radius: inherit;
+    opacity: 0;
+    transition: opacity 0.35s ease;
+  }
+  .spotlight::before {
+    inset: 0;
+    z-index: -1;
+    background: radial-gradient(
+      520px circle at var(--mx, 50%) var(--my, 0%),
+      rgb(143 178 255 / 0.07),
+      transparent 45%
+    );
+  }
+  .spotlight::after {
+    inset: -1px;
+    padding: 1px;
+    background: radial-gradient(
+      320px circle at var(--mx, 50%) var(--my, 0%),
+      rgb(143 178 255 / 0.45),
+      transparent 60%
+    );
+    mask:
+      linear-gradient(#000 0 0) content-box exclude,
+      linear-gradient(#000 0 0);
+  }
+  .spotlight:hover::before,
+  .spotlight:hover::after {
+    opacity: 1;
+  }
+
+  /* Elements rise into place as they scroll into view: CSS only, opacity/transform only. */
+  @supports (animation-timeline: view()) {
+    @media (prefers-reduced-motion: no-preference) {
+      .reveal {
+        animation: reveal linear both;
+        animation-timeline: view();
+        animation-range: entry 0% cover 28%;
+      }
+      .parallax {
+        animation: parallax linear both;
+        animation-timeline: view();
+        animation-range: cover;
+      }
+    }
+  }
+}
+
+@keyframes orbit {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateY(28px) scale(0.985);
+  }
+}
+
+@keyframes parallax {
+  from {
+    transform: translateY(40px);
+  }
+  to {
+    transform: translateY(-40px);
+  }
 }
 
 @layer base {
@@ -51,13 +233,110 @@
     border-color: var(--border);
   }
   body {
-    background: var(--background);
+    background-color: var(--background);
     color: var(--foreground);
     font-family: var(--font-sans);
+    font-feature-settings: 'ss01', 'cv11';
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  /*
+   * The backdrop the glass refracts: cobalt, cyan and violet light masses. Fixed and static,
+   * so it is painted once and never repainted while scrolling or playing.
+   */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(42% 48% at 8% -6%, rgb(59 108 255 / 0.42), transparent 70%),
+      radial-gradient(34% 40% at 96% 8%, rgb(34 211 238 / 0.26), transparent 70%),
+      radial-gradient(46% 46% at 72% 108%, rgb(124 92 255 / 0.34), transparent 70%),
+      radial-gradient(26% 30% at 18% 92%, rgb(56 189 248 / 0.14), transparent 70%),
+      radial-gradient(30% 34% at 58% 48%, rgb(91 124 255 / 0.16), transparent 70%);
+  }
+  /* A faint engineering grid and film grain on top of the light; also static. */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E"),
+      linear-gradient(to right, rgb(255 255 255 / 0.035) 1px, transparent 1px) 0 0 / 64px 64px,
+      linear-gradient(to bottom, rgb(255 255 255 / 0.035) 1px, transparent 1px) 0 0 / 64px 64px;
+    mask: radial-gradient(ellipse 80% 70% at 50% 30%, black, transparent);
+  }
+  ::selection {
+    background: rgb(91 124 255 / 0.4);
   }
   :focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: 2px;
+    border-radius: 6px;
+  }
+  select {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%239aa3b5' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round' viewBox='0 0 24 24'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.5rem center;
+  }
+  select option {
+    background: #11131c;
+  }
+  input[type='range'],
+  input[type='checkbox'] {
+    accent-color: var(--primary);
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background-clip: padding-box;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Reports print on paper: light tokens, no backdrop, solid text. */
+@media print {
+  :root {
+    color-scheme: light;
+    --background: #ffffff;
+    --surface: #ffffff;
+    --card: #ffffff;
+    --elevated: #f4f5f8;
+    --muted: #eef0f4;
+    --foreground: #0b0d14;
+    --muted-foreground: #4f5666;
+    --border: #e2e5eb;
+    --border-strong: #cfd4dd;
+    --primary: #2f55d4;
+    --up: #157a57;
+    --down: #c22f4b;
+  }
+  body::before,
+  body::after {
+    display: none;
+  }
+  .text-headline,
+  .text-brand {
+    color: var(--foreground);
+    background: none;
   }
 }

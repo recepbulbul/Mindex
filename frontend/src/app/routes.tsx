@@ -2,9 +2,11 @@ import { lazy, Suspense, type ReactNode } from 'react'
 import { isRouteErrorResponse, Link, Navigate, useRouteError, type RouteObject } from 'react-router'
 import { RequireAuth } from '@/auth/guards'
 import { Skeleton } from '@/components/ui/primitives'
+import { LandingPage } from '@/pages/LandingPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { ExperimentsPage } from '@/pages/ExperimentsPage'
 import { Layout } from './Layout'
+import { StartedOnly } from './StartedOnly'
 
 // Chart-heavy screens are code-split so the login screen stays small.
 const NewExperimentPage = lazy(() => import('@/pages/NewExperimentPage'))
@@ -33,6 +35,7 @@ function RouteError() {
 }
 
 export const routes: RouteObject[] = [
+  { path: '/', element: <LandingPage /> },
   { path: '/login', element: <LoginPage /> },
   {
     element: <RequireAuth />,
@@ -41,7 +44,6 @@ export const routes: RouteObject[] = [
       {
         element: <Layout />,
         children: [
-          { index: true, element: <Navigate to="/experiments" replace /> },
           { path: 'experiments', element: <ExperimentsPage /> },
           {
             element: <RequireAuth requiredRole="researcher" />,
@@ -52,9 +54,30 @@ export const routes: RouteObject[] = [
             children: [
               { index: true, element: <Navigate to="live" replace /> },
               { path: 'live', element: page(<LivePage />) },
-              { path: 'agents/:agentId', element: page(<AgentPage />) },
-              { path: 'forum', element: page(<ForumPage />) },
-              { path: 'report', element: page(<ReportPage />) },
+              {
+                path: 'agents/:agentId',
+                element: page(
+                  <StartedOnly>
+                    <AgentPage />
+                  </StartedOnly>,
+                ),
+              },
+              {
+                path: 'forum',
+                element: page(
+                  <StartedOnly>
+                    <ForumPage />
+                  </StartedOnly>,
+                ),
+              },
+              {
+                path: 'report',
+                element: page(
+                  <StartedOnly>
+                    <ReportPage />
+                  </StartedOnly>,
+                ),
+              },
             ],
           },
           { path: '*', element: <RouteError /> },

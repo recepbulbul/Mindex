@@ -1,14 +1,25 @@
-import { FileDown, Printer } from 'lucide-react'
+import { BarChart3, FileDown, Printer } from 'lucide-react'
 import { useMemo } from 'react'
 import { useParams } from 'react-router'
 import { useAgents, useExperiment, useReport, useTimeline } from '@/api/queries'
 import { CONDITION_LABELS, type ConditionSummary } from '@/api/types'
 import { MultiLineChart } from '@/components/charts/charts'
 import { PageTitle } from '@/components/common'
+import { AgentAvatar } from '@/components/identity'
 import { downloadFile } from '@/lib/download'
 import { Button } from '@/components/ui/button'
-import { Card, CardHeader, ErrorState, Skeleton, Stat, Table } from '@/components/ui/primitives'
+import {
+  Badge,
+  Card,
+  CardHeader,
+  ErrorState,
+  Skeleton,
+  Stat,
+  StatGrid,
+  Table,
+} from '@/components/ui/primitives'
 import { reportToCsv } from '@/lib/report'
+import { agentColor } from '@/lib/identity'
 import { cn, formatNum, formatPct } from '@/lib/utils'
 
 export default function ReportPage() {
@@ -25,6 +36,7 @@ export default function ReportPage() {
         id: r.agent.id,
         name: r.agent.name.replace('LLM · ', ''),
         points: r.equity.map((p) => ({ time: p.day, value: p.equity })),
+        color: agentColor(r.agent.id),
       })) ?? [],
     [timeline.data],
   )
@@ -42,7 +54,12 @@ export default function ReportPage() {
   return (
     <>
       <PageTitle
-        title={`Rapor · ${experiment.data.name}`}
+        eyebrow={
+          <>
+            <BarChart3 className="size-3.5" /> Rapor
+          </>
+        }
+        title={experiment.data.name}
         subtitle={`${CONDITION_LABELS[experiment.data.condition]} · seed ${experiment.data.seed} (F8)`}
         actions={
           <>
@@ -61,7 +78,7 @@ export default function ReportPage() {
         }
       />
 
-      <Card className="mb-4 grid grid-cols-2 gap-4 md:grid-cols-4">
+      <StatGrid className="mb-4 grid-cols-2 md:grid-cols-4">
         <Stat
           label="En iyi LLM ajanı (Sharpe)"
           value={best ? nameOf(best.agentId).replace('LLM · ', '') : '—'}
@@ -76,9 +93,9 @@ export default function ReportPage() {
           tone={mddReduction !== null && mddReduction >= 0.3 ? 'up' : 'down'}
         />
         <Stat label="Sürü korelasyonu (LLM)" value={formatNum(r.herdCorrelation)} />
-      </Card>
+      </StatGrid>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <Card>
           <CardHeader title="Ajan metrikleri" />
           <Table>
@@ -95,19 +112,36 @@ export default function ReportPage() {
               {[...r.agents]
                 .sort((a, b) => b.sharpe - a.sharpe)
                 .map((a) => (
-                  <tr key={a.agentId} className={cn(a.agentId === best?.agentId && 'bg-primary/5')}>
-                    <td>{nameOf(a.agentId)}</td>
-                    <td
-                      className={cn(
-                        'text-right font-mono',
-                        a.totalReturn >= 0 ? 'text-up' : 'text-down',
+                  <tr
+                    key={a.agentId}
+                    className={cn(a.agentId === best?.agentId && 'bg-primary/[0.06]')}
+                  >
+                    <td className="whitespace-nowrap">
+                      <span className="inline-flex items-center gap-2 align-middle">
+                        <AgentAvatar
+                          id={a.agentId}
+                          name={nameOf(a.agentId)}
+                          className="size-6 text-[9px]"
+                        />
+                        {nameOf(a.agentId)}
+                      </span>
+                      {a.agentId === best?.agentId && (
+                        <Badge
+                          tone="warn"
+                          className="ml-2 border-0 bg-primary/15 text-primary ring-primary/30"
+                        >
+                          en iyi
+                        </Badge>
                       )}
+                    </td>
+                    <td
+                      className={cn('text-right num', a.totalReturn >= 0 ? 'text-up' : 'text-down')}
                     >
                       {formatPct(a.totalReturn)}
                     </td>
-                    <td className="text-right font-mono">{formatNum(a.sharpe)}</td>
-                    <td className="text-right font-mono">{formatPct(-a.maxDrawdown)}</td>
-                    <td className="text-right font-mono">{a.trades}</td>
+                    <td className="text-right num">{formatNum(a.sharpe)}</td>
+                    <td className="text-right num">{formatPct(-a.maxDrawdown)}</td>
+                    <td className="text-right num">{a.trades}</td>
                   </tr>
                 ))}
             </tbody>
@@ -163,37 +197,33 @@ function ConditionComparison({ conditions }: { conditions: ConditionSummary[] })
                   <div className="flex items-center gap-2">
                     <div
                       className="relative h-5 flex-1"
+                      role="img"
                       aria-label={`Sharpe ${formatNum(c.sharpeMean)}, aralık ${formatNum(c.sharpeCiLow)}–${formatNum(c.sharpeCiHigh)}`}
                     >
                       <div
-                        className="absolute top-1/2 h-1 -translate-y-1/2 rounded bg-primary/30"
+                        className="absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-primary/25"
                         style={{
                           left: pos(c.sharpeCiLow),
                           right: `calc(100% - ${pos(c.sharpeCiHigh)})`,
                         }}
                       />
                       <div
-                        className="absolute top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary"
+                        className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary ring-2 ring-card"
                         style={{ left: pos(c.sharpeMean) }}
                       />
                     </div>
-                    <span className="w-10 text-right font-mono text-xs">
-                      {formatNum(c.sharpeMean)}
-                    </span>
+                    <span className="w-10 text-right num text-xs">{formatNum(c.sharpeMean)}</span>
                   </div>
                 </td>
                 <td
-                  className={cn(
-                    'text-right font-mono',
-                    vsC0 !== null && vsC0 >= 0.15 ? 'text-up' : '',
-                  )}
+                  className={cn('text-right num', vsC0 !== null && vsC0 >= 0.15 ? 'text-up' : '')}
                 >
                   {c.condition === 'C0' || vsC0 === null ? '—' : formatPct(vsC0)}
                 </td>
-                <td className="text-right font-mono">{formatPct(-c.maxDrawdown)}</td>
-                <td className="text-right font-mono">{formatPct(c.totalReturn)}</td>
-                <td className="text-right font-mono">{formatNum(c.herdCorrelation)}</td>
-                <td className="text-right font-mono">
+                <td className="text-right num">{formatPct(-c.maxDrawdown)}</td>
+                <td className="text-right num">{formatPct(c.totalReturn)}</td>
+                <td className="text-right num">{formatNum(c.herdCorrelation)}</td>
+                <td className="text-right num">
                   {c.lessonConsistency === null ? '—' : formatPct(c.lessonConsistency)}
                 </td>
               </tr>
@@ -201,7 +231,7 @@ function ConditionComparison({ conditions }: { conditions: ConditionSummary[] })
           })}
         </tbody>
       </Table>
-      <p className="mt-2 text-xs text-muted-foreground">
+      <p className="mt-3 border-t pt-3 text-xs text-muted-foreground">
         Nicel hedef: C3 Sharpe ortalamasında C0'a göre ≥ %15 iyileşme.
       </p>
     </Card>

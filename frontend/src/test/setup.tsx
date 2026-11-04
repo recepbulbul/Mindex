@@ -6,8 +6,8 @@ import { handlers, resetMockDb } from '@/mocks/handlers'
 
 // Canvas charts cannot render in jsdom; tests assert on data, not pixels.
 vi.mock('@/components/charts/charts', () => ({
-  CandleChart: ({ label }: { label: string }) => <div role="img" aria-label={label} />,
-  MultiLineChart: ({ label }: { label: string }) => <div role="img" aria-label={label} />,
+  CandleChart: ({ label }: { label: string }) => <div role="figure" aria-label={label} />,
+  MultiLineChart: ({ label }: { label: string }) => <div role="figure" aria-label={label} />,
 }))
 
 export const server = setupServer(...handlers)

@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, FlaskConical } from 'lucide-react'
 import { Controller, useForm, useWatch } from 'react-hook-form'
 import { useNavigate } from 'react-router'
 import { ApiError } from '@/api/client'
@@ -61,14 +61,16 @@ function ChipGroup<T extends string>({
 }) {
   return (
     <fieldset className="space-y-1.5">
-      <legend className="text-xs font-medium">{legend}</legend>
+      <legend className="mb-1 text-xs font-medium">{legend}</legend>
       <div className="flex flex-wrap gap-2">
         {options.map((o) => (
           <label
             key={o}
             className={cn(
-              'flex cursor-pointer items-center gap-2 rounded-md border px-3 py-1.5 text-sm has-focus-visible:ring-2 has-focus-visible:ring-ring',
-              value.includes(o) ? 'border-primary bg-primary/10' : 'text-muted-foreground',
+              'flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition-colors select-none has-focus-visible:ring-2 has-focus-visible:ring-ring',
+              value.includes(o)
+                ? 'border-primary/60 bg-primary/10 text-foreground shadow-[inset_0_1px_0_oklch(1_0_0/0.05)]'
+                : 'border-border-strong/60 text-muted-foreground hover:border-border-strong hover:text-foreground',
             )}
           >
             <input
@@ -130,11 +132,20 @@ export default function NewExperimentPage() {
   return (
     <>
       <PageTitle
+        eyebrow={
+          <>
+            <FlaskConical className="size-3.5" /> Deney kurulumu
+          </>
+        }
         title="Yeni deney"
         subtitle="Varlık, dönem, ajan seti, koşul, seed ve maliyet parametreleriyle deney tanımlayın (F2)."
       />
-      <form onSubmit={onSubmit} noValidate className="grid gap-4 lg:grid-cols-3">
-        <Card className="space-y-4 lg:col-span-2">
+      <form
+        onSubmit={onSubmit}
+        noValidate
+        className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]"
+      >
+        <Card className="space-y-4">
           <CardHeader title="Genel" />
           <Field label="Deney adı" htmlFor="name" error={errors.name?.message}>
             <Input
@@ -188,9 +199,9 @@ export default function NewExperimentPage() {
           {touchesTestSet && (
             <div
               role="status"
-              className="flex gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs"
+              className="flex gap-2.5 rounded-lg border border-warn/35 bg-warn/[0.07] p-3 text-xs leading-relaxed"
             >
-              <AlertTriangle className="size-4 shrink-0 text-amber-500" />
+              <AlertTriangle className="size-4 shrink-0 text-warn" />
               <p>
                 Seçilen dönem test penceresiyle ({TEST_WINDOW.start} – {TEST_WINDOW.end}) çakışıyor.
                 Look-ahead protokolü gereği test seti yalnızca nihai değerlendirmede açılmalıdır.
@@ -226,7 +237,7 @@ export default function NewExperimentPage() {
                   const a = agentName(id)
                   return (
                     <>
-                      <span className="text-[10px] uppercase opacity-70">
+                      <span className="rounded bg-muted px-1 num text-[10px] uppercase">
                         {a ? KIND_LABEL[a.kind] : ''}
                       </span>
                       {a?.name ?? id}
@@ -238,7 +249,7 @@ export default function NewExperimentPage() {
           />
         </Card>
 
-        <Card className="space-y-4">
+        <Card className="space-y-4 lg:sticky lg:top-6">
           <CardHeader
             title="Tekrarlanabilirlik ve maliyet"
             description="Aynı seed → birebir aynı sonuç (F3)"
@@ -267,16 +278,16 @@ export default function NewExperimentPage() {
               {...register('slippageBps', { valueAsNumber: true })}
             />
           </Field>
-          <dl className="space-y-1 rounded-md bg-muted p-3 text-xs">
-            <div className="flex justify-between">
+          <dl className="space-y-1.5 rounded-lg border bg-white/[0.03] p-3 text-xs">
+            <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">Model</dt>
-              <dd className="font-mono">qwen3.5-9b-q4_k_m</dd>
+              <dd className="num">qwen3.5-9b-q4_k_m</dd>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">Prompt sürümü</dt>
-              <dd className="font-mono">decision-v3</dd>
+              <dd className="num">decision-v3</dd>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">Yürütme</dt>
               <dd>t kapanış → t+1 açılış</dd>
             </div>

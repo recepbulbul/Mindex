@@ -1,20 +1,32 @@
-import { CheckCircle2, Search, ShieldAlert, XCircle } from 'lucide-react'
+import {
+  BrainCircuit,
+  CheckCircle2,
+  MessagesSquare,
+  Search,
+  ShieldAlert,
+  XCircle,
+} from 'lucide-react'
 import { useDeferredValue, useMemo, useState } from 'react'
 import { useParams } from 'react-router'
 import { useAgents, useForum, useMemories, type MemoryFilter } from '@/api/queries'
 import type { Regime, TrustScore } from '@/api/types'
 import { MultiLineChart } from '@/components/charts/charts'
 import { PageTitle, RegimeBadge } from '@/components/common'
+import { AgentAvatar } from '@/components/identity'
+import { segmentClass, segmentedClass } from '@/components/ui/button-variants'
 import { REGIME_LABEL } from '@/lib/labels'
+import { rovingKeyDown } from '@/lib/roving'
 import {
   Badge,
   Card,
   CardHeader,
+  EmptyState,
   ErrorState,
   Input,
   Select,
   Skeleton,
 } from '@/components/ui/primitives'
+import { agentColor } from '@/lib/identity'
 import { cn, formatDate, formatNum, formatPct } from '@/lib/utils'
 
 type Tab = 'forum' | 'memory'
@@ -26,10 +38,21 @@ export default function ForumPage() {
   return (
     <>
       <PageTitle
+        eyebrow={
+          <>
+            <MessagesSquare className="size-3.5" /> Ortak öğrenme
+          </>
+        }
         title="Forum ve hafıza"
         subtitle="Ajanlar arası mesajlar, güven ağırlıkları ve rejim etiketli dersler (F7)."
       />
-      <div role="tablist" aria-label="Görünüm" className="mb-4 inline-flex rounded-md border p-0.5">
+      <div
+        role="tablist"
+        aria-label="Görünüm"
+        className={cn(segmentedClass, 'mb-5')}
+        onKeyDown={rovingKeyDown}
+        tabIndex={-1}
+      >
         {(
           [
             ['forum', 'Forum'],
@@ -41,11 +64,9 @@ export default function ForumPage() {
             type="button"
             role="tab"
             aria-selected={tab === key}
+            tabIndex={tab === key ? 0 : -1}
             onClick={() => setTab(key)}
-            className={cn(
-              'rounded px-3 py-1 text-sm',
-              tab === key ? 'bg-muted' : 'text-muted-foreground',
-            )}
+            className={cn(segmentClass(tab === key), 'px-3.5 py-1.5 text-[13px]')}
           >
             {label}
           </button>
@@ -69,6 +90,7 @@ function ForumView({ id }: { id: string }) {
     return ids.map((tid) => ({
       id: tid,
       name: tid.replace('llm-', ''),
+      color: agentColor(tid),
       points: history
         .filter((h) => h.trusteeId === tid)
         .map((h) => ({ time: h.day, value: h.score })),
@@ -79,8 +101,10 @@ function ForumView({ id }: { id: string }) {
   if (!forum.data) return <Skeleton className="h-96" />
   if (forum.data.messages.length === 0)
     return (
-      <Card className="text-sm text-muted-foreground">
-        Bu deney koşulunda (C0/C1) forum kapalı.
+      <Card>
+        <EmptyState icon={<MessagesSquare />} title="Forum kapalı">
+          Bu deney koşulunda (C0/C1) forum kapalı.
+        </EmptyState>
       </Card>
     )
 
@@ -95,14 +119,14 @@ function ForumView({ id }: { id: string }) {
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_420px]">
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
       <Card>
         <CardHeader
           title="Mesaj akışı"
           description="Mesajlar güvenilmeyen veri olarak işlenir; talimat içerenler filtrelenir (OWASP LLM01)."
           action={
             <div className="flex items-center gap-2">
-              <label className="flex items-center gap-1 text-xs">
+              <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
                 <input
                   type="checkbox"
                   checked={onlyFlagged}
@@ -126,59 +150,74 @@ function ForumView({ id }: { id: string }) {
             </div>
           }
         />
-        <ul className="max-h-[640px] space-y-2 overflow-y-auto pr-1">
-          {shown.map((m) => {
-            const w = avgTrust(m.senderId)
-            return (
-              <li
-                key={m.id}
-                className={cn(
-                  'rounded-md border p-3 text-sm',
-                  m.flagged && 'border-destructive/50 bg-destructive/10',
-                )}
-              >
-                <div className="mb-1 flex flex-wrap items-center gap-2 text-xs">
-                  <span className="font-medium">{nameOf(m.senderId)}</span>
-                  {w !== null && (
-                    <span className="font-mono text-muted-foreground">güven {formatNum(w)}</span>
+        <div
+          role="region"
+          tabIndex={0}
+          aria-label="Forum mesajları"
+          className="-mr-2 max-h-[680px] overflow-y-auto rounded-lg pr-2"
+        >
+          <ul className="space-y-2">
+            {shown.map((m) => {
+              const w = avgTrust(m.senderId)
+              return (
+                <li
+                  key={m.id}
+                  className={cn(
+                    'rounded-lg border border-border/70 bg-white/[0.03] p-3 text-sm transition-colors hover:border-border-strong',
+                    m.flagged &&
+                      'border-destructive/40 bg-destructive/[0.06] hover:border-destructive/60',
                   )}
-                  <Badge
-                    tone={
-                      m.stance === 'bullish' ? 'up' : m.stance === 'bearish' ? 'down' : 'neutral'
-                    }
-                  >
-                    {m.asset} ·{' '}
-                    {m.stance === 'bullish'
-                      ? 'yükseliş'
-                      : m.stance === 'bearish'
-                        ? 'düşüş'
-                        : 'nötr'}
-                  </Badge>
-                  <span className="ml-auto text-muted-foreground">{formatDate(m.day)}</span>
-                </div>
-                <p className={cn(m.flagged && 'line-through opacity-70')}>{m.content}</p>
-                <div className="mt-1 text-xs">
-                  {m.flagged ? (
-                    <span className="flex items-center gap-1 text-destructive">
-                      <ShieldAlert className="size-3" /> Prompt injection şüphesi · ajanlara
-                      iletilmedi
-                    </span>
-                  ) : m.verified === true ? (
-                    <span className="flex items-center gap-1 text-up">
-                      <CheckCircle2 className="size-3" /> 5 gün sonra doğrulandı (a+1)
-                    </span>
-                  ) : m.verified === false ? (
-                    <span className="flex items-center gap-1 text-down">
-                      <XCircle className="size-3" /> Çürüdü (b+1)
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground">Değerlendirme bekleniyor</span>
-                  )}
-                </div>
-              </li>
-            )
-          })}
-        </ul>
+                >
+                  <div className="mb-1.5 flex flex-wrap items-center gap-2 text-xs">
+                    <AgentAvatar
+                      id={m.senderId}
+                      name={nameOf(m.senderId)}
+                      className="size-6 text-[9px]"
+                    />
+                    <span className="font-medium">{nameOf(m.senderId)}</span>
+                    {w !== null && (
+                      <span className="num text-muted-foreground">güven {formatNum(w)}</span>
+                    )}
+                    <Badge
+                      tone={
+                        m.stance === 'bullish' ? 'up' : m.stance === 'bearish' ? 'down' : 'neutral'
+                      }
+                    >
+                      {m.asset} ·{' '}
+                      {m.stance === 'bullish'
+                        ? 'yükseliş'
+                        : m.stance === 'bearish'
+                          ? 'düşüş'
+                          : 'nötr'}
+                    </Badge>
+                    <span className="ml-auto num text-muted-foreground">{formatDate(m.day)}</span>
+                  </div>
+                  <p className={cn('leading-relaxed', m.flagged && 'line-through opacity-70')}>
+                    {m.content}
+                  </p>
+                  <div className="mt-2 text-xs">
+                    {m.flagged ? (
+                      <span className="flex items-center gap-1 text-destructive">
+                        <ShieldAlert className="size-3" /> Prompt injection şüphesi · ajanlara
+                        iletilmedi
+                      </span>
+                    ) : m.verified === true ? (
+                      <span className="flex items-center gap-1 text-up">
+                        <CheckCircle2 className="size-3" /> 5 gün sonra doğrulandı (a+1)
+                      </span>
+                    ) : m.verified === false ? (
+                      <span className="flex items-center gap-1 text-down">
+                        <XCircle className="size-3" /> Çürüdü (b+1)
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">Değerlendirme bekleniyor</span>
+                    )}
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
       </Card>
 
       <div className="space-y-4">
@@ -209,7 +248,7 @@ function TrustMatrix({ trust, label }: { trust: TrustScore[]; label: (id: string
   const ids = [...new Set(trust.flatMap((t) => [t.trusterId, t.trusteeId]))]
   const cell = (a: string, b: string) => trust.find((t) => t.trusterId === a && t.trusteeId === b)
   return (
-    <table className="w-full table-fixed text-center text-xs">
+    <table className="w-full table-fixed border-separate border-spacing-0.5 text-center text-xs">
       <thead>
         <tr>
           <th scope="col">
@@ -238,12 +277,11 @@ function TrustMatrix({ trust, label }: { trust: TrustScore[]; label: (id: string
                 )
               // Diverging scale around the neutral prior 0.5.
               const alpha = Math.min(1, Math.abs(c.score - 0.5) * 4)
-              const color =
-                c.score >= 0.5 ? `rgb(34 197 94 / ${alpha})` : `rgb(239 68 68 / ${alpha})`
+              const color = `color-mix(in oklch, var(${c.score >= 0.5 ? '--up' : '--down'}) ${Math.round(alpha * 55)}%, transparent)`
               return (
-                <td key={b} className="p-0.5">
+                <td key={b}>
                   <div
-                    className="rounded py-2 font-mono"
+                    className="rounded-md py-2 num text-[11px]"
                     style={{ background: color }}
                     title={`a=${c.confirmed}, b=${c.refuted}`}
                   >
@@ -315,24 +353,27 @@ function MemoryView({ id }: { id: string }) {
       ) : !memories.data ? (
         <Skeleton className="h-64" />
       ) : memories.data.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          Eşleşen ders yok. C0 koşulunda hafıza kapalıdır.
-        </p>
+        <EmptyState icon={<BrainCircuit />} title="Eşleşen ders yok">
+          Filtreleri gevşetin. C0 koşulunda hafıza kapalıdır.
+        </EmptyState>
       ) : (
         <>
-          <p className="mb-2 text-xs text-muted-foreground" aria-live="polite">
+          <p className="mb-3 eyebrow" aria-live="polite">
             {memories.data.length} ders
           </p>
           <ul className="grid gap-3 md:grid-cols-2">
             {memories.data.slice(0, 60).map((m) => (
-              <li key={m.id} className="rounded-md border p-3 text-sm">
+              <li
+                key={m.id}
+                className="flex flex-col rounded-lg border border-border/70 bg-white/[0.03] p-3.5 text-sm transition-colors hover:border-border-strong"
+              >
                 <div className="mb-2 flex items-center gap-2 text-xs">
                   <RegimeBadge regime={m.regime} />
                   <span>{agents.data?.find((a) => a.id === m.agentId)?.name}</span>
                   <span className="ml-auto text-muted-foreground">{formatDate(m.day)}</span>
                 </div>
-                <p>{m.lesson}</p>
-                <dl className="mt-2 grid grid-cols-4 gap-1 rounded bg-muted p-2 text-center text-xs">
+                <p className="flex-1 leading-relaxed">{m.lesson}</p>
+                <dl className="mt-3 grid grid-cols-4 gap-px overflow-hidden rounded-md border bg-border text-center text-xs [&>div]:bg-card [&>div]:px-1 [&>div]:py-1.5">
                   {(
                     [
                       ['Gerçekleşen', m.counterfactual.actual],
@@ -342,8 +383,10 @@ function MemoryView({ id }: { id: string }) {
                     ] as const
                   ).map(([k, v]) => (
                     <div key={k}>
-                      <dt className="text-muted-foreground">{k}</dt>
-                      <dd className={cn('font-mono', v > 0 ? 'text-up' : v < 0 ? 'text-down' : '')}>
+                      <dt className="text-[10px] text-muted-foreground">{k}</dt>
+                      <dd
+                        className={cn('mt-0.5 num', v > 0 ? 'text-up' : v < 0 ? 'text-down' : '')}
+                      >
                         {formatPct(v)}
                       </dd>
                     </div>
