@@ -1,7 +1,7 @@
 # Mindex — Birlikte Öğrenen Kripto Ticaret Ajanları
 
-[![CI](https://github.com/recepbulbul/Yunus_Hoca_Proje/actions/workflows/ci.yml/badge.svg)](https://github.com/recepbulbul/Yunus_Hoca_Proje/actions/workflows/ci.yml)
-[![Prototip](https://img.shields.io/badge/prototip-GitHub%20Pages-2ea44f)](https://recepbulbul.github.io/Yunus_Hoca_Proje/)
+[![CI](https://github.com/recepbulbul/Mindex/actions/workflows/ci.yml/badge.svg)](https://github.com/recepbulbul/Mindex/actions/workflows/ci.yml)
+[![Prototip](https://img.shields.io/badge/prototip-GitHub%20Pages-2ea44f)](https://recepbulbul.github.io/Mindex/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Kural tabanlı, pekiştirmeli öğrenme (PPO) ve LLM tabanlı ticaret ajanlarının aynı kripto piyasasında yarıştığı, **kalıcı hafızaya** sahip olduğu ve öğrendiklerini **güven ağırlıklı bir forumda** paylaştığı simülasyon arenası. LLM ajanları 8 GB VRAM'li bir dizüstünde yerel çalışan 4-bit Qwen3.5-9B ile karar verir. Gerçek para kullanılmaz.
@@ -12,7 +12,7 @@ Kural tabanlı, pekiştirmeli öğrenme (PPO) ve LLM tabanlı ticaret ajanların
 
 ## Canlı prototip
 
-**https://recepbulbul.github.io/Yunus_Hoca_Proje/** — sahte (MSW) API ile çalışan 6 ekran: giriş, deney kurma, canlı borsa, ajan detayı, forum & hafıza, rapor.
+**https://recepbulbul.github.io/Mindex/** — sahte (MSW) API ile çalışan 6 ekran: giriş, deney kurma, canlı borsa, ajan detayı, forum & hafıza, rapor.
 
 Demo hesapları giriş ekranında tek tıkla doldurulur (`arastirmaci@mindex.dev` / `izleyici@mindex.dev`).
 
@@ -21,7 +21,7 @@ Demo hesapları giriş ekranında tek tıkla doldurulur (`arastirmaci@mindex.dev
 ```
 backend/     Python 3.12 paketi (uv) — veri hattı, simülatör, ajanlar, metrikler; ileride FastAPI + işçi
 frontend/    React 19 + TypeScript + Vite prototipi (MSW sahte API)
-docs/        Use case, mimari, akış, AI pipeline, ER, veri sözlüğü, teknoloji yığını, P3 veri hattı ve baseline
+docs/        Belgeler; başlangıç noktası docs/README.md (okuma sırası + terimler sözlüğü)
 data/        Parquet anlık görüntüleri (gitignore'da) ve commitlenen manifest (SHA-256)
 reports/     `mindex baseline` / `mindex bench-llm` çıktıları
 scripts/     İsterlerin GitHub Issues'a aktarılması
@@ -50,6 +50,8 @@ cd backend && uv run pre-commit install
 ```
 
 ## Dokümantasyon
+
+Projeyi ilk kez okuyorsanız **[belge dizininden](docs/README.md)** başlayın: kısa giriş, önerilen okuma sırası, her belgenin kime yönelik olduğu ve terimler sözlüğü (C0–C3, Sharpe, MDD, sürü korelasyonu, İP1–İP10, F/NF isterleri…) oradadır.
 
 | Hafta | Doküman |
 |---|---|

@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 
-// VITE_BASE is set by the GitHub Pages workflow (e.g. "/Yunus_Hoca_Proje/").
+// VITE_BASE is set by the GitHub Pages workflow (e.g. "/Mindex/").
 export default defineConfig({
   base: process.env.VITE_BASE ?? '/',
   plugins: [react(), tailwindcss()],

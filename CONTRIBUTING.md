@@ -7,7 +7,7 @@
 3. Commit mesajları [Conventional Commits](https://www.conventionalcommits.org/) biçimindedir:
    `feat(frontend): canlı ekranda işlem işaretleri (#5)`.
 4. PR açın; CI (backend, frontend, security) yeşil olmadan birleştirilmez. PR şablonundaki kontrol listesini doldurun.
-5. `main` dalı korumalıdır: en az 1 onay + başarılı CI gerekir (GitHub ayarlarından açılmalı).
+5. `main` dalı korumalıdır (yöneticiler dahil): doğrudan push ve force-push kapalıdır; Backend, Frontend ve Security CI işleri geçmeden ve PR yorumları çözülmeden birleştirilmez. Onay zorunlu değildir; birleşen dallar otomatik silinir.
 
 ## Yerel kontroller
 
@@ -24,6 +24,19 @@ uv run pre-commit run --all-files         # tüm kancalar
 | Frontend lint/biçim | `npm run lint` (oxlint + Prettier) |
 | Frontend tip | `npm run typecheck` |
 | Frontend test | `npm test` (Vitest + Testing Library + MSW) |
+
+## Claude Code kurulumu (bir kez)
+
+`.claude/settings.json` eklentileri yalnızca **etkin** olarak işaretler; eklentiler makine başına kurulur. Depoyu ilk kez açtığınızda proje klasöründe çalıştırın:
+
+```bash
+claude plugin install superpowers@claude-plugins-official --scope project
+claude plugin install context7@claude-plugins-official --scope project
+claude plugin install pyright-lsp@claude-plugins-official --scope project
+claude plugin install typescript-lsp@claude-plugins-official --scope project
+```
+
+Ardından bir `claude` oturumunda `/mcp` ile context7'yi yetkilendirin ve yeni oturum açın. Proje skill'leri (`.claude/skills/`) ve CLAUDE.md ek kurulum gerektirmez.
 
 ## Kurallar
 

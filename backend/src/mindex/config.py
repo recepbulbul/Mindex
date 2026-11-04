@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     llm_base_url: str = "http://localhost:8080/v1"
     llm_model: str = "qwen3.5-9b-q4_k_m"
     llm_timeout_seconds: float = Field(default=30.0, gt=0)
-    llm_max_retries: int = Field(default=2, ge=0, le=5)
+    llm_max_retries: int = Field(default=2, ge=0, le=2)  # proposal: <= 2 (attempts 1-3)
 
     embedding_model: str = "Qwen/Qwen3-Embedding-0.6B"
 

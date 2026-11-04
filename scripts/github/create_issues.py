@@ -4,7 +4,7 @@ Uses only the standard library and the GitHub REST API, so it runs without `gh`.
 
 Usage:
     set GITHUB_TOKEN=<fine-grained token with Issues: read/write>
-    python scripts/github/create_issues.py --repo recepbulbul/Yunus_Hoca_Proje [--dry-run]
+    python scripts/github/create_issues.py --repo recepbulbul/Mindex [--dry-run]
 """
 
 import argparse

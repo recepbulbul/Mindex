@@ -1,6 +1,16 @@
 # 8. Veri Hattı, Simülatör ve Baseline (P3)
 
-Hafta 3 iş paketi (öneri formu İP3): ccxt veri hattı, EDA notebook'u, test setinin ayrılması; simülatör çekirdeği, kural tabanlı ajanlar ve ilk LLM ajanı (baseline); llama.cpp hız ölçümüyle hesap bütçesinin doğrulanması; ilk metriklerin nicel hedeflerle karşılaştırılması.
+> **Bu belge ne anlatır?** Projenin gerçek veriyle çalışan ilk kodunu anlatır: Binance'ten veri çekme, test verisini mühürleme, işlem simülatörü, kural tabanlı ajanlar ve ilk LLM ajanı. Ardından LLM'in hızını ölçer ve ilk sonuçları öneri formundaki nicel hedeflerle karşılaştırır.
+>
+> **Neden önemli?** Önceki belgeler tasarımdı; bu belge ilk somut sonuçtur. Hedeflerden biri (LLM hızı) karşılandı, biri (MDD) karşılanmadı, bazıları henüz ölçülemedi. Hangisinin neden böyle olduğu [6. bölümün sonundaki özette](#sonuclar-ozet) açıkça yazılıdır.
+>
+> **İlgili isterler:** [F3 #9](https://github.com/recepbulbul/Mindex/issues/9) · [F8 #14](https://github.com/recepbulbul/Mindex/issues/14) · [F9 #15](https://github.com/recepbulbul/Mindex/issues/15) · [NF1 #16](https://github.com/recepbulbul/Mindex/issues/16) · [NF2 #17](https://github.com/recepbulbul/Mindex/issues/17) · [NF5 #20](https://github.com/recepbulbul/Mindex/issues/20)
+>
+> **İş paketi:** İP3 ([#23](https://github.com/recepbulbul/Mindex/issues/23), kapalı) · **Önceki belge:** [Teknoloji yığını](07-tech-stack.md) · **Sonraki belge:** [Arayüz tasarım sistemi](09-design-system.md) · Terimler için: [belge dizini ve sözlük](README.md#terimler-sözlüğü)
+
+Hafta 3 iş paketi (öneri formu İP3; belgelerde kısaca P3): ccxt (borsalara ortak arayüz sunan Python kütüphanesi) ile veri hattı, EDA (*Exploratory Data Analysis*, keşifsel veri analizi) notebook'u, test setinin ayrılması; simülatör çekirdeği, kural tabanlı ajanlar ve ilk LLM ajanı (baseline, yani sonraki koşulların karşılaştırılacağı temel ölçüm); llama.cpp hız ölçümüyle hesap bütçesinin doğrulanması; ilk metriklerin nicel hedeflerle karşılaştırılması.
+
+> **Kısa sonuç:** LLM karar hızı hedefi **karşılandı** (p95 5,26 sn < 10 sn). Maksimum düşüş (MDD) hedefi **karşılanmadı** (LLM ajanı BTC al-ve-tut'tan yalnızca %2,9 iyi, hedef ≥ %30). Hafıza ve forum gerektiren C3 hedefi **henüz ölçülemedi**, çünkü bu bileşenler İP5–İP6'da yazılacak. Ayrıntılar ve nedenler: [sonuçların özeti](#sonuclar-ozet).
 
 | Çıktı | Konum | Durum |
 |---|---|---|
@@ -45,6 +55,12 @@ flowchart LR
 
     classDef err fill:#fde2e2,stroke:#c0392b,color:#7b241c
 ```
+
+**Nasıl okunur:** Soldan sağa okunur. Soldaki üç kutu veri kaynaklarıdır: Binance spot piyasasının günlük fiyatları (OHLCV), Binance vadeli işlem (USDⓈ-M) piyasasının 8 saatte bir açıklanan funding oranı (okun üstünde yazdığı gibi günlük ortalamaya çevrilir) ve alternative.me'nin Fear & Greed endeksi. `build_frame` bunları her satırı bir varlık-gün olan tek tabloda birleştirir. Eşkenar dörtgen (`check_quality`) veri kalite kontrolüdür ve üç çıkışı vardır:
+
+- **Kırmızı kutu (`DataQualityError`):** fiyatlar mantıksızsa (örneğin kapanış, günün en yüksek fiyatından büyükse) ya da aynı satır iki kez geldiyse veri hattı durur; bozuk veriyle deney yapılmaz.
+- **Eksik gün / boş özellik:** daha hafif sorunlar hattı durdurmaz, `manifest.json` dosyasına raporlanır.
+- **Sorun yoksa** veri zamana göre eğitim, doğrulama ve test dosyalarına bölünür (🔒 = mühürlü test verisi). Silindirler diske yazılan Parquet dosyalarıdır. En sağdaki `manifest.json` her dosyanın satır sayısını ve SHA-256 özetini (dosyanın parmak izi) tutar; dosya sonradan değişirse fark edilir.
 
 - **Kaynaklar:** Binance spot günlük mumları (`BTC/USDT` … `XRP/USDT`), Binance USDⓈ-M perpetual funding oranı (günlük ortalama) ve alternative.me Fear & Greed endeksi. Hepsi açık uçlardan çekilir, API anahtarı gerekmez (NF3).
 - **Sayfalama:** ccxt'nin 1000 mumluk sayfaları ileriye doğru taranır; borsa ilerleme göstermezse döngü durur. Bu mantık sahte borsalarla test edilir, ağa yalnızca `CcxtSpot` ve `CcxtFutures` adaptörleri çıkar.
@@ -135,7 +151,11 @@ Sonuç olarak NF1'deki "p95 < 10 sn" hedefi ile 50 saatlik bütçe aynı koşulu
 
 NF1 hedefi (p95 < 10 sn) karşılandı ve ana deney 50 saatlik bütçenin yaklaşık yarısına sığıyor. Risk tablosundaki B planına (Qwen3.5-4B, daha az ajan veya seed, yanıt önbelleği) gerek yok. Kalan pay, P5–P6'da prompt'a eklenecek hafıza ve forum bağlamının uzattığı çağrıları ve yeniden denemeleri karşılar. Bu bağlam eklendiğinde ölçüm tekrarlanmalıdır, çünkü giriş uzadıkça gecikme artar.
 
+<a id="sonuclar"></a>
+
 ## 6. İlk metrikler ve nicel hedefler
+
+Tablolardaki ölçütler: **Getiri** dönem sonu portföy değerinin başlangıca göre değişimi; **Sharpe** riske göre düzeltilmiş getiri (yüksek olan iyi); **MDD** (maksimum düşüş) portföyün zirvesinden gördüğü en derin düşüş (düşük olan iyi); **İşlem** toplam alım-satım sayısı; **Komisyon** borsaya ödenen toplam ücret. Tanımlar için [sözlüğe](README.md#terimler-sözlüğü) bakın. Tüm ajanlar 10 000 USDT ile başlar.
 
 Koşu doğrulama döneminde yapıldı (2025-10-01 → 2026-03-31), çünkü test dönemi mühürlüdür. Tam tablo [`reports/baseline-validation.md`](../reports/baseline-validation.md) dosyasındadır.
 
@@ -157,12 +177,37 @@ Koşu doğrulama döneminde yapıldı (2025-10-01 → 2026-03-31), çünkü test
 Gözlemler:
 
 - Doğrulama dönemi sert bir düşüş dönemi: BTC −%42,5. Risk tablosundaki "test dönemi sert düşüşe denk gelir" senaryosunun benzeri burada yaşandı. Bu yüzden ölçüt mutlak getiri değil, al-ve-tut'a göre Sharpe ve MDD'dir.
-- Sürü korelasyonu (yatırılan ağırlığın günlük değişimi) kural ajanları için 0,42 idi; LLM ajanı eklenince 0,26'ya düştü. LLM ajanı kural ajanlarından farklı zamanlarda pozisyon değiştiriyor.
+- Sürü korelasyonu (yatırılan ağırlığın günlük değişimi) kural ajanları için 0,42 idi; LLM ajanı eklenince 0,26'ya düştü. LLM ajanı kural ajanlarından farklı zamanlarda pozisyon değiştiriyor. Not: öneri formundaki sürü korelasyonu yalnızca **LLM ajanları arasında** hesaplanır; bu koşuda tek LLM ajanı olduğu için o ölçüt henüz hesaplanamaz ve buradaki değerler tüm ajanları kapsayan ön bir göstergedir. Asıl ölçüm dört kişiliğin birlikte koşulduğu İP6'dadır.
 - **LLM ajanı aşırı işlem yapıyor.** 181 günün hepsinde yeni hedef ağırlık verdi (hiç "değişiklik yok" demedi, hiç geçersiz yanıt da olmadı). Simülatör, hedef ile mevcut ağırlık arasındaki farkı %0,1'in üzerindeyse işleme çevirdiği için günde ortalama 3 işlem oluştu. 512 $ komisyon başlangıç sermayesinin %5,1'i. Getirisi BTC al-ve-tut'la neredeyse aynı (−%42,9 / −%42,5), Sharpe'ı ise maliyet yüzünden daha kötü (−2,60 / −1,95).
 - Bu, hafıza ve forumun etkisinin ölçüleceği C0 tabanıdır ve P5–P6 için iki somut iş çıkarır: prompt'a "pozisyonu koru" seçeneğini ve işlem maliyetini açıkça vermek (`decision-v2`), gözleme son işlemlerden bu yana geçen gün sayısını eklemek. Bu değişiklikler prompt sürümüyle kaydedilir; C0 sonuçları `decision-v1` ile karşılaştırılabilir kalır.
 - EDA bulguları (kalın kuyruklar, 0,46–0,80 getiri korelasyonu, zayıf Fear & Greed sinyali) [notebook'un sonunda](../backend/notebooks/01-eda.ipynb) özetlenmiştir.
+
+<a id="sonuclar-ozet"></a>
+
+### Sonuçların özeti: ne tuttu, ne tutmadı, neden?
+
+Bu bölüm yukarıdaki tablolardaki bulguları tek yerde ve nedenleriyle toplar. Yeni ölçüm içermez.
+
+**✅ Karar hızı hedefi karşılandı (NF1).** Öneri formu, bir LLM karar çağrısının %95 oranında 10 saniyenin altında bitmesini istiyor. Ölçülen p95 5,26 sn. Bu, ana deneyin 50 saatlik hesap bütçesinin yaklaşık yarısına (22,8–26,7 sa) sığdığı anlamına gelir; daha küçük bir modele geçmeye gerek yok ([bölüm 5](#5-llamacpp-hız-ölçümü-ve-hesap-bütçesi)). Ölçüm hafıza ve forum bağlamı olmadan yapıldı; bunlar prompt'u uzatacağı için İP5–İP6'da tekrarlanacak.
+
+**❌ MDD hedefi karşılanmadı.** Hedef: en iyi LLM ajanının maksimum düşüşü BTC al-ve-tut'tan en az %30 düşük olmalı. Al-ve-tut'un MDD'si %49,5 olduğuna göre hedef ≈ %34,7 veya altıdır. `llm-momentum` ajanının MDD'si %48,1, yani yalnızca %2,9 düşük. Nedenleri:
+
+1. **Ajan düşüşte riskini azaltmadı.** Getirisi (−%42,9) ve MDD'si (%48,1) BTC al-ve-tut'la neredeyse aynı. Bu, sert düşen bir dönemde ajanın portföyünü belirgin biçimde nakde çekmediğini gösteriyor. Aynı dönemde nakde geçebilen basit `ma-cross` kuralı MDD'yi %47 azalttı; yani hedef ulaşılamaz değil.
+2. **Ajan aşırı işlem yaptı.** 181 günün hepsinde yeni bir hedef dağılım verdi, hiç "değişiklik yok" demedi. Bu 557 işlem ve başlangıç sermayesinin %5,1'i kadar (512 $) komisyon üretti; Sharpe'ı bu yüzden al-ve-tut'tan da kötü çıktı (−2,60 / −1,95).
+3. **Prompt'un ilk sürümü (`decision-v1`) bu davranışı teşvik ediyor.** Ajana "pozisyonu koru" seçeneği ve işlem maliyeti açıkça verilmiyor, son işlemden bu yana kaç gün geçtiği de gözlemde yok.
+4. **Bu ölçüm bir ara ölçümdür.** Koşu tek kişilikle (`momentum`), yalnızca C0 koşulunda (hafıza ve forum yok) ve doğrulama döneminde yapıldı. Hedefin nihai değerlendirmesi test döneminde, dört kişilik ve tüm koşullarla yapılacak.
+
+Sonraki adım: `decision-v2` prompt'u (pozisyonu koru seçeneği + işlem maliyeti) ve gözleme "son işlemden beri geçen gün" eklenmesi; ölçüm İP5–İP6'da tekrarlanacak. `decision-v1` sonuçları C0 tabanı olarak saklanır.
+
+**⏳ C3 hedefi henüz ölçülemedi.** Hedef: hafıza ve güven ağırlıklı forumu olan C3 koşulundaki LLM ajanlarının ortalama Sharpe'ı, hafızasız C0'dan en az %15 yüksek olmalı. C3'ün iki bileşeni henüz yazılmadı: hafıza İP5'te, forum İP6'da gelecek. Bu yüzden şu an yalnızca C0 koşulabiliyor ve karşılaştırma yapılamıyor. Bu koşunun görevi, C3'ün karşılaştırılacağı C0 tabanını kurmaktı. C0–C3 karşılaştırması İP6'daki koşularla başlayacak.
+
+**⏳ Diğer ölçülmeyen hedefler.** Post-mortem derslerinin sayısal tutarlılığı (≥ %90) post-mortem İP5'te yazılınca, ekran gecikmesi ve 50 izleyici hedefi canlı ekran ve yük testi İP7–İP9'da hazır olunca ölçülecek.
 
 ## Doğrulama
 
 - `uv run ruff format --check .`, `uv run ruff check .`, `uv run pyright` (strict) ve `uv run pytest` lokalde geçiyor: 72 test, kapsam %94.
 - Polars 2'nin tip imzaları strict pyright'ta "partially unknown" uyarısı veriyor. Bu yüzden `reportUnknownMemberType` yalnızca Polars kullanan dosyalarda kapatıldı. ccxt tip dosyası içermediği için ccxt çağrıları iki adaptör sınıfında toplanıp `cast` edildi.
+
+---
+
+[← Belge dizini](README.md) · [← Önceki: Teknoloji yığını](07-tech-stack.md) · [Sonraki: Arayüz tasarım sistemi →](09-design-system.md)

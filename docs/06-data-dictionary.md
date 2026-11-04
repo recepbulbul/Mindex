@@ -1,6 +1,16 @@
 # 6. Veri Sözlüğü
 
-Kaynak DDL: [`db/schema.sql`](db/schema.sql). Tüm zaman damgaları UTC'dir (`timestamptz`); işlem günleri `date` olarak UTC 00:00 mum kapanışını ifade eder. Parasal değerler USDT cinsindendir.
+> **Bu belge ne anlatır?** Veritabanındaki her tablonun her alanını tek tek listeler: tipi, boş bırakılıp bırakılamayacağı, kısıtları ve ne anlama geldiği.
+>
+> **Neden önemli?** [ER diyagramı](05-er-diagram.md) tabloların nasıl bağlandığını gösterir; bu belge ise her alanın içinde ne olduğunu söyler. Kod yazarken, rapor okurken ya da bir değerin nereden geldiğini merak ederken başvurulacak yer burasıdır.
+>
+> **İlgili isterler:** [F1 #7](https://github.com/recepbulbul/Mindex/issues/7) · [F2 #8](https://github.com/recepbulbul/Mindex/issues/8) · [F6 #12](https://github.com/recepbulbul/Mindex/issues/12) · [F7 #13](https://github.com/recepbulbul/Mindex/issues/13) · [F8 #14](https://github.com/recepbulbul/Mindex/issues/14) · [NF2 #17](https://github.com/recepbulbul/Mindex/issues/17) · [NF3 #18](https://github.com/recepbulbul/Mindex/issues/18) · [NF4 #19](https://github.com/recepbulbul/Mindex/issues/19) · [NF5 #20](https://github.com/recepbulbul/Mindex/issues/20)
+>
+> **İş paketi:** İP2 · **Önceki belge:** [ER diyagramı](05-er-diagram.md) · **Sonraki belge:** [Teknoloji yığını](07-tech-stack.md) · Terimler için: [belge dizini ve sözlük](README.md#terimler-sözlüğü)
+
+Tabloları oluşturan SQL komutları (DDL): [`db/schema.sql`](db/schema.sql). Tüm zaman damgaları UTC'dir (`timestamptz`); işlem günleri `date` olarak UTC 00:00 mum kapanışını ifade eder. Parasal değerler USDT (dolara sabitlenmiş kripto para) cinsindendir.
+
+**Tabloları okuma:** "Boş?" sütununda **H** = Hayır (alan her zaman dolu olmalı), **E** = Evet (alan boş, yani `NULL` olabilir). Kısıt sütununda **PK** birincil anahtar, **FK → tablo** başka tabloya bağlantı, **UNIQUE** tekrar edemez anlamına gelir. FK'lerdeki **CASCADE** üst kayıt silinince bu kaydın da silineceğini, **RESTRICT** bağlı kayıt varken üst kaydın silinemeyeceğini, **SET NULL** üst kayıt silinince bu alanın boşaltılacağını söyler. Açıklamalardaki F/NF kodları alanın hangi isteri karşıladığını gösterir ([isterler listesi](README.md#isterler)).
 
 ## users
 | Alan | Tip | Boş? | Kısıt / varsayılan | Açıklama |
@@ -155,3 +165,7 @@ Kaynak DDL: [`db/schema.sql`](db/schema.sql). Tüm zaman damgaları UTC'dir (`ti
 | market_regime | bull, bear, sideways |
 | trade_side | buy, sell |
 | forum_stance | bullish, bearish, neutral |
+
+---
+
+[← Belge dizini](README.md) · [← Önceki: ER diyagramı](05-er-diagram.md) · [Sonraki: Teknoloji yığını →](07-tech-stack.md)
