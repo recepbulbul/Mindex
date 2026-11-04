@@ -44,6 +44,25 @@ describe('login (F1)', () => {
   })
 })
 
+describe('account', () => {
+  it('opens the account page from the menu', async () => {
+    signIn('researcher')
+    const { user, router } = renderApp('/experiments')
+    await user.click(
+      (await screen.findAllByRole('link', { name: /Hesap|arastirmaci@mindex\.dev/ }))[0]!,
+    )
+    await waitFor(() => expect(router.state.location.pathname).toBe('/account'))
+    expect(await screen.findByRole('button', { name: /Oturumu kapat/ })).toBeInTheDocument()
+  })
+
+  it('signs out from the menu on any screen', async () => {
+    signIn('viewer')
+    const { user, router } = renderApp('/experiments')
+    await user.click((await screen.findAllByRole('button', { name: 'Çıkış yap' }))[0]!)
+    await waitFor(() => expect(router.state.location.pathname).toBe('/login'))
+  })
+})
+
 describe('roles', () => {
   it('viewer cannot open the new experiment form', async () => {
     signIn('viewer')
