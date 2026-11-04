@@ -4,7 +4,7 @@
 >
 > **Neden önemli?** [ER diyagramı](05-er-diagram.md) tabloların nasıl bağlandığını gösterir; bu belge ise her alanın içinde ne olduğunu söyler. Kod yazarken, rapor okurken ya da bir değerin nereden geldiğini merak ederken başvurulacak yer burasıdır.
 >
-> **İlgili isterler:** [F1 #7](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/7) · [F2 #8](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/8) · [F6 #12](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/12) · [F7 #13](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/13) · [F8 #14](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/14) · [NF2 #17](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/17) · [NF3 #18](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/18) · [NF4 #19](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/19) · [NF5 #20](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/20)
+> **İlgili isterler:** [F1 #7](https://github.com/recepbulbul/Mindex/issues/7) · [F2 #8](https://github.com/recepbulbul/Mindex/issues/8) · [F6 #12](https://github.com/recepbulbul/Mindex/issues/12) · [F7 #13](https://github.com/recepbulbul/Mindex/issues/13) · [F8 #14](https://github.com/recepbulbul/Mindex/issues/14) · [NF2 #17](https://github.com/recepbulbul/Mindex/issues/17) · [NF3 #18](https://github.com/recepbulbul/Mindex/issues/18) · [NF4 #19](https://github.com/recepbulbul/Mindex/issues/19) · [NF5 #20](https://github.com/recepbulbul/Mindex/issues/20)
 >
 > **İş paketi:** İP2 · **Önceki belge:** [ER diyagramı](05-er-diagram.md) · **Sonraki belge:** [Teknoloji yığını](07-tech-stack.md) · Terimler için: [belge dizini ve sözlük](README.md#terimler-sözlüğü)
 

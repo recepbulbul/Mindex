@@ -4,7 +4,7 @@
 >
 > **Neden önemli?** Arayüzün tüm ekranlarda tutarlı görünmesini ve renk körlüğü olanlar dahil herkes tarafından okunabilmesini sağlar. Yeni bir ekran eklenirken buradaki kurallara uyulur.
 >
-> **İlgili isterler:** [F5 #11](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/11) · [F6 #12](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/12) · [F7 #13](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/13) · [F8 #14](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/14)
+> **İlgili isterler:** [F5 #11](https://github.com/recepbulbul/Mindex/issues/11) · [F6 #12](https://github.com/recepbulbul/Mindex/issues/12) · [F7 #13](https://github.com/recepbulbul/Mindex/issues/13) · [F8 #14](https://github.com/recepbulbul/Mindex/issues/14)
 >
 > **İş paketi:** İP2–İP3 · **Önceki belge:** [Veri hattı, simülatör ve baseline](08-data-pipeline-baseline.md) · Terimler için: [belge dizini ve sözlük](README.md#terimler-sözlüğü)
 

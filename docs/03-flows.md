@@ -4,7 +4,7 @@
 >
 > **Neden önemli?** Mindex uzun süren deneyler yürütür ve dış hizmetlere (Binance, yerel LLM) bağımlıdır; bu hizmetler kesilebilir, LLM bozuk yanıt verebilir. Bu belge, böyle durumlarda deneyin çökmeyip güvenli biçimde devam ettiğini gösterir (güvenilirlik isteri NF2).
 >
-> **İlgili isterler:** [F2 #8](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/8) · [F3 #9](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/9) · [F4 #10](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/10) · [F5 #11](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/11) · [NF1 #16](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/16) · [NF2 #17](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/17) · [NF3 #18](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/18) · [NF4 #19](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/19)
+> **İlgili isterler:** [F2 #8](https://github.com/recepbulbul/Mindex/issues/8) · [F3 #9](https://github.com/recepbulbul/Mindex/issues/9) · [F4 #10](https://github.com/recepbulbul/Mindex/issues/10) · [F5 #11](https://github.com/recepbulbul/Mindex/issues/11) · [NF1 #16](https://github.com/recepbulbul/Mindex/issues/16) · [NF2 #17](https://github.com/recepbulbul/Mindex/issues/17) · [NF3 #18](https://github.com/recepbulbul/Mindex/issues/18) · [NF4 #19](https://github.com/recepbulbul/Mindex/issues/19)
 >
 > **İş paketi:** İP1 · **Önceki belge:** [Sistem mimarisi](02-architecture.md) · **Sonraki belge:** [AI pipeline](04-ai-pipeline.md) · Terimler için: [belge dizini ve sözlük](README.md#terimler-sözlüğü)
 

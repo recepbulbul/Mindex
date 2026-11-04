@@ -4,7 +4,7 @@
 >
 > **Neden önemli?** Kodun hangi klasörde ne iş yaptığını ve bir hatanın hangi bileşenden kaynaklanabileceğini anlamak için bu harita gerekir. Tasarım kararları tablosu, "neden böyle yaptınız?" sorusunun kısa cevabıdır.
 >
-> **İlgili isterler:** [F1 #7](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/7) · [F3 #9](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/9) · [F4 #10](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/10) · [F5 #11](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/11) · [F9 #15](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/15) · [NF1 #16](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/16) · [NF2 #17](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/17) · [NF3 #18](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/18) · [NF4 #19](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/19) · [NF5 #20](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/20)
+> **İlgili isterler:** [F1 #7](https://github.com/recepbulbul/Mindex/issues/7) · [F3 #9](https://github.com/recepbulbul/Mindex/issues/9) · [F4 #10](https://github.com/recepbulbul/Mindex/issues/10) · [F5 #11](https://github.com/recepbulbul/Mindex/issues/11) · [F9 #15](https://github.com/recepbulbul/Mindex/issues/15) · [NF1 #16](https://github.com/recepbulbul/Mindex/issues/16) · [NF2 #17](https://github.com/recepbulbul/Mindex/issues/17) · [NF3 #18](https://github.com/recepbulbul/Mindex/issues/18) · [NF4 #19](https://github.com/recepbulbul/Mindex/issues/19) · [NF5 #20](https://github.com/recepbulbul/Mindex/issues/20)
 >
 > **İş paketi:** İP1 · **Önceki belge:** [Use case modeli](01-use-cases.md) · **Sonraki belge:** [Akış diyagramları](03-flows.md) · Terimler için: [belge dizini ve sözlük](README.md#terimler-sözlüğü)
 

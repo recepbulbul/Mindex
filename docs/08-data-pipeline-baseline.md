@@ -4,9 +4,9 @@
 >
 > **Neden önemli?** Önceki belgeler tasarımdı; bu belge ilk somut sonuçtur. Hedeflerden biri (LLM hızı) karşılandı, biri (MDD) karşılanmadı, bazıları henüz ölçülemedi. Hangisinin neden böyle olduğu [6. bölümün sonundaki özette](#sonuclar-ozet) açıkça yazılıdır.
 >
-> **İlgili isterler:** [F3 #9](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/9) · [F8 #14](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/14) · [F9 #15](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/15) · [NF1 #16](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/16) · [NF2 #17](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/17) · [NF5 #20](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/20)
+> **İlgili isterler:** [F3 #9](https://github.com/recepbulbul/Mindex/issues/9) · [F8 #14](https://github.com/recepbulbul/Mindex/issues/14) · [F9 #15](https://github.com/recepbulbul/Mindex/issues/15) · [NF1 #16](https://github.com/recepbulbul/Mindex/issues/16) · [NF2 #17](https://github.com/recepbulbul/Mindex/issues/17) · [NF5 #20](https://github.com/recepbulbul/Mindex/issues/20)
 >
-> **İş paketi:** İP3 ([#23](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/23), kapalı) · **Önceki belge:** [Teknoloji yığını](07-tech-stack.md) · **Sonraki belge:** [Arayüz tasarım sistemi](09-design-system.md) · Terimler için: [belge dizini ve sözlük](README.md#terimler-sözlüğü)
+> **İş paketi:** İP3 ([#23](https://github.com/recepbulbul/Mindex/issues/23), kapalı) · **Önceki belge:** [Teknoloji yığını](07-tech-stack.md) · **Sonraki belge:** [Arayüz tasarım sistemi](09-design-system.md) · Terimler için: [belge dizini ve sözlük](README.md#terimler-sözlüğü)
 
 Hafta 3 iş paketi (öneri formu İP3; belgelerde kısaca P3): ccxt (borsalara ortak arayüz sunan Python kütüphanesi) ile veri hattı, EDA (*Exploratory Data Analysis*, keşifsel veri analizi) notebook'u, test setinin ayrılması; simülatör çekirdeği, kural tabanlı ajanlar ve ilk LLM ajanı (baseline, yani sonraki koşulların karşılaştırılacağı temel ölçüm); llama.cpp hız ölçümüyle hesap bütçesinin doğrulanması; ilk metriklerin nicel hedeflerle karşılaştırılması.
 

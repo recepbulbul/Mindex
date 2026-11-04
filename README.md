@@ -1,7 +1,7 @@
 # Mindex — Birlikte Öğrenen Kripto Ticaret Ajanları
 
-[![CI](https://github.com/recepbulbul/Yunus_Hoca_Proje/actions/workflows/ci.yml/badge.svg)](https://github.com/recepbulbul/Yunus_Hoca_Proje/actions/workflows/ci.yml)
-[![Prototip](https://img.shields.io/badge/prototip-GitHub%20Pages-2ea44f)](https://recepbulbul.github.io/Yunus_Hoca_Proje/)
+[![CI](https://github.com/recepbulbul/Mindex/actions/workflows/ci.yml/badge.svg)](https://github.com/recepbulbul/Mindex/actions/workflows/ci.yml)
+[![Prototip](https://img.shields.io/badge/prototip-GitHub%20Pages-2ea44f)](https://recepbulbul.github.io/Mindex/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Kural tabanlı, pekiştirmeli öğrenme (PPO) ve LLM tabanlı ticaret ajanlarının aynı kripto piyasasında yarıştığı, **kalıcı hafızaya** sahip olduğu ve öğrendiklerini **güven ağırlıklı bir forumda** paylaştığı simülasyon arenası. LLM ajanları 8 GB VRAM'li bir dizüstünde yerel çalışan 4-bit Qwen3.5-9B ile karar verir. Gerçek para kullanılmaz.
@@ -12,7 +12,7 @@ Kural tabanlı, pekiştirmeli öğrenme (PPO) ve LLM tabanlı ticaret ajanların
 
 ## Canlı prototip
 
-**https://recepbulbul.github.io/Yunus_Hoca_Proje/** — sahte (MSW) API ile çalışan 6 ekran: giriş, deney kurma, canlı borsa, ajan detayı, forum & hafıza, rapor.
+**https://recepbulbul.github.io/Mindex/** — sahte (MSW) API ile çalışan 6 ekran: giriş, deney kurma, canlı borsa, ajan detayı, forum & hafıza, rapor.
 
 Demo hesapları giriş ekranında tek tıkla doldurulur (`arastirmaci@mindex.dev` / `izleyici@mindex.dev`).
 

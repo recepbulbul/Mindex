@@ -46,22 +46,22 @@ Yalnızca sonuçları merak ediyorsanız doğrudan 8. belgenin [sonuçlar bölü
 
 | İster | Kısaca | Issue |
 |---|---|---|
-| F1 | Kimlik doğrulama: JWT ile giriş, araştırmacı/izleyici rolleri | [#7](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/7) |
-| F2 | Deney yönetimi: deney oluşturma, YAML olarak dışa aktarma | [#8](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/8) |
-| F3 | Replay simülasyonu: hız ayarı, duraklat/devam, aynı seed ile aynı sonuç | [#9](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/9) |
-| F4 | Canlı paper-trading: Binance canlı akışı, otomatik yeniden bağlanma | [#10](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/10) |
-| F5 | Canlı borsa ekranı: mum grafiği, işlem işaretleri, lider tablosu | [#11](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/11) |
-| F6 | Ajan detayı: portföy geçmişi, karar gerekçesi, kullanılan anılar, güven skorları | [#12](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/12) |
-| F7 | Forum ve hafıza tarayıcı: güven görselleştirme, rejime göre filtre, arama | [#13](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/13) |
-| F8 | Raporlama: Sharpe, MDD, getiri, sürü korelasyonu, CSV/PDF | [#14](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/14) |
-| F9 | Ajan eklenti arayüzü (`BaseAgent`) ve MCP sunucusu | [#15](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/15) |
-| NF1 | Performans: karar p95 < 10 sn, tick→ekran p95 < 500 ms, 50 izleyici | [#16](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/16) |
-| NF2 | Güvenilirlik: şema doğrulama, yeniden deneme, güvenli varsayılan, checkpoint | [#17](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/17) |
-| NF3 | Güvenlik: Argon2id, `.env`, hız sınırlama, OWASP LLM01, MCP yetkisi | [#18](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/18) |
-| NF4 | Gözlemlenebilirlik: OpenTelemetry, structlog JSON, Langfuse | [#19](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/19) |
-| NF5 | Tekrarlanabilirlik ve bakım: uv kilidi, Docker, seed, CI, ≥ %70 test kapsamı | [#20](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/20) |
+| F1 | Kimlik doğrulama: JWT ile giriş, araştırmacı/izleyici rolleri | [#7](https://github.com/recepbulbul/Mindex/issues/7) |
+| F2 | Deney yönetimi: deney oluşturma, YAML olarak dışa aktarma | [#8](https://github.com/recepbulbul/Mindex/issues/8) |
+| F3 | Replay simülasyonu: hız ayarı, duraklat/devam, aynı seed ile aynı sonuç | [#9](https://github.com/recepbulbul/Mindex/issues/9) |
+| F4 | Canlı paper-trading: Binance canlı akışı, otomatik yeniden bağlanma | [#10](https://github.com/recepbulbul/Mindex/issues/10) |
+| F5 | Canlı borsa ekranı: mum grafiği, işlem işaretleri, lider tablosu | [#11](https://github.com/recepbulbul/Mindex/issues/11) |
+| F6 | Ajan detayı: portföy geçmişi, karar gerekçesi, kullanılan anılar, güven skorları | [#12](https://github.com/recepbulbul/Mindex/issues/12) |
+| F7 | Forum ve hafıza tarayıcı: güven görselleştirme, rejime göre filtre, arama | [#13](https://github.com/recepbulbul/Mindex/issues/13) |
+| F8 | Raporlama: Sharpe, MDD, getiri, sürü korelasyonu, CSV/PDF | [#14](https://github.com/recepbulbul/Mindex/issues/14) |
+| F9 | Ajan eklenti arayüzü (`BaseAgent`) ve MCP sunucusu | [#15](https://github.com/recepbulbul/Mindex/issues/15) |
+| NF1 | Performans: karar p95 < 10 sn, tick→ekran p95 < 500 ms, 50 izleyici | [#16](https://github.com/recepbulbul/Mindex/issues/16) |
+| NF2 | Güvenilirlik: şema doğrulama, yeniden deneme, güvenli varsayılan, checkpoint | [#17](https://github.com/recepbulbul/Mindex/issues/17) |
+| NF3 | Güvenlik: Argon2id, `.env`, hız sınırlama, OWASP LLM01, MCP yetkisi | [#18](https://github.com/recepbulbul/Mindex/issues/18) |
+| NF4 | Gözlemlenebilirlik: OpenTelemetry, structlog JSON, Langfuse | [#19](https://github.com/recepbulbul/Mindex/issues/19) |
+| NF5 | Tekrarlanabilirlik ve bakım: uv kilidi, Docker, seed, CI, ≥ %70 test kapsamı | [#20](https://github.com/recepbulbul/Mindex/issues/20) |
 
-Tamamlanan iş paketleri de kapalı issue olarak durur: İP1 [#21](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/21), İP2 [#22](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/22), İP3 [#23](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/23).
+Tamamlanan iş paketleri de kapalı issue olarak durur: İP1 [#21](https://github.com/recepbulbul/Mindex/issues/21), İP2 [#22](https://github.com/recepbulbul/Mindex/issues/22), İP3 [#23](https://github.com/recepbulbul/Mindex/issues/23).
 
 ## Diyagramları okuma
 

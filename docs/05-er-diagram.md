@@ -4,7 +4,7 @@
 >
 > **Neden önemli?** Kullanıcılar, deneyler, ajan kararları, işlemler, hafıza ve forum mesajlarının nasıl birbirine bağlandığını gösterir. Örneğin her işlemin hangi karara, her kararın hangi anılara ve forum mesajlarına dayandığı bu ilişkiler sayesinde izlenebilir (açıklanabilirlik isteri NF4).
 >
-> **İlgili isterler:** [F1 #7](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/7) · [F2 #8](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/8) · [F6 #12](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/12) · [F7 #13](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/13) · [F8 #14](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/14) · [NF2 #17](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/17) · [NF3 #18](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/18) · [NF4 #19](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/19) · [NF5 #20](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/20)
+> **İlgili isterler:** [F1 #7](https://github.com/recepbulbul/Mindex/issues/7) · [F2 #8](https://github.com/recepbulbul/Mindex/issues/8) · [F6 #12](https://github.com/recepbulbul/Mindex/issues/12) · [F7 #13](https://github.com/recepbulbul/Mindex/issues/13) · [F8 #14](https://github.com/recepbulbul/Mindex/issues/14) · [NF2 #17](https://github.com/recepbulbul/Mindex/issues/17) · [NF3 #18](https://github.com/recepbulbul/Mindex/issues/18) · [NF4 #19](https://github.com/recepbulbul/Mindex/issues/19) · [NF5 #20](https://github.com/recepbulbul/Mindex/issues/20)
 >
 > **İş paketi:** İP2 · **Önceki belge:** [AI pipeline](04-ai-pipeline.md) · **Sonraki belge:** [Veri sözlüğü](06-data-dictionary.md) · Terimler için: [belge dizini ve sözlük](README.md#terimler-sözlüğü)
 

@@ -5,8 +5,8 @@
 ```bash
 # Fine-grained token: Repository → Issues: Read and write
 export GITHUB_TOKEN=github_pat_...         # PowerShell: $env:GITHUB_TOKEN="..."
-python scripts/github/create_issues.py --repo recepbulbul/Yunus_Hoca_Proje --dry-run
-python scripts/github/create_issues.py --repo recepbulbul/Yunus_Hoca_Proje
+python scripts/github/create_issues.py --repo recepbulbul/Mindex --dry-run
+python scripts/github/create_issues.py --repo recepbulbul/Mindex
 ```
 
 Ardından GitHub Projects'te bir tablo (Board) oluşturup issue'ları milestone'a göre gruplamak önerilir.

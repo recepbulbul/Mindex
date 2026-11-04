@@ -4,7 +4,7 @@
 >
 > **Neden önemli?** Seçimler bütçe ve donanım sınırlarına göre yapılmıştır (bulut yok, 8 GB ekran kartı belleği). Bu tablo, bir aracın neden tercih edildiğini ve projenin şu an hangi noktada olduğunu tek bakışta gösterir.
 >
-> **İlgili isterler:** [F9 #15](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/15) · [NF1 #16](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/16) · [NF4 #19](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/19) · [NF5 #20](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/20)
+> **İlgili isterler:** [F9 #15](https://github.com/recepbulbul/Mindex/issues/15) · [NF1 #16](https://github.com/recepbulbul/Mindex/issues/16) · [NF4 #19](https://github.com/recepbulbul/Mindex/issues/19) · [NF5 #20](https://github.com/recepbulbul/Mindex/issues/20)
 >
 > **İş paketi:** İP2 (tablo); her satır kendi iş paketinde · **Önceki belge:** [Veri sözlüğü](06-data-dictionary.md) · **Sonraki belge:** [Veri hattı, simülatör ve baseline](08-data-pipeline-baseline.md) · Terimler için: [belge dizini ve sözlük](README.md#terimler-sözlüğü)
 
