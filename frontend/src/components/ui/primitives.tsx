@@ -84,7 +84,13 @@ export function Input({ className, ...props }: ComponentProps<'input'>) {
 }
 
 export function Select({ className, ...props }: ComponentProps<'select'>) {
-  return <select className={cn(control, 'pr-8', className)} {...props} />
+  // The open list is drawn by the OS: without explicit colours Windows shows it light on dark.
+  return (
+    <select
+      className={cn(control, 'pr-8 [&_option]:bg-elevated [&_option]:text-foreground', className)}
+      {...props}
+    />
+  )
 }
 
 export function Field({

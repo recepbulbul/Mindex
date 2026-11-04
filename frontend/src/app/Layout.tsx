@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils'
 
 const navClass = ({ isActive }: { isActive: boolean }) =>
   cn(
-    'group relative flex shrink-0 items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] whitespace-nowrap transition-all [&_svg]:size-4 [&_svg]:shrink-0',
+    'group relative flex shrink-0 items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] whitespace-nowrap transition-colors [&_svg]:size-4 [&_svg]:shrink-0',
     isActive
       ? 'bg-white/[0.07] text-foreground shadow-[inset_0_1px_0_oklch(1_0_0/0.08)] [&_svg]:text-primary before:absolute before:inset-y-2 before:-left-3 before:w-0.5 before:rounded-full before:bg-brand'
       : 'text-muted-foreground hover:bg-white/[0.04] hover:text-foreground',

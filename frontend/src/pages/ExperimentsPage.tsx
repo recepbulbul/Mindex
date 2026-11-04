@@ -1,5 +1,5 @@
 import { Download, FlaskConical, Play, Plus } from 'lucide-react'
-import { lazy, Suspense, useMemo, useState } from 'react'
+import { lazy, Suspense, useMemo } from 'react'
 import { Link } from 'react-router'
 import { api } from '@/api/client'
 import {
@@ -18,6 +18,7 @@ import { buttonVariants, segmentClass, segmentedClass } from '@/components/ui/bu
 import { Card, EmptyState, ErrorState, Skeleton } from '@/components/ui/primitives'
 import { downloadFile } from '@/lib/download'
 import { rovingKeyDown } from '@/lib/roving'
+import { useSearchParam } from '@/lib/search-param'
 import { agentColor } from '@/lib/identity'
 import { cn, formatDate, formatNum, formatPct } from '@/lib/utils'
 
@@ -39,13 +40,14 @@ function ConditionChip({ condition, full }: { condition: Condition; full?: boole
   )
 }
 
-type Filter = 'all' | 'running' | 'completed' | 'draft'
-const FILTERS: [Filter, string][] = [
+type Filter = (typeof FILTERS)[number][0]
+const FILTERS = [
   ['all', 'Tümü'],
   ['running', 'Çalışıyor'],
   ['completed', 'Tamamlandı'],
   ['draft', 'Taslak'],
-]
+] as const
+const FILTER_KEYS = FILTERS.map(([key]) => key)
 const matches = (f: Filter, e: Experiment) =>
   f === 'all' ||
   (f === 'running' ? e.status === 'running' || e.status === 'queued' : e.status === f)
@@ -55,7 +57,7 @@ export function ExperimentsPage() {
   const { data, isPending, error, refetch } = useExperiments()
   const start = useStartExperiment()
   const isResearcher = user?.role === 'researcher'
-  const [filter, setFilter] = useState<Filter>('all')
+  const [filter, setFilter] = useSearchParam('status', FILTER_KEYS, 'all')
 
   const featured =
     data?.find((e) => e.status === 'completed' && e.condition === 'C3') ??

@@ -73,6 +73,7 @@ export function LoginPage() {
                     id="email"
                     type="email"
                     autoComplete="username"
+                    spellCheck={false}
                     placeholder="ad@mindex.dev"
                     aria-invalid={!!errors.email}
                     className="h-10"
@@ -132,7 +133,7 @@ export function LoginPage() {
                       </span>
                       <ArrowRight
                         aria-hidden
-                        className="text-muted-foreground opacity-0 transition-all group-hover:translate-x-0.5 group-hover:opacity-100"
+                        className="text-muted-foreground opacity-0 transition-[opacity,transform] group-hover:translate-x-0.5 group-hover:opacity-100"
                       />
                     </Button>
                   ))}

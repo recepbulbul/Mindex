@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { renderApp, signIn } from '@/test/render'
 
@@ -94,6 +94,29 @@ describe('live screen (F5)', () => {
     expect(slider).toHaveValue('182')
   })
 
+  it('keeps the chosen asset in the URL and ignores unknown ones', async () => {
+    signIn('viewer')
+    const { user, router } = renderApp('/experiments/exp-test-c3/live?asset=ETH')
+    expect(await screen.findByRole('figure', { name: /ETH\/USDT/ })).toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: /SOL/ }))
+    expect(router.state.location.search).toBe('?asset=SOL')
+
+    await router.navigate('/experiments/exp-test-c3/live?asset=DOGE')
+    expect(await screen.findByRole('figure', { name: /BTC\/USDT/ })).toBeInTheDocument()
+  })
+
+  it('plays from the day on screen and stops at the last day', async () => {
+    signIn('viewer')
+    const { user } = renderApp('/experiments/exp-test-c3/live')
+    const slider = await screen.findByLabelText('Simülasyon günü')
+    // Play at max speed from two days before the end.
+    await user.click(screen.getByRole('radio', { name: /20/ }))
+    fireEvent.change(slider, { target: { value: '180' } })
+    await user.click(screen.getByRole('button', { name: 'Oynat' }))
+    await waitFor(() => expect(slider).toHaveValue('182'))
+    expect(screen.getByRole('button', { name: 'Oynat' })).toBeDisabled()
+  })
+
   it('explains that a draft has not started', async () => {
     signIn('viewer')
     renderApp('/experiments/exp-val-c1/live')
@@ -118,6 +141,15 @@ describe('forum and memory (F7)', () => {
     const { user } = renderApp('/experiments/exp-test-c3/forum')
     await user.click(await screen.findByLabelText('Yalnızca filtrelenenler'))
     expect(await screen.findByText(/ajanlara iletilmedi/)).toBeInTheDocument()
+  })
+
+  it('opens the memory browser from the URL', async () => {
+    signIn('viewer')
+    renderApp('/experiments/exp-test-c3/forum?view=memory')
+    expect(await screen.findByRole('tab', { name: 'Hafıza tarayıcı' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
   })
 
   it('filters lessons by regime', async () => {

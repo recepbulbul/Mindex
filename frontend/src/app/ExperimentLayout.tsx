@@ -60,28 +60,28 @@ export function ExperimentLayout() {
           </div>
         </div>
 
-        <nav
-          aria-label="Deney görünümleri"
-          className="mt-4 flex items-center gap-6 border-b print:hidden"
-        >
-          {TABS.map(([path, label]) => (
-            <NavLink
-              key={path}
-              to={`/experiments/${id}/${path}`}
-              className={({ isActive }) =>
-                cn(
-                  '-mb-px border-b-2 pb-3 text-sm transition-colors',
-                  isActive
-                    ? 'border-foreground text-foreground'
-                    : 'border-transparent text-muted-foreground hover:text-foreground',
-                )
-              }
-            >
-              {label}
-            </NavLink>
-          ))}
+        {/* Actions sit beside the tabs but outside the navigation landmark. */}
+        <div className="mt-4 flex items-center border-b print:hidden">
+          <nav aria-label="Deney görünümleri" className="flex items-center gap-6">
+            {TABS.map(([path, label]) => (
+              <NavLink
+                key={path}
+                to={`/experiments/${id}/${path}`}
+                className={({ isActive }) =>
+                  cn(
+                    '-mb-px border-b-2 pb-3 text-sm transition-colors',
+                    isActive
+                      ? 'border-foreground text-foreground'
+                      : 'border-transparent text-muted-foreground hover:text-foreground',
+                  )
+                }
+              >
+                {label}
+              </NavLink>
+            ))}
+          </nav>
           <div ref={setActions} className="-mt-2 ml-auto flex items-center gap-1" />
-        </nav>
+        </div>
       </header>
       <Outlet context={actions} />
     </>
