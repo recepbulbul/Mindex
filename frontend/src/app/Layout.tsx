@@ -1,9 +1,10 @@
-import { FlaskConical, Plus, type LucideIcon } from 'lucide-react'
+import { FlaskConical, LogOut, Plus, type LucideIcon } from 'lucide-react'
 import { Link, NavLink, Outlet } from 'react-router'
 import { useExperiments } from '@/api/queries'
 import type { Experiment } from '@/api/types'
 import { useAuth } from '@/auth/AuthContext'
 import { BrandMark, UserAvatar } from '@/components/common'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 const navClass = ({ isActive }: { isActive: boolean }) =>
@@ -63,7 +64,7 @@ function ExperimentLinks({ experiments }: { experiments: Experiment[] }) {
 }
 
 export function Layout() {
-  const { user } = useAuth()
+  const { user, logout } = useAuth()
   const started = useStartedExperiments()
   const isResearcher = user?.role === 'researcher'
 
@@ -110,8 +111,8 @@ export function Layout() {
             <span className="size-1.5 rounded-full bg-warn" aria-hidden />
             Sahte API (MSW) · gerçek para yok
           </div>
-          {/* The account is a row like any other link, not a boxed widget. */}
-          <div>
+          {/* The account is a row like any other link; signing out is always one click away. */}
+          <div className="flex items-center gap-1">
             <NavLink
               to="/account"
               className={(state) => cn(navClass(state), 'min-w-0 flex-1 py-1.5')}
@@ -122,6 +123,15 @@ export function Layout() {
                 <span className="block text-[11px] text-muted-foreground">{roleLabel}</span>
               </span>
             </NavLink>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={logout}
+              aria-label="Çıkış yap"
+              title="Çıkış yap"
+            >
+              <LogOut />
+            </Button>
           </div>
         </div>
       </aside>
@@ -134,9 +144,18 @@ export function Layout() {
               <BrandMark className="size-7" /> Mindex
             </Link>
             <span className="ml-auto text-xs text-muted-foreground">{roleLabel}</span>
-            <Link to="/account" aria-label="Hesap" className="rounded-full">
+            <Link to="/account" aria-label="Hesap" title="Hesap" className="rounded-full">
               <UserAvatar email={user?.email ?? ''} className="size-8 text-[11px]" />
             </Link>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={logout}
+              aria-label="Çıkış yap"
+              title="Çıkış yap"
+            >
+              <LogOut />
+            </Button>
           </div>
           <nav
             aria-label="Ana menü (mobil)"
