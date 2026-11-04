@@ -32,6 +32,19 @@ export const RegimeBadge = ({ regime }: { regime: Regime }) => (
   </Badge>
 )
 
+/** The signed-in user's silver initials disc; size and type scale come from `className`. */
+export const UserAvatar = ({ email, className }: { email: string; className?: string }) => (
+  <span
+    aria-hidden
+    className={cn(
+      'grid shrink-0 place-items-center rounded-full bg-[linear-gradient(180deg,#f8fafd,#aab4c8)] font-semibold text-primary-foreground uppercase',
+      className,
+    )}
+  >
+    {email.slice(0, 2)}
+  </span>
+)
+
 /** The Mindex mark: agents (nodes) climbing a shared equity curve, on the brand gradient. */
 export function BrandMark({ className }: { className?: string }) {
   const id = useId()

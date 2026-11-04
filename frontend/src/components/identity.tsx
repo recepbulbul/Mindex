@@ -48,33 +48,3 @@ export function AssetOrb({ asset, className }: { asset: Asset; className?: strin
     </span>
   )
 }
-
-/** Tiny inline trend line. */
-export function Sparkline({
-  values,
-  className,
-  color,
-}: {
-  values: number[]
-  className?: string
-  color?: string
-}) {
-  if (values.length < 2) return null
-  const lo = Math.min(...values)
-  const span = Math.max(...values) - lo || 1
-  const pts = values.map((v, i) => [(i / (values.length - 1)) * 100, 28 - ((v - lo) / span) * 26])
-  const d = pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x!.toFixed(2)} ${y!.toFixed(2)}`).join(' ')
-  const up = values.at(-1)! >= values[0]!
-  const stroke = color ?? (up ? 'var(--up)' : 'var(--down)')
-  return (
-    <svg
-      aria-hidden
-      viewBox="0 0 100 30"
-      preserveAspectRatio="none"
-      className={cn('h-8 w-full overflow-visible', className)}
-    >
-      <path d={`${d} L100 30 L0 30Z`} fill={stroke} fillOpacity="0.12" />
-      <path d={d} fill="none" stroke={stroke} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-    </svg>
-  )
-}

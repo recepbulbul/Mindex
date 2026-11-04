@@ -24,6 +24,43 @@ describe('api client', () => {
     expect(calls).toBe(2)
   })
 
+  it('shares one recovery between requests that fail at the same time', async () => {
+    const seen = new Map<string, number>()
+    const firstFails = (path: string) =>
+      http.get(`${API_BASE}${path}`, () => {
+        seen.set(path, (seen.get(path) ?? 0) + 1)
+        return seen.get(path) === 1 ? devServer404() : HttpResponse.json({ path })
+      })
+    server.use(firstFails('/experiments'), firstFails('/agents'))
+    // Slow enough that both failures arrive while the first recovery is still running.
+    const recover = vi.fn<() => Promise<void>>(
+      () => new Promise<void>((resolve) => setTimeout(resolve, 20)),
+    )
+    setApiRecovery(recover)
+
+    await expect(Promise.all([api.get('/experiments'), api.get('/agents')])).resolves.toEqual([
+      { path: '/experiments' },
+      { path: '/agents' },
+    ])
+    expect(recover).toHaveBeenCalledOnce()
+  })
+
+  it('retries only once when recovery does not bring the API back', async () => {
+    let calls = 0
+    server.use(
+      http.post(`${API_BASE}/auth/login`, () => {
+        calls++
+        return devServer404()
+      }),
+    )
+    const recover = vi.fn<() => Promise<void>>().mockResolvedValue()
+    setApiRecovery(recover)
+
+    await expect(api.post('/auth/login', {})).rejects.toThrow(/Sunucuya ulaşılamadı/)
+    expect(recover).toHaveBeenCalledOnce()
+    expect(calls).toBe(2)
+  })
+
   it('reports an unreachable API clearly instead of a JSON parse error', async () => {
     server.use(
       http.get(`${API_BASE}/experiments`, () =>
