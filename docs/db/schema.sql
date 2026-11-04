@@ -1,5 +1,14 @@
 -- Mindex veritabanı şeması (PostgreSQL 17 + pgvector >= 0.7)
 -- P4'te Alembic migration'larına dönüştürülecek referans DDL.
+--
+-- Bu dosya ne anlatır: Mindex veritabanının tablolarını, kısıtlarını ve indekslerini
+-- oluşturan SQL komutları (DDL, Data Definition Language). Henüz uygulama tarafından
+-- çalıştırılmaz; İP4'te (P4) Alembic migration'larına dönüştürülecek referanstır.
+--
+-- Görsel karşılığı : docs/05-er-diagram.md (tablolar arası ilişkiler)
+-- Alan açıklamaları: docs/06-data-dictionary.md (her alanın tipi, kısıtı ve anlamı)
+-- İlgili isterler  : F1 #7, F2 #8, F6 #12, F7 #13, F8 #14, NF2 #17, NF3 #18, NF4 #19, NF5 #20
+--                    https://github.com/recepbulbul/Yunus_Hoca_Proje/issues
 
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS citext;

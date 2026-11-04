@@ -1,5 +1,15 @@
 # 9. Arayüz Tasarım Sistemi
 
+> **Bu belge ne anlatır?** Mindex web arayüzünün görsel dilini tanımlar: renkler, yazı tipleri, bileşenler, erişilebilirlik ve performans kuralları.
+>
+> **Neden önemli?** Arayüzün tüm ekranlarda tutarlı görünmesini ve renk körlüğü olanlar dahil herkes tarafından okunabilmesini sağlar. Yeni bir ekran eklenirken buradaki kurallara uyulur.
+>
+> **İlgili isterler:** [F5 #11](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/11) · [F6 #12](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/12) · [F7 #13](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/13) · [F8 #14](https://github.com/recepbulbul/Yunus_Hoca_Proje/issues/14)
+>
+> **İş paketi:** İP2–İP3 · **Önceki belge:** [Veri hattı, simülatör ve baseline](08-data-pipeline-baseline.md) · Terimler için: [belge dizini ve sözlük](README.md#terimler-sözlüğü)
+
+Bu belge çoğunlukla frontend geliştiricileri içindir. Kısaltmalar: **token** tasarımda tek yerde tanımlanan ve her yerde adıyla kullanılan renk/ölçü değişkeni; **kontrast oranı** (örn. 4,5:1) metin ile zemin arasındaki parlaklık farkı, yüksek olan daha okunaklı; **ΔE** iki rengin göze ne kadar farklı göründüğünün ölçüsü; **KPI** temel performans göstergesi; **axe** otomatik erişilebilirlik tarama aracı.
+
 Mindex arayüzünün görsel dili bu dokümanda sabitlenmiştir. Yeni ekranlar ve bileşenler buradaki kurallara uyar; kuralı değiştirmek gerekiyorsa önce bu doküman güncellenir.
 
 ## Yön: "gece camı"
@@ -101,3 +111,7 @@ Tamamı [`frontend/src/components`](../frontend/src/components) altındadır.
 - Sayı ve tarih biçimlendiricileri (`Intl`) modül yüklenirken bir kez oluşturulur; oynatma sırasında her karede yeniden yaratılmaz.
 - Tanıtım sayfasındaki yörünge yalnızca `transform` ile döner ve `prefers-reduced-motion` altında durur.
 - Ölçüm (geliştirme sunucusu, 1440 × 900, 20× oynatma, cam ve ışıklar açıkken): saniyede 79 kare, 95. yüzdelik kare süresi 28 ms, uzun görev yok.
+
+---
+
+[← Belge dizini](README.md) · [← Önceki: Veri hattı, simülatör ve baseline](08-data-pipeline-baseline.md)

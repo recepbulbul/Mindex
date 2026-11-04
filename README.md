@@ -21,7 +21,7 @@ Demo hesapları giriş ekranında tek tıkla doldurulur (`arastirmaci@mindex.dev
 ```
 backend/     Python 3.12 paketi (uv) — veri hattı, simülatör, ajanlar, metrikler; ileride FastAPI + işçi
 frontend/    React 19 + TypeScript + Vite prototipi (MSW sahte API)
-docs/        Use case, mimari, akış, AI pipeline, ER, veri sözlüğü, teknoloji yığını, P3 veri hattı ve baseline
+docs/        Belgeler; başlangıç noktası docs/README.md (okuma sırası + terimler sözlüğü)
 data/        Parquet anlık görüntüleri (gitignore'da) ve commitlenen manifest (SHA-256)
 reports/     `mindex baseline` / `mindex bench-llm` çıktıları
 scripts/     İsterlerin GitHub Issues'a aktarılması
@@ -50,6 +50,8 @@ cd backend && uv run pre-commit install
 ```
 
 ## Dokümantasyon
+
+Projeyi ilk kez okuyorsanız **[belge dizininden](docs/README.md)** başlayın: kısa giriş, önerilen okuma sırası, her belgenin kime yönelik olduğu ve terimler sözlüğü (C0–C3, Sharpe, MDD, sürü korelasyonu, İP1–İP10, F/NF isterleri…) oradadır.
 
 | Hafta | Doküman |
 |---|---|
