@@ -25,6 +25,19 @@ uv run pre-commit run --all-files         # tüm kancalar
 | Frontend tip | `npm run typecheck` |
 | Frontend test | `npm test` (Vitest + Testing Library + MSW) |
 
+## Claude Code kurulumu (bir kez)
+
+`.claude/settings.json` eklentileri yalnızca **etkin** olarak işaretler; eklentiler makine başına kurulur. Depoyu ilk kez açtığınızda proje klasöründe çalıştırın:
+
+```bash
+claude plugin install superpowers@claude-plugins-official --scope project
+claude plugin install context7@claude-plugins-official --scope project
+claude plugin install pyright-lsp@claude-plugins-official --scope project
+claude plugin install typescript-lsp@claude-plugins-official --scope project
+```
+
+Ardından bir `claude` oturumunda `/mcp` ile context7'yi yetkilendirin ve yeni oturum açın. Proje skill'leri (`.claude/skills/`) ve CLAUDE.md ek kurulum gerektirmez.
+
 ## Kurallar
 
 - **Gizli anahtar commitlenmez.** `.env.example`'ı kopyalayın; gitleaks hem pre-commit'te hem CI'da çalışır.
