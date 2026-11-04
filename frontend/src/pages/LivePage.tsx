@@ -1,9 +1,7 @@
 import {
-  Activity,
   Clock,
   Pause,
   Play,
-  Radio,
   RotateCcw,
   SkipForward,
   TrendingDown,
@@ -13,10 +11,10 @@ import {
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { useExperiment, useTimeline } from '@/api/queries'
-import { CONDITION_LABELS, type Asset } from '@/api/types'
+import type { Asset } from '@/api/types'
 import { CandleChart, type TradeMarker } from '@/components/charts/charts'
-import { PageTitle, RegimeBadge, StatusBadge } from '@/components/common'
-import { AgentAvatar, AssetOrb, Sparkline } from '@/components/identity'
+import { RegimeBadge } from '@/components/common'
+import { AgentAvatar, AssetOrb } from '@/components/identity'
 import { Button } from '@/components/ui/button'
 import { segmentClass, segmentedClass } from '@/components/ui/button-variants'
 import {
@@ -113,30 +111,19 @@ export default function LivePage() {
   if (experiment.error) return <ErrorState error={experiment.error} />
   if (isDraft)
     return (
-      <>
-        <PageTitle
-          eyebrow={
-            <>
-              <Activity /> Canlı borsa
-            </>
-          }
-          title={experiment.data!.name}
-        />
-        <Card>
-          <EmptyState icon={<Clock />} title="Bu deney henüz başlatılmadı.">
-            <Link to="/experiments" className="text-primary underline-offset-4 hover:underline">
-              Deneylere dön
-            </Link>
-          </EmptyState>
-        </Card>
-      </>
+      <Card>
+        <EmptyState icon={<Clock />} title="Bu deney henüz başlatılmadı.">
+          <Link to="/experiments" className="text-primary underline-offset-4 hover:underline">
+            Deneylere dön
+          </Link>
+        </EmptyState>
+      </Card>
     )
   if (timeline.error)
     return <ErrorState error={timeline.error} onRetry={() => void timeline.refetch()} />
   if (!view || !experiment.data) return <Skeleton className="h-[480px]" />
 
   const exp = experiment.data
-  const isLive = exp.mode === 'live'
   const equities = view.runs.map((r) => r.equity)
   const lo = Math.min(...equities)
   const span = Math.max(...equities) - lo || 1
@@ -145,91 +132,59 @@ export default function LivePage() {
 
   return (
     <>
-      <PageTitle
-        eyebrow={
-          <>
-            <Activity /> Canlı borsa
-          </>
-        }
-        title={exp.name}
-        subtitle={`${CONDITION_LABELS[exp.condition]} · seed ${exp.seed} · ${exp.agentIds.length} ajan`}
-        actions={
-          <div className="flex items-center gap-2">
-            {isLive && (
-              <Badge tone="up" className="gap-1.5">
-                <Radio className="size-3 animate-pulse" /> Binance akışı bağlı (sahte)
-              </Badge>
-            )}
-            <StatusBadge status={exp.status} />
-          </div>
-        }
-      />
-
-      {/* Ticker strip: every traded asset at the current simulation day; picks the chart. */}
-      <div
-        role="tablist"
-        aria-label="Varlık"
-        onKeyDown={rovingKeyDown}
-        tabIndex={-1}
-        className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5"
-      >
-        {view.tickers
-          .filter((tk) => exp.assets.includes(tk.asset))
-          .map((tk) => {
-            const active = tk.asset === asset
-            return (
-              <button
-                key={tk.asset}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                tabIndex={active ? 0 : -1}
-                onClick={() => setAsset(tk.asset)}
-                className={cn(
-                  'group relative overflow-hidden rounded-2xl border glass p-3.5 text-left transition-all duration-300',
-                  active
-                    ? 'border-primary/40 bg-elevated shadow-[inset_0_1px_0_oklch(1_0_0/0.08),inset_0_-2px_0_var(--primary)]'
-                    : 'hover:-translate-y-0.5 hover:border-border-strong',
-                )}
-              >
-                <span className="flex items-center gap-2">
-                  <AssetOrb asset={tk.asset} className="ring-0" />
-                  <span className="text-sm font-semibold">{tk.asset}</span>
-                  <span className="text-[11px] text-muted-foreground">/USDT</span>
-                  <span
-                    className={cn(
-                      'ml-auto num text-[11px]',
-                      tk.change >= 0 ? 'text-up' : 'text-down',
-                    )}
-                  >
-                    {formatPct(tk.change)}
-                  </span>
-                </span>
-                <span className="mt-2 block num text-lg font-medium tracking-tight">
-                  {formatPrice(tk.price)}
-                </span>
-                <Sparkline values={tk.closes} className="mt-1 h-7" />
-              </button>
-            )
-          })}
-      </div>
-
-      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_340px] xl:gap-x-8">
         {/* Below xl the wrapper dissolves so the order is chart, leaderboard, trades. */}
         <div className="contents xl:grid xl:min-w-0 xl:gap-4">
-          <Card className="order-1 overflow-hidden p-0 xl:order-none">
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-3 px-5 pt-5">
+          <section className="stage order-1 min-w-0 xl:order-none">
+            {/* Asset switcher: compact, so the chart starts high on the first screen. */}
+            <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+              <div
+                role="tablist"
+                aria-label="Varlık"
+                onKeyDown={rovingKeyDown}
+                tabIndex={-1}
+                className="flex flex-wrap gap-1"
+              >
+                {view.tickers
+                  .filter((tk) => exp.assets.includes(tk.asset))
+                  .map((tk) => {
+                    const active = tk.asset === asset
+                    return (
+                      <button
+                        key={tk.asset}
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        tabIndex={active ? 0 : -1}
+                        onClick={() => setAsset(tk.asset)}
+                        className={cn(
+                          'flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs transition-colors',
+                          active
+                            ? 'bg-white/[0.08] text-foreground shadow-[inset_0_1px_0_rgb(255_255_255/0.08)]'
+                            : 'text-muted-foreground hover:bg-white/[0.04] hover:text-foreground',
+                        )}
+                      >
+                        <AssetOrb asset={tk.asset} className="size-4 text-[8px] ring-0" />
+                        {tk.asset}
+                        <span className={cn('num', tk.change >= 0 ? 'text-up' : 'text-down')}>
+                          {formatPct(tk.change)}
+                        </span>
+                      </button>
+                    )
+                  })}
+              </div>
+            </div>
+            <div className="flex flex-wrap items-end gap-x-5 gap-y-2">
               <div className="flex items-center gap-3">
-                <AssetOrb asset={asset} className="size-9 text-xs ring-0" />
                 <div>
                   <p className="text-xs text-muted-foreground">{asset}/USDT · günlük</p>
                   <div className="flex items-baseline gap-2.5">
-                    <span className="num text-[1.75rem] leading-tight font-medium tracking-tight">
+                    <span className="text-silver text-4xl leading-tight font-medium num tracking-tight">
                       {formatPrice(view.price)}
                     </span>
                     <span
                       className={cn(
-                        'inline-flex items-center gap-1 num text-sm',
+                        'inline-flex items-center gap-1 text-sm num',
                         view.change >= 0 ? 'text-up' : 'text-down',
                       )}
                     >
@@ -263,17 +218,17 @@ export default function LivePage() {
               </label>
             </div>
 
-            <div className="px-2 pt-2">
+            <div className="-mx-1 pt-2">
               <CandleChart
                 candles={view.candles}
                 markers={view.markers}
-                height={420}
+                height="clamp(360px, calc(100dvh - 340px), 640px)"
                 label={`${asset}/USDT günlük mum grafiği`}
               />
             </div>
 
             {/* Transport: play/pause, speed, scrubber with a gradient progress fill. */}
-            <div className="flex flex-wrap items-center gap-3 border-t bg-black/20 px-5 py-3.5">
+            <div className="mt-3 flex flex-wrap items-center gap-3 rounded-2xl px-4 py-3 band">
               <div className="flex items-center gap-1">
                 <Button
                   size="icon"
@@ -348,13 +303,13 @@ export default function LivePage() {
                   className="scrubber relative w-full"
                 />
               </div>
-              <span className="num text-xs text-muted-foreground">
+              <span className="text-xs num text-muted-foreground">
                 {formatDate(view.day)} · <span className="text-foreground">gün {at + 1}</span>/
                 {lastIndex + 1}
               </span>
             </div>
-          </Card>
-          <Card className="order-3 xl:order-none">
+          </section>
+          <section className="order-3 mt-6 border-t pt-5 xl:order-none">
             <CardHeader title="Son işlemler" description="Seçili güne kadar, en yeniler üstte" />
             {view.feed.length === 0 ? (
               <p className="text-xs text-muted-foreground">Henüz işlem yok.</p>
@@ -372,7 +327,7 @@ export default function LivePage() {
                     />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate">{nameOf(tr.agentId)}</span>
-                      <span className="block num text-[11px] text-muted-foreground">
+                      <span className="block text-[11px] num text-muted-foreground">
                         {formatShortDate(tr.day)}
                       </span>
                     </span>
@@ -386,84 +341,85 @@ export default function LivePage() {
                 ))}
               </ul>
             )}
-          </Card>
+          </section>
         </div>
 
-        <div className="order-2 min-w-0 xl:sticky xl:top-6 xl:order-none">
-          <Card>
-            <CardHeader
-              title="Lider tablosu"
-              description="Portföy değeri · başlangıç 10.000 $"
-              action={
-                <span className="flex items-center gap-1.5 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] text-primary ring-1 ring-primary/25">
-                  <Trophy className="size-3" /> {view.leader.agent.name.replace('LLM · ', '')}
-                </span>
-              }
-            />
-            {/* Rows stay in a stable DOM order and slide to their rank, so overtakes animate. */}
-            <ol className="relative -mx-2" style={{ height: view.runs.length * ROW }}>
-              {view.runs.map((r) => {
-                const i = view.rank.get(r.agent.id)!
-                return (
-                  <li
-                    key={r.agent.id}
-                    className="absolute inset-x-0 transition-transform duration-500 ease-[cubic-bezier(0.2,0.8,0.2,1)]"
-                    style={{ transform: `translateY(${i * ROW}px)`, height: ROW }}
+        <section
+          aria-labelledby="leaderboard-title"
+          className="order-2 min-w-0 xl:sticky xl:top-6 xl:order-none xl:border-l xl:pl-6"
+        >
+          <header className="mb-3 flex items-baseline justify-between gap-3">
+            <h2 id="leaderboard-title" className="text-sm font-semibold">
+              Lider tablosu
+            </h2>
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Trophy className="size-3.5 text-primary" />
+              {view.leader.agent.name.replace('LLM · ', '')}
+            </span>
+          </header>
+          {/* Rows stay in a stable DOM order and slide to their rank, so overtakes animate. */}
+          <ol className="relative -mx-2" style={{ height: view.runs.length * ROW }}>
+            {view.runs.map((r) => {
+              const i = view.rank.get(r.agent.id)!
+              return (
+                <li
+                  key={r.agent.id}
+                  className="absolute inset-x-0 transition-transform duration-500 ease-[cubic-bezier(0.2,0.8,0.2,1)]"
+                  style={{ transform: `translateY(${i * ROW}px)`, height: ROW }}
+                >
+                  <Link
+                    to={`/experiments/${id}/agents/${r.agent.id}`}
+                    className={cn(
+                      'flex h-full flex-col justify-center rounded-lg px-2 transition-colors hover:bg-white/[0.04]',
+                    )}
                   >
-                    <Link
-                      to={`/experiments/${id}/agents/${r.agent.id}`}
-                      className={cn(
-                        'flex h-full flex-col justify-center rounded-xl px-2 transition-colors hover:bg-white/[0.05]',
-                        i === 0 && 'bg-primary/[0.07]',
-                      )}
-                    >
-                      <span className="flex items-center gap-2.5 text-[13px]">
-                        <span className="sr-only">Sıra {i + 1}:</span>
-                        <span
-                          aria-hidden
-                          className={cn(
-                            'w-4 text-center num text-[11px]',
-                            i === 0 ? 'text-primary' : 'text-muted-foreground',
-                          )}
-                        >
-                          {i + 1}
-                        </span>
-                        <AgentAvatar
-                          id={r.agent.id}
-                          name={r.agent.name}
-                          className="size-6 text-[9px]"
-                          glow={i === 0}
-                        />
-                        <span className="flex-1 truncate">{r.agent.name}</span>
-                        <span className="num text-xs">{formatUsd(r.equity)}</span>
-                        <span
-                          className={cn(
-                            'w-14 text-right num text-xs',
-                            r.ret >= 0 ? 'text-up' : 'text-down',
-                          )}
-                        >
-                          {formatPct(r.ret)}
-                        </span>
-                      </span>
+                    <span className="flex items-center gap-2.5 text-[13px]">
+                      <span className="sr-only">Sıra {i + 1}:</span>
                       <span
                         aria-hidden
-                        className="mt-1 ml-[3.25rem] block h-[3px] rounded-full bg-white/[0.06]"
+                        className={cn(
+                          'w-4 text-center text-[11px] num',
+                          i === 0 ? 'text-primary' : 'text-muted-foreground',
+                        )}
                       >
-                        <span
-                          className={cn(
-                            'block h-full rounded-full transition-[width] duration-500',
-                            i === 0 ? 'bg-brand' : r.ret >= 0 ? 'bg-up/60' : 'bg-down/60',
-                          )}
-                          style={{ width: `${8 + ((r.equity - lo) / span) * 92}%` }}
-                        />
+                        {i + 1}
                       </span>
-                    </Link>
-                  </li>
-                )
-              })}
-            </ol>
-          </Card>
-        </div>
+                      <AgentAvatar
+                        id={r.agent.id}
+                        name={r.agent.name}
+                        className="size-6 text-[9px]"
+                        glow={i === 0}
+                      />
+                      <span className="flex-1 truncate">{r.agent.name}</span>
+                      <span className="text-xs num">{formatUsd(r.equity)}</span>
+                      <span
+                        className={cn(
+                          'w-14 text-right text-xs num',
+                          r.ret >= 0 ? 'text-up' : 'text-down',
+                        )}
+                      >
+                        {formatPct(r.ret)}
+                      </span>
+                    </span>
+                    <span
+                      aria-hidden
+                      className="mt-1 ml-[3.25rem] block h-[3px] rounded-full bg-white/[0.06]"
+                    >
+                      <span
+                        className={cn(
+                          'block h-full rounded-full transition-[width] duration-500',
+                          i === 0 ? 'bg-brand' : r.ret >= 0 ? 'bg-up/60' : 'bg-down/60',
+                        )}
+                        style={{ width: `${8 + ((r.equity - lo) / span) * 92}%` }}
+                      />
+                    </span>
+                  </Link>
+                </li>
+              )
+            })}
+          </ol>
+          <p className="mt-3 text-xs text-muted-foreground">Portföy değeri · başlangıç 10.000 $</p>
+        </section>
       </div>
     </>
   )

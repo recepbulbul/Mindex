@@ -5,6 +5,7 @@ import { Skeleton } from '@/components/ui/primitives'
 import { LandingPage } from '@/pages/LandingPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { ExperimentsPage } from '@/pages/ExperimentsPage'
+import { ExperimentLayout } from './ExperimentLayout'
 import { Layout } from './Layout'
 import { StartedOnly } from './StartedOnly'
 
@@ -14,6 +15,7 @@ const LivePage = lazy(() => import('@/pages/LivePage'))
 const AgentPage = lazy(() => import('@/pages/AgentPage'))
 const ForumPage = lazy(() => import('@/pages/ForumPage'))
 const ReportPage = lazy(() => import('@/pages/ReportPage'))
+const AccountPage = lazy(() => import('@/pages/AccountPage'))
 
 const page = (node: ReactNode) => (
   <Suspense fallback={<Skeleton className="h-96 w-full" />}>{node}</Suspense>
@@ -45,12 +47,14 @@ export const routes: RouteObject[] = [
         element: <Layout />,
         children: [
           { path: 'experiments', element: <ExperimentsPage /> },
+          { path: 'account', element: page(<AccountPage />) },
           {
             element: <RequireAuth requiredRole="researcher" />,
             children: [{ path: 'experiments/new', element: page(<NewExperimentPage />) }],
           },
           {
             path: 'experiments/:id',
+            element: <ExperimentLayout />,
             children: [
               { index: true, element: <Navigate to="live" replace /> },
               { path: 'live', element: page(<LivePage />) },

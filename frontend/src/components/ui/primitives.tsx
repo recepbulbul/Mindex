@@ -15,7 +15,7 @@ export function Card({ className, ...props }: ComponentProps<'section'>) {
     <section
       onPointerMove={trackSpotlight}
       className={cn(
-        'spotlight rounded-2xl border glass p-5 print:break-inside-avoid print:shadow-none print:backdrop-blur-none',
+        'rounded-2xl border glass p-6 print:break-inside-avoid print:shadow-none print:backdrop-blur-none',
         className,
       )}
       {...props}
@@ -123,8 +123,8 @@ export function Table({ className, ...props }: ComponentProps<'table'>) {
       <table
         className={cn(
           'w-full border-collapse text-sm',
-          '[&_th]:border-b [&_th]:px-2.5 [&_th]:pb-2 [&_th]:text-left [&_th]:eyebrow [&_th]:font-medium',
-          '[&_tbody_tr]:border-b [&_tbody_tr]:border-border/60 [&_tbody_tr:last-child]:border-0 [&_td]:px-2.5 [&_td]:py-2',
+          '[&_th]:border-b [&_th]:px-2.5 [&_th]:pb-3 [&_th]:text-left [&_th]:eyebrow [&_th]:font-normal',
+          '[&_tbody_tr]:border-b [&_tbody_tr]:border-border/50 [&_tbody_tr:last-child]:border-0 [&_td]:px-2.5 [&_td]:py-3',
           '[&_tbody_tr]:transition-colors [&_tbody_tr:hover]:bg-white/[0.03]',
           className,
         )}
@@ -190,10 +190,9 @@ export function Stat({
       <p className="eyebrow">{label}</p>
       <p
         className={cn(
-          'truncate num font-medium tracking-tight',
+          'truncate font-medium num tracking-tight',
           size === 'lg' ? 'mt-1 text-3xl' : 'mt-2 text-2xl',
-          tone === 'up' && 'text-up',
-          tone === 'down' && 'text-down',
+          tone === 'up' ? 'text-up' : tone === 'down' ? 'text-down' : 'text-silver',
         )}
       >
         {value}
@@ -208,7 +207,7 @@ export function StatGrid({ className, ...props }: ComponentProps<'section'>) {
   return (
     <section
       className={cn(
-        'grid overflow-hidden rounded-2xl border glass [&>*]:-mt-px [&>*]:-ml-px [&>*]:border-t [&>*]:border-l [&>*]:p-5',
+        'grid overflow-hidden border-y [&>*]:-mt-px [&>*]:-ml-px [&>*]:border-t [&>*]:border-l [&>*]:py-5 [&>*]:pl-5',
         className,
       )}
       {...props}

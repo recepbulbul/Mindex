@@ -1,10 +1,10 @@
-import { BarChart3, FileDown, Printer } from 'lucide-react'
+import { Download, Printer } from 'lucide-react'
 import { useMemo } from 'react'
 import { useParams } from 'react-router'
 import { useAgents, useExperiment, useReport, useTimeline } from '@/api/queries'
 import { CONDITION_LABELS, type ConditionSummary } from '@/api/types'
 import { MultiLineChart } from '@/components/charts/charts'
-import { PageTitle } from '@/components/common'
+import { ExperimentActions } from '@/app/ExperimentLayout'
 import { AgentAvatar } from '@/components/identity'
 import { downloadFile } from '@/lib/download'
 import { Button } from '@/components/ui/button'
@@ -53,30 +53,22 @@ export default function ReportPage() {
 
   return (
     <>
-      <PageTitle
-        eyebrow={
-          <>
-            <BarChart3 className="size-3.5" /> Rapor
-          </>
-        }
-        title={experiment.data.name}
-        subtitle={`${CONDITION_LABELS[experiment.data.condition]} · seed ${experiment.data.seed} (F8)`}
-        actions={
-          <>
-            <Button
-              variant="outline"
-              onClick={() =>
-                downloadFile(`mindex-${id}-report.csv`, reportToCsv(r, nameOf), 'text/csv')
-              }
-            >
-              <FileDown /> CSV
-            </Button>
-            <Button variant="outline" onClick={() => window.print()}>
-              <Printer /> PDF
-            </Button>
-          </>
-        }
-      />
+      <ExperimentActions>
+        <>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() =>
+              downloadFile(`mindex-${id}-report.csv`, reportToCsv(r, nameOf), 'text/csv')
+            }
+          >
+            <Download /> CSV
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => window.print()}>
+            <Printer /> PDF
+          </Button>
+        </>
+      </ExperimentActions>
 
       <StatGrid className="mb-4 grid-cols-2 md:grid-cols-4">
         <Stat
@@ -148,14 +140,14 @@ export default function ReportPage() {
           </Table>
         </Card>
 
-        <Card>
+        <section className="stage">
           <CardHeader title="Portföy değerleri" description="Tüm ajanlar, başlangıç 10.000 $" />
           <MultiLineChart
             lines={lines}
-            height={300}
+            height={340}
             label="Ajanların portföy değeri zaman serisi"
           />
-        </Card>
+        </section>
       </div>
 
       {r.conditions.length > 0 && <ConditionComparison conditions={r.conditions} />}
@@ -212,7 +204,7 @@ function ConditionComparison({ conditions }: { conditions: ConditionSummary[] })
                         style={{ left: pos(c.sharpeMean) }}
                       />
                     </div>
-                    <span className="w-10 text-right num text-xs">{formatNum(c.sharpeMean)}</span>
+                    <span className="w-10 text-right text-xs num">{formatNum(c.sharpeMean)}</span>
                   </div>
                 </td>
                 <td

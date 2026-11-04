@@ -9,7 +9,7 @@
 | RL ve rejim | Gymnasium · Stable-Baselines3 (PPO) · hmmlearn | Standart ve iyi belgelenmiş kütüphaneler | P4 |
 | Backend | FastAPI · Pydantic v2 · SQLAlchemy 2 + Alembic · Redis Streams işçisi | Asenkron API, otomatik OpenAPI; uzun deneyler API'den ayrı işçide | P4 |
 | Protokol | MCP sunucusu (resmî Python SDK) · A2A (esneme) | Dış ajanların standart araç arayüzüyle katılımı | P7 |
-| Frontend | React 19 · TypeScript · Vite · TanStack Query · Tailwind + shadcn/ui · Lightweight Charts v5 · MSW · Geist (fontsource) | Prototip aynı kodla ürüne dönüşür (MSW ile sahte API); hafif finans grafikleri; görsel dil [tasarım sisteminde](09-design-system.md) sabit | **P2 ✔** |
+| Frontend | React 19 · TypeScript · Vite · TanStack Query · Tailwind + shadcn/ui · Lightweight Charts v5 · MSW · Schibsted Grotesk (fontsource) | Prototip aynı kodla ürüne dönüşür (MSW ile sahte API); hafif finans grafikleri; görsel dil [tasarım sisteminde](09-design-system.md) sabit | **P2 ✔** |
 | Gözlemlenebilirlik | OpenTelemetry · Langfuse (self-host) · structlog | Her LLM çağrısının izi, prompt sürümleme, gecikme takibi | structlog **P1 ✔** |
 | Test ve kalite | pytest · Vitest + Testing Library · Playwright · k6 · Ruff · pyright · oxlint · Prettier · pre-commit | Birim/entegrasyon, uçtan uca ve WebSocket yük testi; statik analiz | **P1 ✔** (k6/Playwright P9) |
 | Dağıtım ve CI | uv · Docker Compose · Caddy · Tailscale · GitHub Actions · Trivy · gitleaks · Dependabot | Kilitli bağımlılıklar, otomatik HTTPS, laptop GPU'suna güvenli tünel, imaj ve sır taraması | CI **P1 ✔** |

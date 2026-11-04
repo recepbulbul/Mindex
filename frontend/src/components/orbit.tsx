@@ -17,7 +17,7 @@ const RINGS = [110, 175, 240]
 export function Orbit({ className }: { className?: string }) {
   return (
     <div aria-hidden className={cn('pointer-events-none relative aspect-square', className)}>
-      <div className="absolute inset-[22%] rounded-full bg-[radial-gradient(circle_at_35%_30%,rgb(143_178_255/0.9),rgb(91_124_255/0.55)_35%,rgb(124_92_255/0.25)_60%,transparent_72%)] blur-md" />
+      <div className="absolute inset-[22%] rounded-full bg-[radial-gradient(circle_at_35%_30%,rgb(185_198_228/0.55),rgb(70_100_190/0.4)_35%,rgb(60_50_140/0.2)_60%,transparent_72%)] blur-md" />
       <svg
         viewBox="-260 -260 520 520"
         className="absolute inset-0 size-full motion-safe:animate-[orbit_80s_linear_infinite]"

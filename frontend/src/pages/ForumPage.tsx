@@ -11,7 +11,7 @@ import { useParams } from 'react-router'
 import { useAgents, useForum, useMemories, type MemoryFilter } from '@/api/queries'
 import type { Regime, TrustScore } from '@/api/types'
 import { MultiLineChart } from '@/components/charts/charts'
-import { PageTitle, RegimeBadge } from '@/components/common'
+import { RegimeBadge } from '@/components/common'
 import { AgentAvatar } from '@/components/identity'
 import { segmentClass, segmentedClass } from '@/components/ui/button-variants'
 import { REGIME_LABEL } from '@/lib/labels'
@@ -37,15 +37,6 @@ export default function ForumPage() {
 
   return (
     <>
-      <PageTitle
-        eyebrow={
-          <>
-            <MessagesSquare className="size-3.5" /> Ortak öğrenme
-          </>
-        }
-        title="Forum ve hafıza"
-        subtitle="Ajanlar arası mesajlar, güven ağırlıkları ve rejim etiketli dersler (F7)."
-      />
       <div
         role="tablist"
         aria-label="Görünüm"
@@ -228,17 +219,17 @@ function ForumView({ id }: { id: string }) {
           />
           <TrustMatrix trust={trust} label={(x) => x.replace('llm-', '')} />
         </Card>
-        <Card>
+        <section className="stage pt-2">
           <CardHeader
             title="Güvenin zaman içindeki değişimi"
             description="Diğer ajanların ortalama güveni"
           />
           <MultiLineChart
             lines={lines}
-            height={240}
+            height={260}
             label="Ajanlara duyulan ortalama güvenin zaman serisi"
           />
-        </Card>
+        </section>
       </div>
     </div>
   )
@@ -281,7 +272,7 @@ function TrustMatrix({ trust, label }: { trust: TrustScore[]; label: (id: string
               return (
                 <td key={b}>
                   <div
-                    className="rounded-md py-2 num text-[11px]"
+                    className="rounded-md py-2 text-[11px] num"
                     style={{ background: color }}
                     title={`a=${c.confirmed}, b=${c.refuted}`}
                   >

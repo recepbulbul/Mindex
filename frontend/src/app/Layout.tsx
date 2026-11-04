@@ -1,17 +1,8 @@
-import {
-  Activity,
-  BarChart3,
-  FlaskConical,
-  LogOut,
-  MessagesSquare,
-  Plus,
-  type LucideIcon,
-} from 'lucide-react'
-import { Link, NavLink, Outlet, useParams } from 'react-router'
-import { useExperiment } from '@/api/queries'
+import { FlaskConical, Plus, type LucideIcon } from 'lucide-react'
+import { Link, NavLink, Outlet } from 'react-router'
+import { useExperiments } from '@/api/queries'
 import { useAuth } from '@/auth/AuthContext'
-import { BrandMark, StatusBadge } from '@/components/common'
-import { Button } from '@/components/ui/button'
+import { BrandMark } from '@/components/common'
 import { cn } from '@/lib/utils'
 
 const navClass = ({ isActive }: { isActive: boolean }) =>
@@ -37,40 +28,49 @@ function NavItems({ items }: { items: NavItem[] }) {
   ))
 }
 
-function ExperimentContext({ id }: { id: string }) {
-  const { data } = useExperiment(id)
+/** Started experiments, newest first: one click back into a running race from anywhere. */
+function ExperimentShortcuts() {
+  const { data } = useExperiments()
+  const started = data?.filter((e) => e.status !== 'draft').slice(0, 5)
+  if (!started?.length) return null
   return (
-    <div className="mb-2 rounded-xl border bg-white/[0.03] px-3 py-2.5">
-      <p className="eyebrow">Açık deney</p>
-      <p className="mt-1 line-clamp-2 text-[13px] leading-snug font-medium">
-        {data?.name ?? 'Yükleniyor…'}
-      </p>
-      {data && (
-        <div className="mt-1.5 flex items-center gap-1.5">
-          <StatusBadge status={data.status} />
-          <span className="num text-[11px] text-muted-foreground">seed {data.seed}</span>
-        </div>
-      )}
+    <div className="space-y-0.5">
+      <p className="mb-2 px-2.5 eyebrow">Deneyler</p>
+      {started.map((e) => (
+        <NavLink
+          key={e.id}
+          to={`/experiments/${e.id}`}
+          className={({ isActive }) =>
+            cn(
+              'flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] transition-colors',
+              isActive
+                ? 'bg-white/[0.07] text-foreground'
+                : 'text-muted-foreground hover:bg-white/[0.04] hover:text-foreground',
+            )
+          }
+        >
+          <span
+            aria-hidden
+            className={cn(
+              'size-1.5 shrink-0 rounded-full',
+              e.status === 'running' ? 'animate-pulse bg-up' : 'bg-muted-foreground/50',
+            )}
+          />
+          <span className="truncate">{e.name}</span>
+        </NavLink>
+      ))}
     </div>
   )
 }
 
 export function Layout() {
-  const { user, logout } = useAuth()
-  const { id } = useParams()
+  const { user } = useAuth()
   const isResearcher = user?.role === 'researcher'
 
   const workspace: NavItem[] = [
-    { to: '/experiments', label: 'Deneyler', icon: FlaskConical, end: true },
+    { to: '/experiments', label: 'Tüm deneyler', icon: FlaskConical, end: true },
     ...(isResearcher ? [{ to: '/experiments/new', label: 'Yeni deney', icon: Plus }] : []),
   ]
-  const experiment: NavItem[] = id
-    ? [
-        { to: `/experiments/${id}/live`, label: 'Canlı borsa', icon: Activity },
-        { to: `/experiments/${id}/forum`, label: 'Forum & hafıza', icon: MessagesSquare },
-        { to: `/experiments/${id}/report`, label: 'Rapor', icon: BarChart3 },
-      ]
-    : []
   const roleLabel = isResearcher ? 'Araştırmacı' : 'İzleyici'
 
   return (
@@ -97,34 +97,31 @@ export function Layout() {
             <p className="mb-2 px-2.5 eyebrow">Çalışma alanı</p>
             <NavItems items={workspace} />
           </div>
-          {id && (
-            <div className="space-y-0.5">
-              <p className="mb-2 px-2.5 eyebrow">Deney</p>
-              <ExperimentContext id={id} />
-              <NavItems items={experiment} />
-            </div>
-          )}
+          <ExperimentShortcuts />
         </nav>
 
-        <div className="space-y-3 border-t p-3">
+        <div className="space-y-2 border-t p-3">
           <div className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[11px] text-muted-foreground">
             <span className="size-1.5 rounded-full bg-warn" aria-hidden />
             Sahte API (MSW) · gerçek para yok
           </div>
-          <div className="flex items-center gap-2.5 rounded-xl border bg-white/[0.03] px-2.5 py-2">
-            <span
-              aria-hidden
-              className="grid size-8 shrink-0 place-items-center rounded-full bg-primary text-xs font-semibold text-primary-foreground uppercase ring-1 ring-white/20"
+          {/* The account is a row like any other link, not a boxed widget. */}
+          <div>
+            <NavLink
+              to="/account"
+              className={(state) => cn(navClass(state), 'min-w-0 flex-1 py-1.5')}
             >
-              {user?.email.slice(0, 2)}
-            </span>
-            <span className="min-w-0 flex-1 leading-tight">
-              <span className="block truncate text-xs font-medium">{user?.email}</span>
-              <span className="block text-[11px] text-muted-foreground">{roleLabel}</span>
-            </span>
-            <Button variant="ghost" size="icon" onClick={logout} aria-label="Çıkış yap">
-              <LogOut />
-            </Button>
+              <span
+                aria-hidden
+                className="grid size-7 shrink-0 place-items-center rounded-full bg-[linear-gradient(180deg,#f8fafd,#aab4c8)] text-[11px] font-semibold text-primary-foreground uppercase"
+              >
+                {user?.email.slice(0, 2)}
+              </span>
+              <span className="min-w-0 leading-tight">
+                <span className="block truncate text-xs text-foreground">{user?.email}</span>
+                <span className="block text-[11px] text-muted-foreground">{roleLabel}</span>
+              </span>
+            </NavLink>
           </div>
         </div>
       </aside>
@@ -137,15 +134,19 @@ export function Layout() {
               <BrandMark className="size-7" /> Mindex
             </Link>
             <span className="ml-auto text-xs text-muted-foreground">{roleLabel}</span>
-            <Button variant="ghost" size="icon" onClick={logout} aria-label="Çıkış yap">
-              <LogOut />
-            </Button>
+            <Link
+              to="/account"
+              aria-label="Hesap"
+              className="grid size-8 place-items-center rounded-full bg-[linear-gradient(180deg,#f8fafd,#aab4c8)] text-[11px] font-semibold text-primary-foreground uppercase"
+            >
+              {user?.email.slice(0, 2)}
+            </Link>
           </div>
           <nav
             aria-label="Ana menü (mobil)"
             className="flex gap-1 overflow-x-auto px-3 pb-2 [&_a]:before:hidden"
           >
-            <NavItems items={[...workspace, ...experiment]} />
+            <NavItems items={workspace} />
           </nav>
         </header>
 
@@ -155,7 +156,15 @@ export function Layout() {
           </div>
         </main>
         <footer className="mx-auto max-w-[1440px] px-4 pb-8 text-xs text-muted-foreground sm:px-6 lg:px-8 print:hidden">
-          Prototip · tüm veriler sahte (MSW) · gerçek para kullanılmaz
+          Prototip · tüm veriler sahte (MSW) · gerçek para kullanılmaz · Grafikler{' '}
+          <a
+            href="https://www.tradingview.com/"
+            target="_blank"
+            rel="noreferrer"
+            className="underline-offset-4 hover:text-foreground hover:underline"
+          >
+            TradingView Lightweight Charts
+          </a>
         </footer>
       </div>
     </div>

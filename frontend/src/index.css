@@ -1,34 +1,33 @@
 @import 'tailwindcss';
-@import '@fontsource-variable/geist';
-@import '@fontsource-variable/geist-mono';
+@import '@fontsource-variable/manrope';
 
 /*
  * Mindex design tokens: the "midnight glass" theme (docs/09-design-system.md).
- * Ink-black canvas lit by cobalt, cyan and violet light; frosted-glass surfaces on top;
- * white primary actions; one cobalt→cyan accent gradient. Agent/series colours live in
+ * Navy-black canvas lit by deep, desaturated steel and indigo light; frosted-glass surfaces on
+ * top; white primary actions; one silver-ice accent used on small marks only. Agent/series colours live in
  * src/lib/identity.ts (validated with the dataviz checker). Print swaps to the light set below.
  */
 :root {
   color-scheme: dark;
-  --background: #05060b;
-  --surface: rgb(10 12 20 / 0.62);
+  --background: #040711;
+  --surface: rgb(7 10 22 / 0.7);
   --card: rgb(255 255 255 / 0.04);
   --elevated: rgb(255 255 255 / 0.07);
   --muted: rgb(255 255 255 / 0.08);
-  --foreground: #f4f6fb;
-  --muted-foreground: #9aa3b5;
+  --foreground: #f1f4fa;
+  --muted-foreground: #98a2b8;
   --border: rgb(255 255 255 / 0.09);
   --border-strong: rgb(255 255 255 / 0.16);
   /* Accent for text, icons and focus; the gradient is for marks (logo, leader, progress). */
-  --primary: #8fb2ff;
-  --primary-foreground: #05060b;
-  --brand-from: #5b7cff;
-  --brand-to: #3fd5f3;
+  --primary: #b9c6e4;
+  --primary-foreground: #040711;
+  --brand-from: #dfe6f5;
+  --brand-to: #8396bd;
   /* Gains/losses always ship with a sign or arrow too (red/green is a CVD-weak pair). */
   --up: #5fdcb0;
   --down: #ff7d93;
   --warn: #f4c35c;
-  --info: #8fb2ff;
+  --info: #a9b9dc;
   --destructive: var(--down);
   --ring: var(--primary);
 }
@@ -51,8 +50,8 @@
   --color-warn: var(--warn);
   --color-info: var(--info);
   --color-ring: var(--ring);
-  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
-  --font-mono: 'Geist Mono Variable', ui-monospace, 'SFMono-Regular', monospace;
+  --font-sans: 'Manrope Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', monospace;
   --animate-rise: rise 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both;
   --animate-shimmer: shimmer 1.6s linear infinite;
 }
@@ -70,20 +69,18 @@
   }
 }
 
-/* Small uppercase label above values, columns and sections. */
+/* Quiet label above values, columns and sections: sentence case, no spaced capitals. */
 @utility eyebrow {
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   line-height: 1rem;
-  font-weight: 500;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-weight: 400;
   color: var(--muted-foreground);
 }
 
-/* Numbers: monospaced, aligned columns, slashed zero, never wrapped. */
+/* Numbers: the text face with tabular figures, so columns align without a 'code' look. */
 @utility num {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums slashed-zero;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
   white-space: nowrap;
 }
 
@@ -104,6 +101,37 @@
   background-image: linear-gradient(100deg, var(--primary), var(--brand-to));
   background-clip: text;
   color: transparent;
+}
+
+/* Brushed silver for type that should feel like metal: prices, key figures, titles. */
+@utility text-silver {
+  background-image: linear-gradient(180deg, #ffffff 15%, #d3d9e5 55%, #9aa4b8);
+  background-clip: text;
+  color: transparent;
+}
+
+/* A chart placed straight on the page: no box, just a soft silver-navy light behind it. */
+@utility stage {
+  position: relative;
+  isolation: isolate;
+  &::before {
+    content: '';
+    position: absolute;
+    inset: -6% -3% -2%;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(closest-side at 45% 50%, rgb(200 210 232 / 0.08), transparent),
+      radial-gradient(closest-side at 80% 70%, rgb(40 70 170 / 0.16), transparent);
+  }
+}
+
+/* A black band: grounds controls and lists between the lighter navy areas. */
+@utility band {
+  background: linear-gradient(180deg, rgb(0 0 0 / 0.42), rgb(0 0 0 / 0.22));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.06),
+    inset 0 0 0 1px rgb(255 255 255 / 0.04);
 }
 
 /* Frosted glass: a whisper of white, blur of what is behind, 1px light rim on top. */
@@ -168,7 +196,7 @@
     z-index: -1;
     background: radial-gradient(
       520px circle at var(--mx, 50%) var(--my, 0%),
-      rgb(143 178 255 / 0.07),
+      rgb(185 198 228 / 0.06),
       transparent 45%
     );
   }
@@ -177,7 +205,7 @@
     padding: 1px;
     background: radial-gradient(
       320px circle at var(--mx, 50%) var(--my, 0%),
-      rgb(143 178 255 / 0.45),
+      rgb(185 198 228 / 0.4),
       transparent 60%
     );
     mask:
@@ -236,7 +264,7 @@
     background-color: var(--background);
     color: var(--foreground);
     font-family: var(--font-sans);
-    font-feature-settings: 'ss01', 'cv11';
+    letter-spacing: -0.005em;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -251,13 +279,14 @@
     z-index: -1;
     pointer-events: none;
     background:
-      radial-gradient(42% 48% at 8% -6%, rgb(59 108 255 / 0.42), transparent 70%),
-      radial-gradient(34% 40% at 96% 8%, rgb(34 211 238 / 0.26), transparent 70%),
-      radial-gradient(46% 46% at 72% 108%, rgb(124 92 255 / 0.34), transparent 70%),
-      radial-gradient(26% 30% at 18% 92%, rgb(56 189 248 / 0.14), transparent 70%),
-      radial-gradient(30% 34% at 58% 48%, rgb(91 124 255 / 0.16), transparent 70%);
+      radial-gradient(46% 52% at 6% -8%, rgb(52 82 170 / 0.3), transparent 70%),
+      radial-gradient(36% 42% at 98% 6%, rgb(70 110 160 / 0.16), transparent 70%),
+      radial-gradient(48% 48% at 74% 110%, rgb(60 50 140 / 0.24), transparent 70%),
+      radial-gradient(30% 34% at 56% 46%, rgb(40 60 130 / 0.1), transparent 70%),
+      linear-gradient(112deg, transparent 32%, rgb(214 222 240 / 0.045) 44%, transparent 56%),
+      linear-gradient(180deg, transparent 55%, rgb(0 0 0 / 0.55));
   }
-  /* A faint engineering grid and film grain on top of the light; also static. */
+  /* Polished silver light: a soft sheen from above, like light across brushed metal. No texture. */
   body::after {
     content: '';
     position: fixed;
@@ -265,13 +294,16 @@
     z-index: -1;
     pointer-events: none;
     background:
-      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E"),
-      linear-gradient(to right, rgb(255 255 255 / 0.035) 1px, transparent 1px) 0 0 / 64px 64px,
-      linear-gradient(to bottom, rgb(255 255 255 / 0.035) 1px, transparent 1px) 0 0 / 64px 64px;
-    mask: radial-gradient(ellipse 80% 70% at 50% 30%, black, transparent);
+      radial-gradient(70% 45% at 60% -10%, rgb(222 230 246 / 0.12), transparent 70%),
+      linear-gradient(160deg, rgb(214 222 240 / 0.06), transparent 30%),
+      linear-gradient(200deg, rgb(214 222 240 / 0.035), transparent 25%);
+  }
+  /* Icons drawn with a finer pen than lucide's default 2px: lighter, closer to the type. */
+  svg.lucide {
+    stroke-width: 1.6;
   }
   ::selection {
-    background: rgb(91 124 255 / 0.4);
+    background: rgb(120 140 200 / 0.35);
   }
   :focus-visible {
     outline: 2px solid var(--ring);

@@ -44,10 +44,10 @@ export function ArenaPreview({ className }: { className?: string }) {
             <span className="size-2.5 rounded-full bg-white/10" />
             <span className="size-2.5 rounded-full bg-white/10" />
           </span>
-          <span className="ml-3 num text-[11px] text-muted-foreground">
+          <span className="ml-3 text-[11px] num text-muted-foreground">
             mindex / deneyler / test-dönemi-c3 / canlı
           </span>
-          <span className="ml-auto flex items-center gap-1.5 num text-[11px] text-up">
+          <span className="ml-auto flex items-center gap-1.5 text-[11px] num text-up">
             <span className="size-1.5 rounded-full bg-up" aria-hidden /> 183 gün · replay
           </span>
         </div>
@@ -56,7 +56,7 @@ export function ArenaPreview({ className }: { className?: string }) {
           <div className="border-b p-5 lg:border-r lg:border-b-0">
             <div className="flex items-baseline justify-between">
               <p className="text-sm font-medium">Portföy değeri</p>
-              <p className="num text-[11px] text-muted-foreground">başlangıç 10.000 $</p>
+              <p className="text-[11px] num text-muted-foreground">başlangıç 10.000 $</p>
             </div>
             <svg viewBox="0 0 680 240" className="mt-4 h-56 w-full" aria-hidden>
               {[60, 120, 180].map((y) => (
@@ -112,7 +112,7 @@ export function ArenaPreview({ className }: { className?: string }) {
                   >
                     <span
                       className={cn(
-                        'w-3 num text-[11px]',
+                        'w-3 text-[11px] num',
                         i === 0 ? 'text-primary' : 'text-muted-foreground',
                       )}
                     >
@@ -120,18 +120,18 @@ export function ArenaPreview({ className }: { className?: string }) {
                     </span>
                     <AgentAvatar id={r.id} name={r.name} className="size-6 text-[9px]" />
                     <span className="flex-1 truncate">{r.name}</span>
-                    <span className="num text-xs text-up">{r.ret}</span>
+                    <span className="text-xs num text-up">{r.ret}</span>
                   </li>
                 ))}
             </ol>
             <div className="mt-5 grid grid-cols-2 divide-x overflow-hidden rounded-xl border text-xs">
               <div className="p-3">
                 <p className="text-muted-foreground">MDD azalması</p>
-                <p className="mt-1 num text-lg text-foreground">%47,9</p>
+                <p className="mt-1 text-lg num text-foreground">%47,9</p>
               </div>
               <div className="p-3">
                 <p className="text-muted-foreground">Sürü korelasyonu</p>
-                <p className="mt-1 num text-lg text-foreground">0,06</p>
+                <p className="mt-1 text-lg num text-foreground">0,06</p>
               </div>
             </div>
           </div>

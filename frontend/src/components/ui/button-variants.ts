@@ -7,7 +7,7 @@ export const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          'bg-foreground font-medium text-primary-foreground shadow-[inset_0_1px_0_white,0_10px_30px_-12px_rgb(143_178_255/0.55)] hover:bg-white',
+          'bg-[linear-gradient(180deg,#f8fafd,#c6cedd)] font-medium text-primary-foreground shadow-[inset_0_1px_0_white,inset_0_-1px_0_rgb(0_0_0/0.18),0_10px_30px_-12px_rgb(200_210_232/0.45)] hover:brightness-105',
         outline:
           'border border-border-strong bg-white/[0.04] text-foreground shadow-[inset_0_1px_0_rgb(255_255_255/0.06)] backdrop-blur-md hover:border-white/25 hover:bg-white/[0.08]',
         ghost: 'text-muted-foreground hover:bg-white/[0.06] hover:text-foreground',

@@ -237,7 +237,7 @@ export default function NewExperimentPage() {
                   const a = agentName(id)
                   return (
                     <>
-                      <span className="rounded bg-muted px-1 num text-[10px] uppercase">
+                      <span className="rounded bg-muted px-1 text-[10px] num uppercase">
                         {a ? KIND_LABEL[a.kind] : ''}
                       </span>
                       {a?.name ?? id}
