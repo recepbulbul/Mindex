@@ -7,7 +7,7 @@
 3. Commit mesajları [Conventional Commits](https://www.conventionalcommits.org/) biçimindedir:
    `feat(frontend): canlı ekranda işlem işaretleri (#5)`.
 4. PR açın; CI (backend, frontend, security) yeşil olmadan birleştirilmez. PR şablonundaki kontrol listesini doldurun.
-5. `main` dalı korumalıdır: en az 1 onay + başarılı CI gerekir (GitHub ayarlarından açılmalı).
+5. `main` dalı korumalıdır (yöneticiler dahil): doğrudan push ve force-push kapalıdır; Backend, Frontend ve Security CI işleri geçmeden ve PR yorumları çözülmeden birleştirilmez. Onay zorunlu değildir; birleşen dallar otomatik silinir.
 
 ## Yerel kontroller
 

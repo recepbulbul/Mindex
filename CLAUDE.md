@@ -35,6 +35,10 @@ Bir değişikliği "bitti" saymadan önce ilgili alanın test, lint ve tip kontr
 
 `.claude/skills/` altında: `stable-baselines3` (PPO), `backtesting-frameworks`, `risk-metrics-calculation`, `llama-cpp`, `outlines`. Kaynakları [.claude/skills/README.md](.claude/skills/README.md)'de.
 
+`.claude/settings.json`: eklentiler, sık kullanılan zararsız komutlar için izin listesi (`.env` okuma ve force-push yasak) ve düzenlenen dosyayı otomatik biçimlendiren hook (`.claude/hooks/format_file.py`: Python → ruff, frontend → prettier).
+
+`main` korumalıdır: her değişiklik dal + PR ile girer, CI yeşil olmadan birleşmez.
+
 ---
 
 ## Genel çalışma ilkeleri
