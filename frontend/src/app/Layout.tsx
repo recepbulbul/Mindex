@@ -1,8 +1,9 @@
 import { FlaskConical, Plus, type LucideIcon } from 'lucide-react'
 import { Link, NavLink, Outlet } from 'react-router'
 import { useExperiments } from '@/api/queries'
+import type { Experiment } from '@/api/types'
 import { useAuth } from '@/auth/AuthContext'
-import { BrandMark } from '@/components/common'
+import { BrandMark, UserAvatar } from '@/components/common'
 import { cn } from '@/lib/utils'
 
 const navClass = ({ isActive }: { isActive: boolean }) =>
@@ -29,42 +30,41 @@ function NavItems({ items }: { items: NavItem[] }) {
 }
 
 /** Started experiments, newest first: one click back into a running race from anywhere. */
-function ExperimentShortcuts() {
+function useStartedExperiments() {
   const { data } = useExperiments()
-  const started = data?.filter((e) => e.status !== 'draft').slice(0, 5)
-  if (!started?.length) return null
-  return (
-    <div className="space-y-0.5">
-      <p className="mb-2 px-2.5 eyebrow">Deneyler</p>
-      {started.map((e) => (
-        <NavLink
-          key={e.id}
-          to={`/experiments/${e.id}`}
-          className={({ isActive }) =>
-            cn(
-              'flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] transition-colors',
-              isActive
-                ? 'bg-white/[0.07] text-foreground'
-                : 'text-muted-foreground hover:bg-white/[0.04] hover:text-foreground',
-            )
-          }
-        >
-          <span
-            aria-hidden
-            className={cn(
-              'size-1.5 shrink-0 rounded-full',
-              e.status === 'running' ? 'animate-pulse bg-up' : 'bg-muted-foreground/50',
-            )}
-          />
-          <span className="truncate">{e.name}</span>
-        </NavLink>
-      ))}
-    </div>
-  )
+  return data?.filter((e) => e.status !== 'draft').slice(0, 5) ?? []
+}
+
+/** The shortcuts as links; the desktop sidebar stacks them, the mobile bar scrolls them. */
+function ExperimentLinks({ experiments }: { experiments: Experiment[] }) {
+  return experiments.map((e) => (
+    <NavLink
+      key={e.id}
+      to={`/experiments/${e.id}`}
+      className={({ isActive }) =>
+        cn(
+          'flex max-w-48 shrink-0 items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] transition-colors lg:max-w-none',
+          isActive
+            ? 'bg-white/[0.07] text-foreground'
+            : 'text-muted-foreground hover:bg-white/[0.04] hover:text-foreground',
+        )
+      }
+    >
+      <span
+        aria-hidden
+        className={cn(
+          'size-1.5 shrink-0 rounded-full',
+          e.status === 'running' ? 'animate-pulse bg-up' : 'bg-muted-foreground/50',
+        )}
+      />
+      <span className="truncate">{e.name}</span>
+    </NavLink>
+  ))
 }
 
 export function Layout() {
   const { user } = useAuth()
+  const started = useStartedExperiments()
   const isResearcher = user?.role === 'researcher'
 
   const workspace: NavItem[] = [
@@ -97,7 +97,12 @@ export function Layout() {
             <p className="mb-2 px-2.5 eyebrow">Çalışma alanı</p>
             <NavItems items={workspace} />
           </div>
-          <ExperimentShortcuts />
+          {started.length > 0 && (
+            <div className="space-y-0.5">
+              <p className="mb-2 px-2.5 eyebrow">Deneyler</p>
+              <ExperimentLinks experiments={started} />
+            </div>
+          )}
         </nav>
 
         <div className="space-y-2 border-t p-3">
@@ -111,12 +116,7 @@ export function Layout() {
               to="/account"
               className={(state) => cn(navClass(state), 'min-w-0 flex-1 py-1.5')}
             >
-              <span
-                aria-hidden
-                className="grid size-7 shrink-0 place-items-center rounded-full bg-[linear-gradient(180deg,#f8fafd,#aab4c8)] text-[11px] font-semibold text-primary-foreground uppercase"
-              >
-                {user?.email.slice(0, 2)}
-              </span>
+              <UserAvatar email={user?.email ?? ''} className="size-7 text-[11px]" />
               <span className="min-w-0 leading-tight">
                 <span className="block truncate text-xs text-foreground">{user?.email}</span>
                 <span className="block text-[11px] text-muted-foreground">{roleLabel}</span>
@@ -134,12 +134,8 @@ export function Layout() {
               <BrandMark className="size-7" /> Mindex
             </Link>
             <span className="ml-auto text-xs text-muted-foreground">{roleLabel}</span>
-            <Link
-              to="/account"
-              aria-label="Hesap"
-              className="grid size-8 place-items-center rounded-full bg-[linear-gradient(180deg,#f8fafd,#aab4c8)] text-[11px] font-semibold text-primary-foreground uppercase"
-            >
-              {user?.email.slice(0, 2)}
+            <Link to="/account" aria-label="Hesap" className="rounded-full">
+              <UserAvatar email={user?.email ?? ''} className="size-8 text-[11px]" />
             </Link>
           </div>
           <nav
@@ -147,6 +143,7 @@ export function Layout() {
             className="flex gap-1 overflow-x-auto px-3 pb-2 [&_a]:before:hidden"
           >
             <NavItems items={workspace} />
+            <ExperimentLinks experiments={started} />
           </nav>
         </header>
 
@@ -155,7 +152,8 @@ export function Layout() {
             <Outlet />
           </div>
         </main>
-        <footer className="mx-auto max-w-[1440px] px-4 pb-8 text-xs text-muted-foreground sm:px-6 lg:px-8 print:hidden">
+        <footer className="mx-auto max-w-[1440px] px-4 pb-8 text-xs text-muted-foreground sm:px-6 lg:px-8">
+          {/* Printed too: the report PDF carries the charts, so it carries their attribution. */}
           Prototip · tüm veriler sahte (MSW) · gerçek para kullanılmaz · Grafikler{' '}
           <a
             href="https://www.tradingview.com/"

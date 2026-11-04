@@ -53,7 +53,7 @@ const baseOptions: DeepPartial<ChartOptions> = {
     priceFormatter: (p: number) => (Math.abs(p) >= 100 ? priceFormat : smallFormat).format(p),
   },
   // Modern exchange look: no frame, no vertical grid, faint horizontals, sans axis labels.
-  // The TradingView attribution required by the licence lives in the app footer instead.
+  // The TradingView attribution required by the licence lives in the app footer instead (also printed).
   layout: {
     background: { type: ColorType.Solid, color: 'transparent' },
     textColor: CHART_COLORS.text,
@@ -134,7 +134,7 @@ export function CandleChart({
     )
   }, [markers])
 
-  // A figure, not an image: the chart holds the library's focusable attribution link.
+  // The canvas has no text of its own, so the figure's label is what screen readers announce.
   return <div ref={el} role="figure" aria-label={label} style={{ height }} />
 }
 

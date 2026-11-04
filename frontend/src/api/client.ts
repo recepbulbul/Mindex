@@ -38,6 +38,9 @@ export const onUnauthorized = (fn: Listener) => {
 const answeredByApi = (res: Response) => /json|yaml/.test(res.headers.get('Content-Type') ?? '')
 
 let recoverApi: (() => Promise<void>) | null = null
+// Queries refetch together (e.g. when the tab regains focus), so they fail together: they share
+// one recovery instead of each restarting the mock worker under the others' retries.
+let recovering: Promise<void> | null = null
 /** Registers how to bring the API back (the mock worker's reconnect); one retry follows. */
 export const setApiRecovery = (fn: (() => Promise<void>) | null) => {
   recoverApi = fn
@@ -52,7 +55,7 @@ async function request(path: string, init: RequestInit = {}, retried = false): P
   const res = await fetch(`${API_BASE}${path}`, { ...init, headers })
   if (!answeredByApi(res)) {
     if (recoverApi && !retried) {
-      await recoverApi()
+      await (recovering ??= recoverApi().finally(() => (recovering = null)))
       return request(path, init, true)
     }
     throw new ApiError(503, { detail: 'Sunucuya ulaşılamadı. Sayfayı yenileyip tekrar deneyin.' })

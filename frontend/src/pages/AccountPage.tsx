@@ -1,7 +1,7 @@
 import { Copy, KeyRound, LogOut, ShieldCheck } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useAuth } from '@/auth/AuthContext'
-import { PageTitle } from '@/components/common'
+import { PageTitle, UserAvatar } from '@/components/common'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/primitives'
 
@@ -31,12 +31,7 @@ export default function AccountPage() {
       <PageTitle title="Hesap" subtitle="Profiliniz, yetkiniz ve dış ajan bağlantısı." />
 
       <section className="flex items-center gap-5 border-y py-6">
-        <span
-          aria-hidden
-          className="grid size-16 place-items-center rounded-full bg-[linear-gradient(180deg,#f8fafd,#aab4c8)] text-xl font-semibold text-primary-foreground uppercase shadow-[inset_0_1px_0_white]"
-        >
-          {user.email.slice(0, 2)}
-        </span>
+        <UserAvatar email={user.email} className="size-16 text-xl shadow-[inset_0_1px_0_white]" />
         <div className="min-w-0">
           <p className="truncate text-silver text-xl font-semibold tracking-tight">{user.email}</p>
           <p className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
