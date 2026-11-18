@@ -46,7 +46,8 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
-      - run: uv sync --locked
+      # `rl` = stable-baselines3 + CPU torch: the PPO tests skip without it, so CI must have it.
+      - run: uv sync --locked --group rl
       - run: uv run ruff format --check .
       - run: uv run ruff check --output-format=github .
       - run: uv run pyright

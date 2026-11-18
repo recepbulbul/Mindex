@@ -28,6 +28,9 @@ from mindex.evaluation.budget import ComputeBudget, LatencySummary
 from mindex.evaluation.report import check_targets, herd, summarise, to_markdown
 from mindex.logging_config import configure_logging
 from mindex.regime.hmm import RegimeModel, regime_features
+from mindex.rl import train as rl_train
+from mindex.rl.env import TradingEnv
+from mindex.rl.train import PPOHyperparams
 from mindex.sim.engine import Observation, Portfolio, Simulator
 from mindex.sim.market import MarketData, MarketView
 
@@ -140,6 +143,27 @@ def bench_llm(snapshot: Path, reports: Path, calls: int) -> None:
     print(json.dumps(result, indent=2))
 
 
+def train_ppo(snapshot: Path, out: Path, seed: int, hp: PPOHyperparams) -> None:
+    """Train on the train split, select on validation. The test split is never loaded here."""
+    train_market, train_start = _market(snapshot, Split.TRAIN, unseal=False)
+    val_market, val_start = _market(snapshot, Split.VALIDATION, unseal=False)
+    train_env = TradingEnv(
+        train_market,
+        start=train_start,
+        turnover_penalty=hp.turnover_penalty,
+        episode_length=hp.episode_length,
+    )
+    val_env = TradingEnv(val_market, start=val_start)  # no penalty: report the net log return
+    periods = {
+        "train": (train_market.days[train_start], train_market.days[-1]),
+        "validation": (val_market.days[val_start], val_market.days[-1]),
+    }
+    manifest = rl_train.train_ppo(
+        train_env, val_env, hp, seed=seed, out_dir=out / f"seed-{seed}", periods=periods
+    )
+    print(json.dumps({k: manifest[k] for k in ("seed", "best", "files")}, indent=2))
+
+
 def train_hmm(snapshot: Path, out: Path, seed: int) -> None:
     """Fit the regime HMM on the training split only and report validation label shares."""
     model = RegimeModel.fit(
@@ -211,6 +235,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     base.add_argument("--unseal", action="store_true", help="yalnızca nihai değerlendirmede")
     bench = sub.add_parser("bench-llm", help="llama.cpp karar çağrısı hız ölçümü")
     bench.add_argument("--calls", type=int, default=30)
+    defaults = PPOHyperparams()
+    ppo = sub.add_parser("train-ppo", help="PPO eğitimi (train), doğrulamada model seçimi")
+    ppo.add_argument("--seed", type=int, default=0)
+    ppo.add_argument("--out", type=Path, default=DEFAULT_MODELS / "ppo", help="artefakt kök dizini")
+    ppo.add_argument("--timesteps", type=int, default=defaults.total_timesteps)
+    ppo.add_argument("--eval-every", type=int, default=defaults.eval_every)
+    ppo.add_argument("--turnover-penalty", type=float, default=defaults.turnover_penalty)
     hmm = sub.add_parser("train-hmm", help="Rejim HMM'ini yalnızca eğitim döneminde eğit")
     hmm.add_argument("--out", type=Path, default=DEFAULT_MODELS / "regime-hmm.json")
     hmm.add_argument("--seed", type=int, default=0)
@@ -234,6 +265,13 @@ def main(argv: Sequence[str] | None = None) -> None:
             train_hmm(args.snapshot, args.out, args.seed)
         elif args.command == "baseline":
             baseline(args.snapshot, args.reports, args.split, with_llm=args.llm, unseal=args.unseal)
+        elif args.command == "train-ppo":
+            hp = PPOHyperparams(
+                total_timesteps=args.timesteps,
+                eval_every=args.eval_every,
+                turnover_penalty=args.turnover_penalty,
+            )
+            train_ppo(args.snapshot, args.out, args.seed, hp)
         elif args.command == "create-user":
             create_user(args.email, args.role)
         elif args.command == "serve":
