@@ -51,7 +51,7 @@ const base = {
   commissionRate: 0.001,
   slippageBps: 5,
   modelVersion: 'qwen3.5-9b-q4_k_m',
-  promptVersion: 'decision-v3',
+  promptVersion: 'decision-v1',
 } as const
 
 export const seedExperiments = (): Experiment[] => [

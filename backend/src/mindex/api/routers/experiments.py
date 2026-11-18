@@ -4,12 +4,14 @@ Reads need a session; writes need the researcher role. A period that touches the
 window is refused here, on the server, whatever the client shows (look-ahead protocol).
 """
 
+import math
 import uuid
 from collections.abc import Mapping
 from datetime import date
 from decimal import Decimal
 from typing import Annotated, Any, cast
 
+import structlog
 import yaml
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import ValidationError
@@ -21,17 +23,25 @@ from mindex.api.errors import validation_fields
 from mindex.api.schemas import ExperimentCreate, ExperimentOut
 from mindex.config import Settings
 from mindex.data.splits import SPLITS, Split
-from mindex.db.models import AgentKindDb, AgentRow, Experiment, ExperimentAgent, ExperimentStatus
+from mindex.db.models import (
+    AgentKindDb,
+    AgentRow,
+    Experiment,
+    ExperimentAgent,
+    ExperimentStatus,
+    User,
+)
 from mindex.services.runner import ERROR as RUN_ERROR
 from mindex.services.runner import STARTABLE, agent_rows, runnable_errors
 
 router = APIRouter(prefix="/experiments", tags=["experiments"])
+log = structlog.get_logger(__name__)
 
 SCHEMA_REF = "#/components/schemas/"
 NOT_FOUND = "Deney bulunamadı."
 INVALID_CONFIG = "Geçersiz deney yapılandırması."
 NOT_EDITABLE = "Yalnızca taslak deneyler düzenlenebilir."
-BAD_YAML = "YAML dosyası okunamadı."
+BAD_YAML = "YAML okunamadı."
 NOT_STARTABLE = '"{status}" durumundaki deney başlatılamaz.'
 NOT_RUNNABLE = "Deney bu koşucuda başlatılamaz."
 NOT_OWNER = "Bu deney başka bir araştırmacıya ait; yalnızca sahibi değiştirebilir."
@@ -169,6 +179,12 @@ def _apply(exp: Experiment, cfg: ExperimentCreate, agents: Mapping[str, AgentRow
     ]
 
 
+def require_owner(exp: Experiment, user: User) -> None:
+    """Changing an experiment (edit, delete, start) is its owner's call; reading is open."""
+    if exp.owner_id != user.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, NOT_OWNER)
+
+
 def get_experiment_row(session: SessionDep, experiment_id: str) -> Experiment:
     try:
         key = uuid.UUID(experiment_id)
@@ -211,8 +227,12 @@ def create_experiment(
     return _create(session, settings, user, body)
 
 
-async def _yaml_body(request: Request) -> bytes:
-    # Read here so the endpoint stays a sync `def` (its database calls run in the threadpool).
+async def _yaml_body(request: Request, _: Researcher) -> bytes:
+    """Read here so the endpoint stays a sync `def` (its database calls run in the threadpool).
+    The role is checked first, and a declared oversize body is refused before it is read."""
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > MAX_YAML_BYTES:
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE)
     raw = await request.body()
     if len(raw) > MAX_YAML_BYTES:
         raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE)
@@ -260,10 +280,11 @@ def update_experiment(
     body: dict[str, Any],
     session: SessionDep,
     settings: SettingsDep,
-    _: Researcher,
+    user: Researcher,
 ) -> ExperimentOut:
     """Partial `ExperimentCreate`; the merged configuration is validated as a whole."""
     exp = get_experiment_row(session, experiment_id)
+    require_owner(exp, user)
     if exp.status is not ExperimentStatus.DRAFT:
         raise HTTPException(status.HTTP_409_CONFLICT, NOT_EDITABLE)
     unknown = sorted(k for k in body if k not in CONFIG_FIELDS)
@@ -283,8 +304,9 @@ def update_experiment(
     status_code=status.HTTP_204_NO_CONTENT,
     responses={status.HTTP_409_CONFLICT: {"description": "Koşan deney silinemez"}},
 )
-def delete_experiment(experiment_id: str, session: SessionDep, _: Researcher) -> Response:
+def delete_experiment(experiment_id: str, session: SessionDep, user: Researcher) -> Response:
     exp = get_experiment_row(session, experiment_id)
+    require_owner(exp, user)
     if exp.status not in DELETABLE:
         raise HTTPException(
             status.HTTP_409_CONFLICT, f'"{exp.status}" durumundaki deney silinemez.'
@@ -311,8 +333,7 @@ def start_experiment(
     """Queue a draft or failed experiment for the in-process runner (a failed one resumes
     from its checkpoint); answers `queued`. Only the experiment's owner may start it."""
     exp = get_experiment_row(session, experiment_id)
-    if exp.owner_id != user.id:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, NOT_OWNER)
+    require_owner(exp, user)
     if exp.status not in STARTABLE:
         raise HTTPException(status.HTTP_409_CONFLICT, NOT_STARTABLE.format(status=exp.status))
     errors = runnable_errors(exp, [ea.agent for ea in agent_rows(exp)], settings)
@@ -362,7 +383,12 @@ def experiment_to_yaml(exp: Experiment) -> str:
         },
         "llm": {"model": exp.model_version, "prompt_version": exp.prompt_version},
     }
-    return YAML_HEADER + yaml.safe_dump(doc, allow_unicode=True, sort_keys=False)
+    return YAML_HEADER + yaml.safe_dump(
+        doc,
+        allow_unicode=True,
+        sort_keys=False,
+        width=math.inf,  # never fold long names
+    )
 
 
 def _section(doc: Mapping[str, Any], key: str, keys: set[str]) -> Mapping[str, Any]:
@@ -376,11 +402,39 @@ def _section(doc: Mapping[str, Any], key: str, keys: set[str]) -> Mapping[str, A
     return section
 
 
+class _ConfigLoader(yaml.SafeLoader):
+    """`SafeLoader` that leaves dates as text and keeps impossible integers as text, so
+    `2025-02-30` or a 5000-digit seed become field errors of the API's own validation
+    (`startDate`, `seed`) instead of a constructor crash."""
+
+
+_TIMESTAMP = "tag:yaml.org,2002:timestamp"
+_ConfigLoader.yaml_implicit_resolvers = {
+    first: [(tag, regexp) for tag, regexp in resolvers if tag != _TIMESTAMP]
+    for first, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
+}
+
+
+def _int_or_text(loader: yaml.SafeLoader, node: yaml.Node) -> object:
+    try:
+        return loader.construct_yaml_int(node)  # pyright: ignore[reportArgumentType]
+    except ValueError:  # longer than Python's int-from-text limit (4300 digits)
+        return loader.construct_scalar(node)  # pyright: ignore[reportArgumentType]
+
+
+_ConfigLoader.add_constructor("tag:yaml.org,2002:int", _int_or_text)
+
+
 def config_from_yaml(raw: bytes) -> dict[str, Any]:
     """Map the export layout back to `ExperimentCreate` fields (values are validated later)."""
+    # Parsing boundary: whatever the loader or a tag's constructor raises (YAMLError,
+    # RecursionError for absurd nesting, ValueError/AttributeError/KeyError from explicit tags
+    # such as `!!timestamp abc` or `!!bool foo`) is the client's malformed document, never a
+    # 500. Pydantic still reports bad values field by field afterwards.
     try:
-        loaded = yaml.safe_load(raw)
-    except yaml.YAMLError:
+        loaded = yaml.load(raw, Loader=_ConfigLoader)  # noqa: S506 (a SafeLoader subclass)
+    except Exception as exc:
+        log.info("yaml_import_rejected", error=type(exc).__name__, exc_info=exc)
         raise _invalid({"body": "Geçerli bir YAML belgesi olmalı."}, BAD_YAML) from None
     if not isinstance(loaded, dict):
         raise _invalid({"body": "Deney yapılandırması bir eşleme olmalı."}, BAD_YAML)
