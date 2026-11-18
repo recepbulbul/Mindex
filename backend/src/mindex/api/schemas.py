@@ -91,7 +91,13 @@ def _iso_date(value: object) -> object:
 
 def _number(value: object) -> object:
     # Like `z.number()`: no strings or booleans coerced into numbers.
-    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError("Sayı olmalı")
+    try:
+        finite = math.isfinite(value)
+    except OverflowError:  # an integer with hundreds of digits does not fit a float
+        raise ValueError("Sayı çok büyük") from None
+    if not finite:
         raise ValueError("Sayı olmalı")
     return value
 
@@ -125,6 +131,8 @@ class ExperimentCreate(ApiModel):
     @classmethod
     def _name(cls, v: str) -> str:
         v = v.strip()
+        if chr(0) in v:  # PostgreSQL text cannot store NUL
+            raise ValueError("Geçersiz karakter içeriyor")
         if len(v) < 3:
             raise ValueError("En az 3 karakter")
         if len(v) > 120:

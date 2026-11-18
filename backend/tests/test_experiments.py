@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from mindex.agents.llm import PROMPT_VERSION
 from mindex.api import security
 from mindex.api.app import create_app
-from mindex.api.routers.experiments import SEALED, config_from_yaml, overlaps_test_window
+from mindex.api.routers.experiments import NOT_OWNER, SEALED, config_from_yaml, overlaps_test_window
 from mindex.config import Settings, get_settings
 from mindex.db.models import Experiment, ExperimentAgent, ExperimentStatus, User, UserRole
 from mindex.db.session import get_session
@@ -231,6 +231,7 @@ def test_live_mode_may_be_open_ended(api: TestClient, researcher: Headers) -> No
         ("2026-04-01", "2026-09-30", "startDate"),  # the window itself
         ("2026-09-30", "2026-12-31", "startDate"),  # starts on its last day
         ("2025-01-01", "2027-01-01", "endDate"),  # spans it
+        ("2025-10-01", "2026-04-01", "endDate"),  # ends on its first day
     ],
 )
 def test_period_touching_test_window_is_refused(
@@ -409,6 +410,89 @@ def test_import_validates_and_seals(api: TestClient, researcher: Headers) -> Non
     res = api.post("/api/experiments/import", content=text, headers=researcher)
     assert res.status_code == 422
     assert res.json()["fields"] == {"startDate": SEALED}
+
+
+@pytest.mark.parametrize(
+    ("over", "field"),
+    [
+        ({"commissionRate": int("9" * 400)}, "commissionRate"),  # too big for a float
+        ({"slippageBps": -int("9" * 400)}, "slippageBps"),
+        ({"name": "Ad\u0000sıfır"}, "name"),  # PostgreSQL text cannot hold NUL
+    ],
+)
+def test_hostile_values_are_422_not_500(
+    api: TestClient, researcher: Headers, over: dict[str, Any], field: str
+) -> None:
+    res = api.post("/api/experiments", json={**CONFIG, **over}, headers=researcher)
+    assert res.status_code == 422, res.text
+    assert field in res.json()["fields"]
+
+
+def test_deeply_nested_yaml_is_422_not_500(api: TestClient, researcher: Headers) -> None:
+    res = api.post("/api/experiments/import", content="[" * 30000, headers=researcher)
+    assert res.status_code == 422
+    assert "body" in res.json()["fields"]
+
+
+def test_oversized_import_without_session_is_401(api: TestClient) -> None:
+    res = api.post("/api/experiments/import", content="#" * (70 * 1024))
+    assert res.status_code == 401
+
+
+def test_long_names_survive_yaml_without_folding(api: TestClient, researcher: Headers) -> None:
+    exp = _create(api, researcher, name="uzun " * 23 + "ad")  # 117 characters
+    text = api.get(f"/api/experiments/{exp['id']}/export.yaml", headers=researcher).text
+    assert next(line for line in text.splitlines() if line.startswith("name:")).endswith("ad")
+
+
+# The exact text the MSW mock exports (frontend/src/mocks/yaml.ts `experimentToYaml`).
+MOCK_YAML = """# Mindex deney yapılandırması (F2)
+name: "Ad 'tırnaklı' \\"çift\\""
+mode: replay
+condition: C1
+period:
+  start: 2025-10-01
+  end: 2026-03-31
+assets: [BTC, ETH]
+agents:
+  - buy-hold-btc
+  - llm-momentum
+seed: 2
+execution:
+  commission_rate: 0.00001
+  slippage_bps: 5
+llm:
+  model: qwen3.5-9b-q4_k_m
+  prompt_version: decision-v1
+"""
+
+
+def test_mock_yaml_imports_into_the_backend(api: TestClient, researcher: Headers) -> None:
+    res = api.post("/api/experiments/import", content=MOCK_YAML.encode(), headers=researcher)
+    assert res.status_code == 201, res.text
+    body = res.json()
+    assert body["name"] == "Ad 'tırnaklı' \"çift\""
+    assert body["agentIds"] == ["buy-hold-btc", "llm-momentum"]
+    assert (body["commissionRate"], body["slippageBps"]) == (0.00001, 5.0)
+
+
+# ---------------------------------------------------------------- ownership
+
+
+def test_only_the_owner_edits_and_deletes(
+    api: TestClient, researcher: Headers, viewer: Headers, db_session: Session
+) -> None:
+    exp = _create(api, researcher)
+    url = f"/api/experiments/{exp['id']}"
+    other = _login(api, db_session, "baska@mindex.dev", UserRole.RESEARCHER)
+    not_owner = {"detail": NOT_OWNER}
+    patched = api.patch(url, json={"seed": 3}, headers=other)
+    assert (patched.status_code, patched.json()) == (403, not_owner)
+    deleted = api.delete(url, headers=other)
+    assert (deleted.status_code, deleted.json()) == (403, not_owner)
+    assert api.get(url, headers=other).json() == exp  # reading stays open to everyone
+    assert api.get(url, headers=viewer).status_code == 200
+    assert api.patch(url, json={"seed": 3}, headers=researcher).status_code == 200
 
 
 def test_import_size_limit(api: TestClient, researcher: Headers) -> None:

@@ -4,6 +4,7 @@ Reads need a session; writes need the researcher role. A period that touches the
 window is refused here, on the server, whatever the client shows (look-ahead protocol).
 """
 
+import math
 import uuid
 from collections.abc import Mapping, Sequence
 from datetime import date
@@ -20,7 +21,7 @@ from mindex.api.deps import CurrentUser, Researcher, SessionDep, SettingsDep
 from mindex.api.errors import validation_fields
 from mindex.api.schemas import ExperimentCreate, ExperimentOut
 from mindex.data.splits import SPLITS, Split
-from mindex.db.models import AgentRow, Experiment, ExperimentAgent, ExperimentStatus
+from mindex.db.models import AgentRow, Experiment, ExperimentAgent, ExperimentStatus, User
 
 router = APIRouter(prefix="/experiments", tags=["experiments"])
 
@@ -28,6 +29,7 @@ NOT_FOUND = "Deney bulunamadı."
 INVALID_CONFIG = "Geçersiz deney yapılandırması."
 NOT_EDITABLE = "Yalnızca taslak deneyler düzenlenebilir."
 BAD_YAML = "YAML dosyası okunamadı."
+NOT_OWNER = "Bu deney başka bir araştırmacıya ait; yalnızca sahibi değiştirebilir."
 TEST_WINDOW = SPLITS[Split.TEST]
 SEALED = (
     f"Dönem test penceresiyle ({TEST_WINDOW.start} – {TEST_WINDOW.end}) çakışıyor; "  # noqa: RUF001
@@ -141,6 +143,12 @@ def _apply(exp: Experiment, cfg: ExperimentCreate, agents: Mapping[str, AgentRow
     ]
 
 
+def require_owner(exp: Experiment, user: User) -> None:
+    """Changing an experiment (edit, delete, start) is its owner's call; reading is open."""
+    if exp.owner_id != user.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, NOT_OWNER)
+
+
 def _get(session: SessionDep, experiment_id: str) -> Experiment:
     try:
         key = uuid.UUID(experiment_id)
@@ -183,8 +191,12 @@ def create_experiment(
     return _create(session, settings, user, body)
 
 
-async def _yaml_body(request: Request) -> bytes:
-    # Read here so the endpoint stays a sync `def` (its database calls run in the threadpool).
+async def _yaml_body(request: Request, _: Researcher) -> bytes:
+    """Read here so the endpoint stays a sync `def` (its database calls run in the threadpool).
+    The role is checked first, and a declared oversize body is refused before it is read."""
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > MAX_YAML_BYTES:
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE)
     raw = await request.body()
     if len(raw) > MAX_YAML_BYTES:
         raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE)
@@ -222,10 +234,11 @@ def get_experiment(experiment_id: str, session: SessionDep, _: CurrentUser) -> E
     responses={status.HTTP_409_CONFLICT: {"description": NOT_EDITABLE}},
 )
 def update_experiment(
-    experiment_id: str, body: dict[str, Any], session: SessionDep, _: Researcher
+    experiment_id: str, body: dict[str, Any], session: SessionDep, user: Researcher
 ) -> ExperimentOut:
     """Partial `ExperimentCreate`; the merged configuration is validated as a whole."""
     exp = _get(session, experiment_id)
+    require_owner(exp, user)
     if exp.status is not ExperimentStatus.DRAFT:
         raise HTTPException(status.HTTP_409_CONFLICT, NOT_EDITABLE)
     allowed = {f.alias or name for name, f in ExperimentCreate.model_fields.items()}
@@ -246,8 +259,9 @@ def update_experiment(
     status_code=status.HTTP_204_NO_CONTENT,
     responses={status.HTTP_409_CONFLICT: {"description": "Koşan deney silinemez"}},
 )
-def delete_experiment(experiment_id: str, session: SessionDep, _: Researcher) -> Response:
+def delete_experiment(experiment_id: str, session: SessionDep, user: Researcher) -> Response:
     exp = _get(session, experiment_id)
+    require_owner(exp, user)
     if exp.status not in DELETABLE:
         raise HTTPException(
             status.HTTP_409_CONFLICT, f'"{exp.status}" durumundaki deney silinemez.'
@@ -286,7 +300,12 @@ def experiment_to_yaml(exp: Experiment) -> str:
         },
         "llm": {"model": exp.model_version, "prompt_version": exp.prompt_version},
     }
-    return YAML_HEADER + yaml.safe_dump(doc, allow_unicode=True, sort_keys=False)
+    return YAML_HEADER + yaml.safe_dump(
+        doc,
+        allow_unicode=True,
+        sort_keys=False,
+        width=math.inf,  # never fold long names
+    )
 
 
 def _section(doc: Mapping[str, Any], key: str, keys: set[str]) -> Mapping[str, Any]:
@@ -304,7 +323,7 @@ def config_from_yaml(raw: bytes) -> dict[str, Any]:
     """Map the export layout back to `ExperimentCreate` fields (values are validated later)."""
     try:
         loaded = yaml.safe_load(raw)
-    except yaml.YAMLError:
+    except (yaml.YAMLError, RecursionError):  # RecursionError: absurdly deep nesting
         raise _invalid({"body": "Geçerli bir YAML belgesi olmalı."}, BAD_YAML) from None
     if not isinstance(loaded, dict):
         raise _invalid({"body": "Deney yapılandırması bir eşleme olmalı."}, BAD_YAML)

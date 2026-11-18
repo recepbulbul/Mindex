@@ -19,13 +19,19 @@ export function experimentToYaml(exp: Experiment): string {
     ...exp.agentIds.map((a) => `  - ${a}`),
     `seed: ${exp.seed}`,
     `execution:`,
-    `  commission_rate: ${exp.commissionRate}`,
-    `  slippage_bps: ${exp.slippageBps}`,
+    `  commission_rate: ${yamlNumber(exp.commissionRate)}`,
+    `  slippage_bps: ${yamlNumber(exp.slippageBps)}`,
     `llm:`,
     `  model: ${exp.modelVersion}`,
     `  prompt_version: ${exp.promptVersion}`,
     '',
   ].join('\n')
+}
+
+// JS writes 1e-7, which YAML 1.1 (PyYAML) reads as a string: always write plain decimals.
+function yamlNumber(x: number): string {
+  const s = String(x)
+  return /e/i.test(s) ? x.toFixed(20).replace(/\.?0+$/, '') : s
 }
 
 type Value = string | number | null | Value[] | { [key: string]: Value }
