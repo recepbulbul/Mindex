@@ -429,3 +429,99 @@ def test_accepted_result_carries_prompt_version() -> None:
     out = write_lesson(FakeClient(reply()), CF, assets=ASSETS, max_retries=0)
     assert out.accepted
     assert out.prompt_version == "postmortem-v1"
+
+
+# Follow-up review: false rejections and acceptances of the consistency check.
+STOPPED = date(2025, 3, 3)
+
+
+@pytest.mark.parametrize(
+    ("cf", "text", "outcome", "best"),
+    [
+        # The direction word belongs to the neighbouring clause (cut at "ama", "çünkü").
+        (
+            _cf(stop_loss=-0.052, stop_day=STOPPED),
+            "Zarar-kes %5,2 kaybettirirdi ama ASSET_A tutulunca %4 getirdi.",
+            "gain",
+            "actual",
+        ),
+        (CF, "Girmemek kazandırırdı çünkü ASSET_B %10 değer yitirdi.", "loss", "skip"),
+        # "zarar kes" written without the hyphen is the stop-loss, not a loss word.
+        (_cf(), "zarar kes çalışmadan ASSET_A pozisyonu %4 getirdi.", "gain", "actual"),
+        # Equal magnitude, opposite sign: -4 % is another reading of "%4", not the same number.
+        (
+            _cf(stop_loss=-0.04, stop_day=STOPPED),
+            "ASSET_A %4 kazandırdı; zarar-kes erken çalışsa %4 kaybettirirdi.",
+            "gain",
+            "actual",
+        ),
+        # |actual| == threshold: "%5" may be the threshold, so its direction is not judged.
+        (
+            _cf(actual=0.05, half=0.025, stop_loss=0.05),
+            "ASSET_A %5 kazandırdı; %5 kayıpta devreye girecek zarar-kes hiç çalışmadı.",
+            "gain",
+            "actual",
+        ),
+    ],
+)
+def test_correct_lessons_are_not_rejected(
+    cf: Counterfactual, text: str, outcome: str, best: str
+) -> None:
+    out = write_lesson(
+        FakeClient(reply(text, outcome=outcome, best=best)), cf, assets=ASSETS, max_retries=0
+    )
+    assert out.accepted, out.reason
+
+
+def test_negative_threshold_needs_stop_loss_wording() -> None:
+    out = write_lesson(
+        FakeClient(
+            reply("ASSET_A %4 kazandırdı ama -%5 ile kapandı.", outcome="gain", best="actual")
+        ),
+        _cf(),
+        assets=ASSETS,
+        max_retries=0,
+    )
+    assert out.reason is not None
+    assert "uyuşmuyor" in out.reason
+
+
+def test_uppercase_turkish_loss_word_is_caught() -> None:
+    out = write_lesson(
+        FakeClient(
+            reply(
+                "ASSET_A pozisyonu %4 KAYIP verdi; tutmak doğruydu.", outcome="gain", best="actual"
+            )
+        ),
+        _cf(),
+        assets=ASSETS,
+        max_retries=0,
+    )
+    assert out.reason is not None
+    assert "yön" in out.reason
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "btcde",
+        "xrpnin",
+        "solusdt",
+        "sol/usdt",
+        "btc_usdt",
+        "SOL'de",
+        *(a.value.lower() for a in Asset if a is not Asset.SOL),
+    ],
+)
+def test_more_real_name_forms_are_rejected(name: str) -> None:
+    text = f"{name} gibi ASSET_B pozisyonu %10 kaybettirdi; girmemek en iyisiydi."
+    out = write_lesson(FakeClient(reply(text)), CF, assets=ASSETS, max_retries=0)
+    assert out.reason is not None
+    assert "gerçek" in out.reason
+
+
+@pytest.mark.parametrize("word", ["sol", "solda", "soldaki", "solunda"])
+def test_turkish_sol_is_not_a_ticker(word: str) -> None:
+    text = f"ASSET_B {word} kanatta %10 kaybettirdi; girmemek en iyisiydi."
+    out = write_lesson(FakeClient(reply(text)), CF, assets=ASSETS, max_retries=0)
+    assert out.accepted, out.reason
