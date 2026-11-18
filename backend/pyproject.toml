@@ -10,11 +10,17 @@ authors = [
 ]
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "alembic>=1.14",
     "ccxt>=4.5.91",
+    "fastapi>=0.115",
+    "pgvector>=0.3",
     "polars>=2.1.0",
+    "psycopg[binary]>=3.2",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
+    "sqlalchemy>=2.0.36",
     "structlog>=24.4",
+    "uvicorn>=0.32",
 ]
 
 [project.scripts]
@@ -22,6 +28,7 @@ mindex = "mindex.cli:main"
 
 [dependency-groups]
 dev = [
+    "httpx2>=2.16.2",
     "pre-commit>=4.0",
     "pyright>=1.1.390",
     "pytest>=8.3",
@@ -69,6 +76,7 @@ allowed-confusables = ["ı"]  # Turkish dotless i is intentional in Turkish text
 # --- Pyright ------------------------------------------------------------
 [tool.pyright]
 include = ["src", "tests"]
+extraPaths = ["tests"]
 pythonVersion = "3.12"
 typeCheckingMode = "strict"
 venvPath = "."
@@ -78,6 +86,10 @@ venv = ".venv"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers --cov=mindex --cov-report=term-missing --cov-fail-under=70"
+markers = [
+    "db: needs PostgreSQL + pgvector (docker compose up -d db); skipped when unreachable",
+    "model: needs a real model (llama-server, embedding, trained PPO); run with -m model",
+]
 
 [tool.coverage.run]
 branch = true

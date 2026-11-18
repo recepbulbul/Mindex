@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     env: Literal["development", "test", "production"] = "development"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
-    database_url: str = "postgresql+psycopg://mindex:mindex@localhost:5432/mindex"
+    database_url: str = "postgresql+psycopg://mindex:mindex@127.0.0.1:5432/mindex"
     redis_url: str = "redis://localhost:6379/0"
 
     jwt_secret: SecretStr = SecretStr("change-me")

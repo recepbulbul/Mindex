@@ -14,7 +14,10 @@
 ```bash
 cd backend && uv run pre-commit install   # bir kez
 uv run pre-commit run --all-files         # tüm kancalar
+docker compose up -d db                   # kökte: DB testleri için PostgreSQL + pgvector
 ```
+
+DB gerektiren testler (`@pytest.mark.db`) veritabanı yoksa atlanır; bu durumda yerel kapsam %70'in altına düşebilir. PR açmadan önce `docker compose up -d db` ile tam koşun; CI'da bu testler her zaman çalışır.
 
 | Alan | Komut |
 |---|---|
