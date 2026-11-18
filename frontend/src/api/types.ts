@@ -69,6 +69,7 @@ export interface Experiment {
   modelVersion: string
   promptVersion: string
   createdAt: string
+  error?: string | null // why the last run failed (status "failed"); a new start clears it
 }
 
 // Experiment management (F2). Reads need a session, writes the researcher role (403 otherwise).
@@ -130,7 +131,8 @@ export interface AgentRun {
   weights: Record<Asset, number>[] // target weights per day
 }
 
-// POST /experiments/:id/start (researcher): draft or paused → `queued` for the in-process runner,
+// POST /experiments/:id/start (researcher): draft, paused or failed → `queued` for the in-process
+//   runner (a failed run resumes from its checkpoint, e.g. after the LLM server came back),
 //   which commits each day's decisions, trades and snapshots with a checkpoint and resumes from it
 //   after a restart. 409 in other states; 422 + fields when the runner cannot run it yet: `mode`
 //   (live, P7), `agentIds` (external MCP agents, buy-hold-btc without BTC), `condition` (LLM agents run only as the C0 baseline until memory/forum are wired in).

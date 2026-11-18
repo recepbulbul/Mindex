@@ -138,12 +138,20 @@ def test_llm_agent_decides(market: MarketData) -> None:
 
 def test_llm_agent_retries_then_holds(market: MarketData) -> None:
     bad = json.dumps({"allocations": [{"asset": "ASSET_A", "weight": 1.5}]})
-    chat = FakeChat(["{not json", LLMUnavailableError("timeout"), bad])
+    chat = FakeChat(["{not json", "", bad])  # invalid output: the safe default (NF2)
     agent = LLMAgent(chat, persona="risk-averse", max_retries=2)
     assert agent.decide(obs(market, 40)) is None
     assert agent.stats.holds == 1
     assert agent.stats.attempts == [3]
     assert len(agent.stats.latencies_ms) == 3
+
+
+def test_unreachable_llm_stops_instead_of_holding(market: MarketData) -> None:
+    # A down server is not a model answer: holding would record a fake "held" run.
+    agent = LLMAgent(FakeChat([LLMUnavailableError("connection refused")]), max_retries=2)
+    with pytest.raises(LLMUnavailableError):
+        agent.decide(obs(market, 40))
+    assert agent.stats.holds == 0
 
 
 def test_llm_agent_rejects_unknown_persona() -> None:

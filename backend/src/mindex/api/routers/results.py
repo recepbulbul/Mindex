@@ -114,12 +114,12 @@ def _market(exp: Experiment, settings: Settings) -> MarketData:
 
 
 def _weights(s: PortfolioSnapshot, market: MarketData, i: int) -> dict[Asset, float]:
-    value = float(s.equity)
+    # Valued from the snapshot's own cash and holdings (not its rounded `equity`), so the
+    # weights never sum above 1.
     held = cast(dict[str, float], s.holdings)
-    return {
-        a: held.get(str(a), 0.0) * market.bars[a][i].close / value if value else 0.0
-        for a in market.assets
-    }
+    values = {a: held.get(str(a), 0.0) * market.bars[a][i].close for a in market.assets}
+    total = float(s.cash) + sum(values.values())
+    return {a: min(1.0, v / total) if total > 0 else 0.0 for a, v in values.items()}
 
 
 @router.get(

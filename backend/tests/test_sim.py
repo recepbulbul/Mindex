@@ -148,3 +148,15 @@ def test_simulator_validates_setup(market: MarketData) -> None:
         Simulator(market, [], start=len(market) - 1)
     with pytest.raises(ValueError, match="unique"):
         Simulator(market, [Scripted("x", None), Scripted("x", None)])
+
+
+def test_rebalance_never_emits_zero_quantity_fills() -> None:
+    """Fully invested, both sells below the 0.1 % threshold, one buy above it: there is no
+    cash to buy with, so nothing may be filled (a 0-quantity fill breaks `trades`)."""
+    prices = {Asset.BTC: 100.0, Asset.ETH: 50.0, Asset.SOL: 10.0}
+    portfolio = Portfolio(0.0, {Asset.BTC: 5.0, Asset.ETH: 10.0})  # 500 + 500, no cash
+    targets = {Asset.BTC: 0.4994, Asset.ETH: 0.4995, Asset.SOL: 0.0011}
+    after, fills = rebalance(portfolio, targets, prices, ExecutionCosts(), date(2025, 1, 2))
+    assert fills == []
+    assert after == portfolio
+    assert all(f.quantity > 0 for f in fills)
