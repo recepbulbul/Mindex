@@ -1,6 +1,7 @@
-"""Command line entry point: `uv run mindex fetch-data | baseline | bench-llm | serve`."""
+"""Command line entry point: `uv run mindex <command>` (see `mindex --help`)."""
 
 import argparse
+import getpass
 import json
 import sys
 import time
@@ -20,18 +21,20 @@ from mindex.agents.llm import (
 from mindex.agents.rule import BuyAndHoldAgent, EqualWeightAgent, MovingAverageCrossAgent
 from mindex.config import get_settings
 from mindex.data import sources
-from mindex.data.snapshot import build_frame, load_window, write_snapshot
+from mindex.data.snapshot import build_frame, load_split, load_window, write_snapshot
 from mindex.data.splits import FULL_RANGE, SPLITS, SealedTestSetError, Split
 from mindex.domain.decision import Asset, parse_decision
 from mindex.evaluation.budget import ComputeBudget, LatencySummary
 from mindex.evaluation.report import check_targets, herd, summarise, to_markdown
 from mindex.logging_config import configure_logging
+from mindex.regime.hmm import RegimeModel, regime_features
 from mindex.sim.engine import Observation, Portfolio, Simulator
 from mindex.sim.market import MarketData, MarketView
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_SNAPSHOT = REPO_ROOT / "data" / "snapshots"
 DEFAULT_REPORTS = REPO_ROOT / "reports"
+DEFAULT_MODELS = REPO_ROOT / "models"
 LOOKBACK_DAYS = 31  # 30 daily returns need 31 closes
 
 
@@ -137,10 +140,63 @@ def bench_llm(snapshot: Path, reports: Path, calls: int) -> None:
     print(json.dumps(result, indent=2))
 
 
+def train_hmm(snapshot: Path, out: Path, seed: int) -> None:
+    """Fit the regime HMM on the training split only and report validation label shares."""
+    model = RegimeModel.fit(
+        regime_features(MarketData.from_frame(load_split(snapshot, Split.TRAIN))), seed=seed
+    )
+    digest = model.save(out)
+    market, start = _market(snapshot, Split.VALIDATION, unseal=False)
+    labels = model.label(regime_features(market))[start:]
+    shares = {str(r): round(labels.count(r) / len(labels), 3) for r in sorted(set(labels))}
+    print(
+        json.dumps({"artifact": str(out), "sha256": digest, "validation_shares": shares}, indent=2)
+    )
+
+
 def serve_api(host: str, port: int, *, reload: bool) -> None:
     import uvicorn  # imported lazily: the data and baseline commands do not need a server
 
     uvicorn.run("mindex.api.app:create_app", factory=True, host=host, port=port, reload=reload)
+
+
+def _read_password() -> str:
+    if sys.stdin.isatty():
+        return getpass.getpass("Parola: ")
+    return sys.stdin.readline().rstrip("\r\n")  # spaces are valid password characters
+
+
+def create_user(email: str, role: str, *, password: str | None = None) -> None:
+    """Create a user; the only way to make a researcher (self sign-up creates viewers)."""
+    from pydantic import ValidationError
+    from sqlalchemy.exc import IntegrityError
+
+    from mindex.api.schemas import RegisterRequest
+    from mindex.api.security import hash_password
+    from mindex.db.models import User, UserRole
+    from mindex.db.session import get_sessionmaker
+
+    if password is None:
+        # Never a CLI argument: it would end up in shell history and the process list.
+        password = _read_password()
+    try:
+        body = RegisterRequest(email=email, password=password)  # same rules as /auth/register
+    except ValidationError as exc:
+        # include_input=False: never echo the rejected password to the terminal or logs.
+        problems = "; ".join(
+            f"{'.'.join(map(str, e['loc']))}: {e['msg']}"
+            for e in exc.errors(include_input=False, include_url=False)
+        )
+        raise SystemExit(f"Geçersiz kullanıcı: {problems}") from None
+    with get_sessionmaker()() as session:
+        session.add(
+            User(email=body.email, password_hash=hash_password(body.password), role=UserRole(role))
+        )
+        try:
+            session.commit()
+        except IntegrityError:
+            raise SystemExit(f"{body.email} zaten kayıtlı") from None
+    print(f"{body.email} ({role}) oluşturuldu")
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -155,6 +211,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     base.add_argument("--unseal", action="store_true", help="yalnızca nihai değerlendirmede")
     bench = sub.add_parser("bench-llm", help="llama.cpp karar çağrısı hız ölçümü")
     bench.add_argument("--calls", type=int, default=30)
+    hmm = sub.add_parser("train-hmm", help="Rejim HMM'ini yalnızca eğitim döneminde eğit")
+    hmm.add_argument("--out", type=Path, default=DEFAULT_MODELS / "regime-hmm.json")
+    hmm.add_argument("--seed", type=int, default=0)
+    user = sub.add_parser("create-user", help="Kullanıcı oluştur (parola istemle/stdin'den)")
+    user.add_argument("--email", required=True)
+    user.add_argument("--role", choices=["researcher", "viewer"], default="viewer")
     serve = sub.add_parser("serve", help="FastAPI sunucusunu başlat (geliştirme)")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
@@ -168,8 +230,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     try:
         if args.command == "fetch-data":
             fetch_data(args.snapshot)
+        elif args.command == "train-hmm":
+            train_hmm(args.snapshot, args.out, args.seed)
         elif args.command == "baseline":
             baseline(args.snapshot, args.reports, args.split, with_llm=args.llm, unseal=args.unseal)
+        elif args.command == "create-user":
+            create_user(args.email, args.role)
         elif args.command == "serve":
             serve_api(args.host, args.port, reload=args.reload)
         else:

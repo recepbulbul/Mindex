@@ -11,14 +11,19 @@ authors = [
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "alembic>=1.14",
+    "argon2-cffi>=23.1",
     "ccxt>=4.5.91",
+    "email-validator>=2.2",
     "fastapi>=0.115",
+    "hmmlearn>=0.3.3",
     "httpx2>=2.16.2",
+    "numpy>=2.0",
     "pgvector>=0.3",
     "polars>=2.1.0",
     "psycopg[binary]>=3.2",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
+    "pyjwt>=2.10",
     "sqlalchemy>=2.0.36",
     "structlog>=24.4",
     "uvicorn>=0.32",
@@ -71,7 +76,10 @@ select = [
 allowed-confusables = ["ı"]  # Turkish dotless i is intentional in Turkish text
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]  # assert is how pytest works
+"tests/**" = [
+    "S101",  # assert is how pytest works
+    "S105", "S106",  # test passwords and secrets are fixtures, not credentials
+]
 
 # --- Pyright ------------------------------------------------------------
 [tool.pyright]
@@ -89,6 +97,10 @@ addopts = "-ra --strict-markers -m 'not model' --cov=mindex --cov-report=term-mi
 markers = [
     "db: needs PostgreSQL + pgvector (docker compose up -d db); skipped when unreachable",
     "model: needs a real model (llama-server, embedding, trained PPO); run with -m model",
+]
+filterwarnings = [
+    # hmmlearn 0.3 sets ndarray.shape, deprecated in NumPy 2.5; harmless until hmmlearn updates.
+    "ignore:Setting the shape on a NumPy array:DeprecationWarning",
 ]
 
 [tool.coverage.run]

@@ -9,7 +9,8 @@ import httpx2
 import pytest
 
 from mindex.config import get_settings
-from mindex.db.models import EMBEDDING_DIM, Regime
+from mindex.db.models import EMBEDDING_DIM
+from mindex.domain.regime import Regime
 from mindex.memory.embedder import (
     EmbeddingUnavailableError,
     HashEmbedder,
@@ -187,10 +188,15 @@ def test_llama_server_embedder_posts_and_reorders() -> None:
     assert client.embed([]) == []
 
 
-def _raw_vector(value: str) -> bytes:
-    """Raw JSON with a non-finite number (`Response(json=...)` would refuse to encode it)."""
+def _raw_vector(value: str, index: str = "0") -> bytes:
+    """Raw JSON with a non-finite or huge number (`Response(json=...)` would refuse NaN)."""
     values = ",".join([value] + ["0.1"] * (EMBEDDING_DIM - 1))
-    return f'{{"data": [{{"index": 0, "embedding": [{values}]}}]}}'.encode()
+    return f'{{"data": [{{"index": {index}, "embedding": [{values}]}}]}}'.encode()
+
+
+def _items(*indices: object, value: object = 0.1) -> httpx2.Response:
+    data = [{"index": i, "embedding": [value] * EMBEDDING_DIM} for i in indices]
+    return httpx2.Response(200, json={"data": data})
 
 
 @pytest.mark.parametrize(
@@ -232,6 +238,31 @@ def test_llama_server_embedder_errors(response: httpx2.Response) -> None:
     )
     with pytest.raises(EmbeddingUnavailableError):
         client.embed(["a"])
+
+
+@pytest.mark.parametrize(
+    ("response", "n"),
+    [
+        pytest.param(
+            httpx2.Response(200, content=_raw_vector("0.1", index="1e999")), 1, id="inf-index"
+        ),
+        pytest.param(httpx2.Response(200, content=_raw_vector("1" + "0" * 400)), 1, id="huge-int"),
+        pytest.param(_items(0, 0), 2, id="repeated-index"),
+        pytest.param(_items(1, 2), 2, id="index-out-of-range"),
+        pytest.param(_items("0", 1), 2, id="string-index"),
+        pytest.param(_items(False, True), 2, id="bool-index"),
+        pytest.param(_items(0.0, 1), 2, id="float-index"),
+        pytest.param(_items(0, 1, value="0.1"), 2, id="string-value"),
+        pytest.param(_items(0, 1, value=True), 2, id="bool-value"),
+    ],
+)
+def test_llama_server_embedder_rejects_loose_types(response: httpx2.Response, n: int) -> None:
+    """Overflow and loosely typed fields fail loudly instead of being coerced."""
+    client = LlamaServerEmbedder(
+        "http://emb/v1", "m", transport=httpx2.MockTransport(lambda _: response)
+    )
+    with pytest.raises(EmbeddingUnavailableError, match="malformed"):
+        client.embed(["a"] * n)
 
 
 def test_llama_server_embedder_connection_error() -> None:
