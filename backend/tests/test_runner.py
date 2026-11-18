@@ -9,6 +9,7 @@ import threading
 import uuid
 from collections.abc import Callable, Iterator, Mapping
 from datetime import date, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
 
@@ -39,12 +40,14 @@ from mindex.db.models import (
     UserRole,
 )
 from mindex.db.session import get_session
+from mindex.domain.decision import Asset
 from mindex.domain.regime import Regime
 from mindex.evaluation.report import summarise
 from mindex.memory.embedder import HashEmbedder
 from mindex.memory.store import MemoryStore
 from mindex.regime.hmm import RegimeModel, regime_features
 from mindex.services.runner import (
+    LLM_NEEDS_C0,
     DataUnavailableError,
     ExperimentRunner,
     InProcessQueue,
@@ -899,18 +902,18 @@ def test_two_workers_never_run_the_same_experiment(
     first = threading.Thread(
         target=ExperimentRunner(factory, settings, lambda e: Gate()), args=(exp_id,)
     )
-    first.start()
-    try:
-        assert first_in.wait(timeout=10)
-        ExperimentRunner(factory, settings, fake_clients())(exp_id)  # the second worker
-        with Session(db_engine) as s:
-            row = s.get(Experiment, exp_id)
-            assert row is not None
-            assert row.status is ExperimentStatus.RUNNING  # not overwritten
-    finally:
-        second_done.set()
-        first.join(timeout=30)
-    try:
+    try:  # committed rows: removed whatever fails below
+        first.start()
+        try:
+            assert first_in.wait(timeout=10)
+            ExperimentRunner(factory, settings, fake_clients())(exp_id)  # the second worker
+            with Session(db_engine) as s:
+                row = s.get(Experiment, exp_id)
+                assert row is not None
+                assert row.status is ExperimentStatus.RUNNING  # not overwritten
+        finally:
+            second_done.set()
+            first.join(timeout=30)
         with Session(db_engine) as s:
             row = s.get(Experiment, exp_id)
             assert row is not None
@@ -939,3 +942,48 @@ def test_only_the_owner_starts(
         "detail": "Bu deney başka bir araştırmacıya ait; yalnızca sahibi değiştirebilir."
     }
     assert jobs.jobs == []
+
+
+def test_llm_outside_c0_is_refused_with_the_reason(
+    api: TestClient, researcher: dict[str, str]
+) -> None:
+    exp = api.post(
+        "/api/experiments", json={**CONFIG, "condition": "C1"}, headers=researcher
+    ).json()
+    res = api.post(f"/api/experiments/{exp['id']}/start", headers=researcher)
+    assert res.status_code == 422
+    assert res.json()["fields"]["condition"] == LLM_NEEDS_C0
+    assert "araştırma verisini bozar" in LLM_NEEDS_C0
+
+
+def test_paused_is_not_startable_until_pause_exists(
+    api: TestClient, researcher: dict[str, str], db_session: Session
+) -> None:
+    exp = api.post("/api/experiments", json=CONFIG, headers=researcher).json()
+    db_session.execute(
+        update(Experiment)
+        .where(Experiment.id == uuid.UUID(exp["id"]))
+        .values(status=ExperimentStatus.PAUSED)
+    )
+    db_session.commit()
+    assert api.post(f"/api/experiments/{exp['id']}/start", headers=researcher).status_code == 409
+
+
+def test_weights_come_from_cash_and_holdings_not_rounded_equity(settings: Settings) -> None:
+    """`equity` is stored rounded to cents; dividing by it can push a fully invested
+    portfolio above 100 %. The weights are valued from the snapshot's own cash and holdings."""
+    from mindex.api.routers.results import _weights  # pyright: ignore[reportPrivateUsage]
+
+    market, start = load_market(settings.snapshot_dir, START, END, ["BTC", "ETH"])
+    close = market.bars[Asset.BTC][start].close
+    qty = 3.0
+    snap = PortfolioSnapshot(
+        day=START,
+        equity=Decimal(str(round(qty * close, 2))) - Decimal("0.01"),  # a cent below the value
+        cash=Decimal("0"),
+        holdings={"BTC": qty},
+    )
+    w = _weights(snap, market, start)
+    assert w[Asset.BTC] == 1.0
+    assert w[Asset.ETH] == 0.0
+    assert sum(w.values()) <= 1.0

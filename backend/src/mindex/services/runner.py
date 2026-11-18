@@ -67,7 +67,13 @@ from mindex.sim.market import MarketData
 LOOKBACK_DAYS = 31  # indicator warm-up before the first decision day (30 returns, MA(30))
 PLACEHOLDER_REGIME = Regime.SIDEWAYS
 # `failed` restarts from its checkpoint (e.g. after the LLM server came back).
-STARTABLE = (ExperimentStatus.DRAFT, ExperimentStatus.PAUSED, ExperimentStatus.FAILED)
+# `paused` is not startable yet: nothing pauses a run until a pause endpoint exists.
+STARTABLE = (ExperimentStatus.DRAFT, ExperimentStatus.FAILED)
+LLM_NEEDS_C0 = (
+    "LLM ajanları henüz hafıza ve foruma bağlı değil: C1–C3 koşulunda koşmak, hafızasız (C0) "  # noqa: RUF001
+    "davranışı yanlış koşul etiketiyle kaydeder ve araştırma verisini bozar. LLM ajanlarını C0 "
+    "koşulunda çalıştırın ya da deneyden çıkarın."
+)
 ACTIVE = (ExperimentStatus.QUEUED, ExperimentStatus.RUNNING)
 
 log = structlog.get_logger(__name__)
@@ -230,10 +236,7 @@ def runnable_errors(
         errors["agentIds"] = "; ".join(problems) + "."
     if any(a.kind is AgentKindDb.LLM for a in agents):
         if exp.condition is not Condition.C0:
-            errors["condition"] = (
-                "LLM ajanları şimdilik yalnızca C0'da koşar; hafıza ve forum bağlantısı "
-                "sonraki iş paketinde."
-            )
+            errors["condition"] = LLM_NEEDS_C0
         if exp.prompt_version != PROMPT_VERSION:
             errors["promptVersion"] = (
                 f"Deney {exp.prompt_version} prompt'uyla kaydedilmiş; bu sunucu "
