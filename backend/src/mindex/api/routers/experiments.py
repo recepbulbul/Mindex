@@ -11,6 +11,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Annotated, Any, cast
 
+import structlog
 import yaml
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import ValidationError
@@ -24,11 +25,12 @@ from mindex.data.splits import SPLITS, Split
 from mindex.db.models import AgentRow, Experiment, ExperimentAgent, ExperimentStatus, User
 
 router = APIRouter(prefix="/experiments", tags=["experiments"])
+log = structlog.get_logger(__name__)
 
 NOT_FOUND = "Deney bulunamadı."
 INVALID_CONFIG = "Geçersiz deney yapılandırması."
 NOT_EDITABLE = "Yalnızca taslak deneyler düzenlenebilir."
-BAD_YAML = "YAML dosyası okunamadı."
+BAD_YAML = "YAML okunamadı."
 NOT_OWNER = "Bu deney başka bir araştırmacıya ait; yalnızca sahibi değiştirebilir."
 TEST_WINDOW = SPLITS[Split.TEST]
 SEALED = (
@@ -344,11 +346,14 @@ _ConfigLoader.add_constructor("tag:yaml.org,2002:int", _int_or_text)
 
 def config_from_yaml(raw: bytes) -> dict[str, Any]:
     """Map the export layout back to `ExperimentCreate` fields (values are validated later)."""
+    # Parsing boundary: whatever the loader or a tag's constructor raises (YAMLError,
+    # RecursionError for absurd nesting, ValueError/AttributeError/KeyError from explicit tags
+    # such as `!!timestamp abc` or `!!bool foo`) is the client's malformed document, never a
+    # 500. Pydantic still reports bad values field by field afterwards.
     try:
         loaded = yaml.load(raw, Loader=_ConfigLoader)  # noqa: S506 (a SafeLoader subclass)
-    # RecursionError: absurdly deep nesting; ValueError: a constructor refused a value
-    # (e.g. an explicit `!!timestamp` that is not a date).
-    except (yaml.YAMLError, RecursionError, ValueError):
+    except Exception as exc:
+        log.info("yaml_import_rejected", error=type(exc).__name__, exc_info=exc)
         raise _invalid({"body": "Geçerli bir YAML belgesi olmalı."}, BAD_YAML) from None
     if not isinstance(loaded, dict):
         raise _invalid({"body": "Deney yapılandırması bir eşleme olmalı."}, BAD_YAML)

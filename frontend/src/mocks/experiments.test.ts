@@ -164,6 +164,15 @@ describe('mock contract alignment with the backend', () => {
     const tie = await create({ ...CONFIG, slippageBps: 0.125 })
     expect(tie.slippageBps).toBe(0.12)
     expect((await create({ ...CONFIG, slippageBps: 0.375 })).slippageBps).toBe(0.38)
+    // Near-ties are not ties: Python rounds the exact binary value (as toFixed does).
+    const cases: [Partial<ExperimentCreate>, keyof ExperimentCreate, number][] = [
+      [{ commissionRate: 0.000125 }, 'commissionRate', 0.00013],
+      [{ commissionRate: 0.000025 }, 'commissionRate', 0.00003],
+      [{ slippageBps: 2.675 }, 'slippageBps', 2.67],
+      [{ slippageBps: 1.115 }, 'slippageBps', 1.11],
+    ]
+    for (const [over, key, expected] of cases)
+      expect((await create({ ...CONFIG, ...over }))[key]).toBe(expected)
   })
 
   it('imports the YAML the backend exports', async () => {

@@ -620,3 +620,22 @@ def test_experiment_routes_are_in_openapi() -> None:
         "/api/experiments/{experiment_id}",
         "/api/experiments/{experiment_id}/export.yaml",
     } <= set(paths)
+
+
+@pytest.mark.parametrize(
+    "replace",
+    [
+        {"period": "period: {start: !!timestamp abc, end: 2026-03-31}"},  # AttributeError
+        {"seed": "seed: !!bool foo"},  # KeyError
+        {"period": "period: {start: !!timestamp 2025-02-30, end: 2026-03-31}"},  # ValueError
+        {"seed": "seed: !!float foo"},  # ValueError
+    ],
+)
+def test_yaml_constructor_failures_are_422(
+    api: TestClient, researcher: Headers, replace: dict[str, str]
+) -> None:
+    """Whatever a tag's constructor raises, the loading stage answers 422 (never 500)."""
+    res = api.post("/api/experiments/import", content=_valid_yaml(**replace), headers=researcher)
+    assert res.status_code == 422, res.text
+    assert res.json()["detail"] == "YAML okunamadı."
+    assert "body" in res.json()["fields"]

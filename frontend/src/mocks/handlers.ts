@@ -109,14 +109,19 @@ const CONFIG_KEYS = new Set([
   'commissionRate',
   'slippageBps',
 ])
-// Like the backend's Numeric(6, 5) / Numeric(6, 2) columns, rounded as Python's round() does:
-// ties go to the even digit (0.125 -> 0.12), where toFixed would round them up.
+// Like the backend's Numeric(6, 5) / Numeric(6, 2) columns, rounded as Python's round() does.
+// Both work on the number's exact binary value: toFixed rounds that half-up, Python half-even,
+// so they differ only on exact binary ties (0.125 -> 0.12 in Python). 2.675 is not a tie: its
+// binary value is just below, and both give 2.67.
 function round(x: number, digits: number) {
-  const scaled = x * 10 ** digits
-  const floor = Math.floor(scaled)
-  const diff = scaled - floor
-  const n = diff === 0.5 ? (floor % 2 === 0 ? floor : floor + 1) : Math.round(scaled)
-  return n / 10 ** digits
+  const exact = x.toFixed(100) // the exact decimal expansion of the binary value
+  const dot = exact.indexOf('.')
+  const tail = exact.slice(dot + 1 + digits)
+  const tie = tail[0] === '5' && /^0*$/.test(tail.slice(1))
+  const kept = exact.slice(0, dot + 1 + digits)
+  const lastDigit = Number(kept.at(-1))
+  if (tie && lastDigit % 2 === 0) return Number(kept) // half-even: stay on the even digit
+  return Number(x.toFixed(digits))
 }
 
 const isOwner = (request: Request, exp: Experiment) =>
@@ -327,7 +332,7 @@ export const handlers = [
     try {
       body = configFromYaml(parseYaml(text))
     } catch {
-      return error(422, 'YAML dosyası okunamadı.', {
+      return error(422, 'YAML okunamadı.', {
         body: 'Geçerli bir deney YAML dosyası olmalı.',
       })
     }
