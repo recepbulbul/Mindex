@@ -147,8 +147,11 @@ class RegimeModel:
                 n_iter=n_iter,
                 random_state=seed * 1000 + k,
             )
-            candidate.fit(scaled)
-            score = float(candidate.score(scaled))
+            try:
+                candidate.fit(scaled)
+                score = float(candidate.score(scaled))
+            except ValueError:  # degenerate EM, e.g. a state that collects no days at all
+                continue
             monitor = candidate.monitor_
             if not math.isfinite(score) or not _converged(monitor.history, monitor.tol):
                 continue

@@ -86,7 +86,14 @@ def test_filtered_proba_is_prefix_invariant(model: RegimeModel) -> None:
     for t in range(len(features)):
         assert np.allclose(model.filtered_proba(features[: t + 1])[-1], full[t]), t
     labels = model.label(features)
-    assert all(model.label(features[: t + 1])[-1] == labels[t] for t in (5, 79, 120, 200))
+    assert all(model.label(features[: t + 1])[-1] == labels[t] for t in range(len(features)))
+
+
+def test_labels_are_the_argmax_of_the_filtered_proba(model: RegimeModel) -> None:
+    """Labels must come from the filtered posterior, not from a separate Viterbi/smoothed path."""
+    features = regime_features(regime_market())
+    expected = [model.labels[int(k)] for k in np.argmax(model.filtered_proba(features), axis=1)]
+    assert model.label(features) == expected
 
 
 def test_future_data_does_not_change_past_probabilities(model: RegimeModel) -> None:
@@ -205,6 +212,11 @@ class _NaNScoreHMM(GaussianHMM):
         return math.nan
 
 
+class _DegenerateHMM(GaussianHMM):
+    def fit(self, X: object, lengths: object = None) -> "_DegenerateHMM":  # noqa: N803
+        raise ValueError("transmat_ rows must sum to 1")
+
+
 def test_seed_selects_disjoint_restart_seeds(monkeypatch: pytest.MonkeyPatch) -> None:
     import hmmlearn.hmm
 
@@ -226,6 +238,9 @@ def test_unusable_candidates_are_skipped(monkeypatch: pytest.MonkeyPatch) -> Non
         RegimeModel.fit(features, n_iter=1, restarts=2)  # EM stopped by the iteration cap
     monkeypatch.setattr(hmmlearn.hmm, "GaussianHMM", _NaNScoreHMM)
     with pytest.raises(ValueError, match="finite log-likelihood"):
+        RegimeModel.fit(features, restarts=2)
+    monkeypatch.setattr(hmmlearn.hmm, "GaussianHMM", _DegenerateHMM)
+    with pytest.raises(ValueError, match="no HMM restart converged"):
         RegimeModel.fit(features, restarts=2)
 
 
