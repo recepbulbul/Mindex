@@ -26,7 +26,8 @@ import queue
 import threading
 import time
 import uuid
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Generator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from datetime import time as dtime
@@ -36,7 +37,7 @@ from typing import Any, Protocol, cast
 
 import polars as pl
 import structlog
-from sqlalchemy import select
+from sqlalchemy import Engine, select, text
 from sqlalchemy.orm import Session
 
 from mindex.agents.base import BaseAgent
@@ -65,7 +66,8 @@ from mindex.sim.market import MarketData
 
 LOOKBACK_DAYS = 31  # indicator warm-up before the first decision day (30 returns, MA(30))
 PLACEHOLDER_REGIME = Regime.SIDEWAYS
-STARTABLE = (ExperimentStatus.DRAFT, ExperimentStatus.PAUSED)
+# `failed` restarts from its checkpoint (e.g. after the LLM server came back).
+STARTABLE = (ExperimentStatus.DRAFT, ExperimentStatus.PAUSED, ExperimentStatus.FAILED)
 ACTIVE = (ExperimentStatus.QUEUED, ExperimentStatus.RUNNING)
 
 log = structlog.get_logger(__name__)
@@ -175,6 +177,8 @@ def experiment_market(exp: Experiment, settings: Settings) -> tuple[MarketData, 
 
 REGIME_SOURCE = "regime_source"  # `config` keys the runner adds (not part of the user's form)
 REGIME_SHA256 = "regime_sha256"
+ERROR = "error"  # why the last run failed; cleared by the next start
+MAX_ERROR_CHARS = 500
 
 
 def regime_provenance(settings: Settings) -> dict[str, str | None]:
@@ -337,16 +341,50 @@ class ExperimentRunner:
 
     def run(self, experiment_id: uuid.UUID, *, max_days: int | None = None) -> None:
         """Run until the end, or stop after `max_days` days (status stays `running`, as if the
-        process had stopped; the next `run` resumes from the checkpoint)."""
+        process had stopped; the next `run` resumes from the checkpoint).
+
+        Only the worker that holds the experiment's advisory lock runs it, and only that
+        worker writes its final status; another worker given the same id returns at once.
+        The lock lives on its own connection, so it is released if the process dies.
+        """
+        with self._claim(experiment_id) as claimed:
+            if not claimed:
+                log.info("experiment_claimed_elsewhere", experiment_id=str(experiment_id))
+                return
+            try:
+                self._run(experiment_id, max_days)
+            except Exception as exc:
+                log.error("experiment_failed", experiment_id=str(experiment_id), exc_info=exc)
+                with self.sessions() as session:
+                    exp = session.get(Experiment, experiment_id)
+                    if exp is not None:
+                        exp.status = ExperimentStatus.FAILED
+                        reason = f"{type(exc).__name__}: {exc}"[:MAX_ERROR_CHARS]
+                        exp.config = {**exp.config, ERROR: reason}
+                        session.commit()
+
+    @contextmanager
+    def _claim(self, experiment_id: uuid.UUID) -> Generator[bool]:
+        key = int.from_bytes(experiment_id.bytes[:8], "big", signed=True)
+        with self.sessions() as probe:
+            bind = probe.get_bind()
+        # An Engine gives the lock a dedicated connection; a Connection (tests that share one
+        # transaction) is used as is.
+        conn = bind.connect() if isinstance(bind, Engine) else bind
         try:
-            self._run(experiment_id, max_days)
-        except Exception as exc:
-            log.error("experiment_failed", experiment_id=str(experiment_id), exc_info=exc)
-            with self.sessions() as session:
-                exp = session.get(Experiment, experiment_id)
-                if exp is not None:
-                    exp.status = ExperimentStatus.FAILED
-                    session.commit()
+            got = bool(conn.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": key}).scalar())
+            if isinstance(bind, Engine):
+                conn.commit()
+            try:
+                yield got
+            finally:
+                if got:
+                    conn.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": key})
+                    if isinstance(bind, Engine):
+                        conn.commit()
+        finally:
+            if isinstance(bind, Engine):
+                conn.close()
 
     def _run(self, experiment_id: uuid.UUID, max_days: int | None) -> None:
         with self.sessions() as session:

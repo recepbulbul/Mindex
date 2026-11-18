@@ -22,6 +22,7 @@ from mindex.api.schemas import ExperimentCreate, ExperimentOut
 from mindex.config import Settings
 from mindex.data.splits import SPLITS, Split
 from mindex.db.models import AgentKindDb, AgentRow, Experiment, ExperimentAgent, ExperimentStatus
+from mindex.services.runner import ERROR as RUN_ERROR
 from mindex.services.runner import STARTABLE, agent_rows, runnable_errors
 
 router = APIRouter(prefix="/experiments", tags=["experiments"])
@@ -114,6 +115,7 @@ def _out(exp: Experiment) -> ExperimentOut:
         model_version=exp.model_version,
         prompt_version=exp.prompt_version,
         created_at=exp.created_at,
+        error=cast(str | None, exp.config.get(RUN_ERROR)),
     )
 
 
@@ -123,6 +125,11 @@ CONFIG_FIELDS = {f.alias or name for name, f in ExperimentCreate.model_fields.it
 def user_config(exp: Experiment) -> dict[str, Any]:
     """The configuration the user chose, without what the runner adds (`regime_source`...)."""
     return {k: v for k, v in exp.config.items() if k in CONFIG_FIELDS}
+
+
+def user_config_with_runner_keys(exp: Experiment) -> dict[str, Any]:
+    """`config` for a new start: everything but the previous run's error."""
+    return {k: v for k, v in exp.config.items() if k != RUN_ERROR}
 
 
 def config_of(exp: Experiment) -> ExperimentCreate:
@@ -290,10 +297,11 @@ def start_experiment(
     experiment_id: str,
     session: SessionDep,
     settings: SettingsDep,
+    _: Researcher,  # before the queue: no session is 401, not "runner down"
     jobs: JobQueueDep,
-    _: Researcher,
 ) -> ExperimentOut:
-    """Queue a draft (or paused) experiment for the in-process runner; answers `queued`."""
+    """Queue a draft, paused or failed experiment for the in-process runner (a failed one
+    resumes from its checkpoint); answers `queued`."""
     exp = get_experiment_row(session, experiment_id)
     if exp.status not in STARTABLE:
         raise HTTPException(status.HTTP_409_CONFLICT, NOT_STARTABLE.format(status=exp.status))
@@ -304,7 +312,7 @@ def start_experiment(
     claimed: CursorResult[Any] = session.execute(  # pyright: ignore[reportAssignmentType]
         update(Experiment)
         .where(Experiment.id == exp.id, Experiment.status.in_(STARTABLE))
-        .values(status=ExperimentStatus.QUEUED)
+        .values(status=ExperimentStatus.QUEUED, config=user_config_with_runner_keys(exp))
     )
     if not claimed.rowcount:
         session.rollback()

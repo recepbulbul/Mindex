@@ -215,12 +215,11 @@ class LLMAgent(BaseAgent):
         schema = decision_schema(list(codes.values()))
 
         def generate(attempt: int) -> str:
+            # Invalid model output is retried and then held (NF2). An unreachable server
+            # (`LLMUnavailableError`: connection refused, timeout) is not a model answer:
+            # it propagates, so the run stops instead of recording fake "held" days.
             started = time.perf_counter()
-            try:
-                raw = self.client.complete(messages, schema=schema)
-            except LLMUnavailableError as exc:
-                log.warning("llm_unavailable", agent=self.agent_id, attempt=attempt, error=str(exc))
-                raw = ""
+            raw = self.client.complete(messages, schema=schema)
             self.stats.latencies_ms.append(round((time.perf_counter() - started) * 1000))
             return deanonymise(raw, codes)
 

@@ -16,10 +16,11 @@ import polars as pl
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
-from sqlalchemy import select
+from sqlalchemy import Engine, delete, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from conftest import synthetic_frame
+from mindex.agents.llm import LLMUnavailableError
 from mindex.api import security
 from mindex.api.app import create_app, create_server_app
 from mindex.api.deps import get_job_queue
@@ -103,6 +104,19 @@ class FakeChat:
 
 def fake_clients(crash_on_day: int | None = None) -> Callable[[Experiment], FakeChat]:
     return lambda exp: FakeChat(crash_on_day)
+
+
+class DownChat(FakeChat):
+    """llama-server goes away on `down_from_day`."""
+
+    def __init__(self, down_from_day: int) -> None:
+        super().__init__()
+        self.down_from_day = down_from_day
+
+    def complete(self, messages: list[dict[str, str]], *, schema: Mapping[str, Any]) -> str:
+        if json.loads(messages[-1]["content"])["day"] >= self.down_from_day:
+            raise LLMUnavailableError("connection refused")
+        return super().complete(messages, schema=schema)
 
 
 @pytest.fixture
@@ -542,6 +556,88 @@ def test_rule_only_experiments_run_in_any_condition(
     _started(api, researcher, condition="C3", agentIds=["equal-weight", "ma-cross"])
 
 
+def test_unreachable_llm_fails_the_run_and_it_resumes(
+    api: TestClient,
+    researcher: dict[str, str],
+    db_session: Session,
+    sessions: Callable[[], Session],
+    settings: Settings,
+    jobs: ListQueue,
+) -> None:
+    straight = _started(api, researcher)
+    ExperimentRunner(sessions, settings, fake_clients())(straight)
+
+    exp_id = _started(api, researcher)
+    ExperimentRunner(sessions, settings, lambda exp: DownChat(down_from_day=20))(exp_id)
+    assert _status(db_session, exp_id) is ExperimentStatus.FAILED
+    rec = _record(db_session, exp_id)
+    assert rec["last_day"] == START + timedelta(days=20)  # day 20 rolled back as a whole
+    assert not any(d[7] and d[0].startswith("llm") and d[1] >= START + timedelta(days=20)
+                   for d in rec["decisions"])  # fmt: skip
+    got = api.get(f"/api/experiments/{exp_id}", headers=researcher).json()
+    assert got["status"] == "failed"
+    assert "LLMUnavailableError" in got["error"]
+
+    # Restarting a failed run continues from its checkpoint and matches an unbroken run.
+    restarted = api.post(f"/api/experiments/{exp_id}/start", headers=researcher)
+    assert restarted.status_code == 200
+    assert restarted.json()["error"] is None
+    ExperimentRunner(sessions, settings, fake_clients())(jobs.jobs[-1])
+    assert _status(db_session, exp_id) is ExperimentStatus.COMPLETED
+    assert _record(db_session, exp_id) == _record(db_session, straight)
+
+
+def test_trades_are_exactly_each_days_new_fills(
+    api: TestClient, viewer: dict[str, str], finished: uuid.UUID, db_session: Session
+) -> None:
+    rec = _record(db_session, finished)
+    state = SimState.from_json(json.dumps(rec["checkpoint"]))
+    expected = sorted(
+        (slug, f.day - timedelta(days=1), str(f.asset), f.side.value)
+        for slug, book in state.books.items()
+        for f in book.fills
+    )
+    got = sorted((t[0], t[1], t[2], t[3].value) for t in rec["trades"])
+    assert got == expected
+
+
+def test_start_claim_lost_to_a_concurrent_start_is_409(
+    api: TestClient,
+    researcher: dict[str, str],
+    db_session: Session,
+    jobs: ListQueue,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    exp = api.post("/api/experiments", json=CONFIG, headers=researcher).json()
+
+    def started_meanwhile(*_: object) -> dict[str, str]:
+        db_session.execute(
+            update(Experiment)
+            .where(Experiment.id == uuid.UUID(exp["id"]))
+            .values(status=ExperimentStatus.QUEUED)
+        )
+        return {}
+
+    monkeypatch.setattr("mindex.api.routers.experiments.runnable_errors", started_meanwhile)
+    res = api.post(f"/api/experiments/{exp['id']}/start", headers=researcher)
+    assert res.status_code == 409
+    assert jobs.jobs == []
+
+
+def test_start_without_a_session_is_401_even_without_a_runner(
+    db_session: Session, settings: Settings
+) -> None:
+    app = create_app()
+
+    def session_override() -> Iterator[Session]:
+        yield db_session
+
+    app.dependency_overrides[get_session] = session_override
+    app.dependency_overrides[get_settings] = lambda: settings
+    with TestClient(app) as c:
+        assert c.post(f"/api/experiments/{uuid.uuid4()}/start").status_code == 401
+
+
 def test_start_without_a_runner_is_503(db_session: Session, settings: Settings) -> None:
     app = create_app()
 
@@ -756,3 +852,77 @@ def test_server_app_resumes_interrupted_runs_on_startup(
     with TestClient(app):
         cast(InProcessQueue, app.state.job_queue).join()  # the real worker thread
     assert _status(db_session, exp_id) is ExperimentStatus.COMPLETED
+
+
+def test_two_workers_never_run_the_same_experiment(
+    db_engine: Engine, snapshot: Path, settings: Settings
+) -> None:
+    """Real, committed rows and two threads: the second worker must not touch a run the first
+    one holds (no duplicate days, no status overwrite)."""
+    with Session(db_engine) as s:
+        owner = User(email="yaris@mindex.dev", password_hash="x", role=UserRole.RESEARCHER)
+        s.add(owner)
+        s.flush()
+        agents = {a.slug: a for a in s.scalars(select(AgentRow))}
+        exp = Experiment(
+            owner_id=owner.id,
+            name="Yarış",
+            mode="replay",
+            condition="C0",
+            status=ExperimentStatus.QUEUED,
+            start_date=START,
+            end_date=START + timedelta(days=10),
+            assets=["BTC", "ETH"],
+            seed=1,
+            config={**CONFIG, "agentIds": ["equal-weight", "llm-momentum"]},
+            model_version="fake-model",
+            prompt_version="decision-v1",
+        )
+        exp.agents = [
+            ExperimentAgent(agent=agents["equal-weight"]),
+            ExperimentAgent(agent=agents["llm-momentum"]),
+        ]
+        s.add(exp)
+        s.commit()
+        exp_id, owner_id = exp.id, owner.id
+
+    first_in = threading.Event()
+    second_done = threading.Event()
+
+    class Gate(FakeChat):
+        def complete(self, messages: list[dict[str, str]], *, schema: Mapping[str, Any]) -> str:
+            first_in.set()
+            second_done.wait(timeout=10)  # hold the run until the second worker has tried
+            return super().complete(messages, schema=schema)
+
+    factory = sessionmaker(db_engine, expire_on_commit=False)
+    first = threading.Thread(
+        target=ExperimentRunner(factory, settings, lambda e: Gate()), args=(exp_id,)
+    )
+    first.start()
+    try:
+        assert first_in.wait(timeout=10)
+        ExperimentRunner(factory, settings, fake_clients())(exp_id)  # the second worker
+        with Session(db_engine) as s:
+            row = s.get(Experiment, exp_id)
+            assert row is not None
+            assert row.status is ExperimentStatus.RUNNING  # not overwritten
+    finally:
+        second_done.set()
+        first.join(timeout=30)
+    try:
+        with Session(db_engine) as s:
+            row = s.get(Experiment, exp_id)
+            assert row is not None
+            assert row.status is ExperimentStatus.COMPLETED
+            days = s.scalars(
+                select(DecisionRow.day)
+                .join(ExperimentAgent, DecisionRow.experiment_agent_id == ExperimentAgent.id)
+                .where(ExperimentAgent.experiment_id == exp_id)
+            ).all()
+            assert len(days) == 2 * 10
+    finally:
+        with Session(db_engine) as s:
+            s.execute(delete(Experiment).where(Experiment.id == exp_id))
+            s.execute(delete(User).where(User.id == owner_id))
+            s.commit()

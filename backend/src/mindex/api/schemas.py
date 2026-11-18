@@ -196,6 +196,7 @@ class ExperimentOut(ApiModel):
     model_version: str
     prompt_version: str
     created_at: datetime
+    error: str | None = None  # why the last run failed (status "failed"), else null
 
 
 class AgentOut(ApiModel):
