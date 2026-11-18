@@ -4,7 +4,7 @@ import { Controller, useForm, useWatch } from 'react-hook-form'
 import { useNavigate } from 'react-router'
 import { ApiError } from '@/api/client'
 import { useAgents, useCreateExperiment } from '@/api/queries'
-import { ASSETS, CONDITION_LABELS, CONDITIONS } from '@/api/types'
+import { ASSETS, CONDITION_LABELS, CONDITIONS, type Agent, type AgentKind } from '@/api/types'
 import { PageTitle } from '@/components/common'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, Field, Input, Select } from '@/components/ui/primitives'
@@ -14,11 +14,18 @@ import {
   TEST_WINDOW,
   type ExperimentCreateForm,
 } from '@/lib/schemas'
+import { USING_MOCKS } from '@/lib/env'
 import { cn } from '@/lib/utils'
 
 const KIND_LABEL = { rule: 'Kural', rl: 'RL', llm: 'LLM', external: 'MCP' } as const
+const UNAVAILABLE_NOTE: Record<AgentKind, string> = {
+  rule: 'bu sunucuda çalıştırılamıyor.',
+  llm: 'bu sunucuda çalıştırılamıyor.',
+  rl: 'bu sunucuda eğitilmiş PPO modeli yok (MINDEX_PPO_MODEL_DIR); bu ajanla deney oluşturulamaz.',
+  external: 'MCP misafir ajanı koşucuda henüz desteklenmiyor; deney başlatılamaz.',
+}
 
-const DEFAULTS: ExperimentCreateForm = {
+const PROTOTYPE_DEFAULTS: ExperimentCreateForm = {
   name: '',
   mode: 'replay',
   condition: 'C3',
@@ -39,6 +46,16 @@ const DEFAULTS: ExperimentCreateForm = {
   commissionRate: 0.001,
   slippageBps: 5,
 }
+
+// Against the real backend the first click must start: LLM agents run only in C0 until memory
+// and the forum are wired in, and PPO needs a trained model this server may not have.
+const DEFAULTS: ExperimentCreateForm = USING_MOCKS
+  ? PROTOTYPE_DEFAULTS
+  : {
+      ...PROTOTYPE_DEFAULTS,
+      condition: 'C0',
+      agentIds: PROTOTYPE_DEFAULTS.agentIds.filter((id) => id !== 'ppo'),
+    }
 
 function toggle<T>(list: T[], item: T) {
   return list.includes(item) ? list.filter((x) => x !== item) : [...list, item]
@@ -109,7 +126,10 @@ export default function NewExperimentPage() {
     defaultValues: DEFAULTS,
   })
 
-  const [mode, startDate, endDate] = useWatch({ control, name: ['mode', 'startDate', 'endDate'] })
+  const [mode, startDate, endDate, selectedAgents] = useWatch({
+    control,
+    name: ['mode', 'startDate', 'endDate', 'agentIds'],
+  })
   const touchesTestSet = overlapsTestWindow(startDate, mode === 'live' ? null : endDate)
 
   const onSubmit = handleSubmit(async (values) => {
@@ -128,6 +148,10 @@ export default function NewExperimentPage() {
   })
 
   const agentName = (id: string) => agents.data?.find((a) => a.id === id)
+  // Selectable, but this server cannot run them: say so before the 422 does.
+  const unavailable = (selectedAgents ?? [])
+    .map(agentName)
+    .filter((a): a is Agent => a !== undefined && !a.available)
 
   return (
     <>
@@ -166,7 +190,7 @@ export default function NewExperimentPage() {
                 })}
               >
                 <option value="replay">Replay (geçmiş veri)</option>
-                <option value="live">Canlı paper-trading</option>
+                <option value="live">Canlı kâğıt üzerinde işlem</option>
               </Select>
             </Field>
             <Field
@@ -247,6 +271,18 @@ export default function NewExperimentPage() {
               />
             )}
           />
+          {unavailable.length > 0 && (
+            <ul role="status" className="space-y-1 text-xs leading-relaxed text-warn">
+              {unavailable.map((a) => (
+                <li key={a.id} className="flex gap-1.5">
+                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                  <span>
+                    {a.name}: {UNAVAILABLE_NOTE[a.kind]}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </Card>
 
         <Card className="space-y-4 lg:sticky lg:top-6">

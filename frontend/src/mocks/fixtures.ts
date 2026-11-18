@@ -2,39 +2,44 @@ import type { Agent, Experiment, UserRole } from '@/api/types'
 import { ASSETS } from '@/api/types'
 
 export const AGENTS: Agent[] = [
-  { id: 'buy-hold-btc', name: 'Al-ve-tut BTC', kind: 'rule', persona: null },
-  { id: 'equal-weight', name: 'Eşit ağırlık', kind: 'rule', persona: null },
-  { id: 'ma-cross', name: 'MA kesişimi (10/30)', kind: 'rule', persona: null },
-  { id: 'ppo', name: 'PPO', kind: 'rl', persona: null },
+  { id: 'buy-hold-btc', name: 'Al-ve-tut BTC', kind: 'rule', persona: null, available: true },
+  { id: 'equal-weight', name: 'Eşit ağırlık', kind: 'rule', persona: null, available: true },
+  { id: 'ma-cross', name: 'MA kesişimi (10/30)', kind: 'rule', persona: null, available: true },
+  { id: 'ppo', name: 'PPO', kind: 'rl', persona: null, available: true },
   {
     id: 'llm-momentum',
     name: 'LLM · Momentum',
     kind: 'llm',
     persona: 'Trendi takip eder; güçlenen varlıklara ağırlık verir.',
+    available: true,
   },
   {
     id: 'llm-mean-reversion',
     name: 'LLM · Ortalamaya dönüş',
     kind: 'llm',
     persona: 'Sert düşüşlerden sonra tepki alımı arar.',
+    available: true,
   },
   {
     id: 'llm-sentiment',
     name: 'LLM · Duyarlılık',
     kind: 'llm',
     persona: 'Fear & Greed ve funding oranına göre pozisyon alır.',
+    available: true,
   },
   {
     id: 'llm-risk-averse',
     name: 'LLM · Riskten kaçınan',
     kind: 'llm',
     persona: 'Sermayeyi korumayı önceler; ayı rejiminde nakde geçer.',
+    available: true,
   },
   {
     id: 'mcp-guest',
     name: 'MCP misafir ajanı',
     kind: 'external',
     persona: 'MCP sunucusu üzerinden katılan dış LLM ajanı.',
+    available: false, // the runner cannot run MCP guests yet (as the backend says)
   },
 ]
 

@@ -52,6 +52,11 @@ jobs:
       - run: uv run ruff check --output-format=github .
       - run: uv run pyright
       - run: uv run pytest --cov-report=xml
+      # Contract drift: the committed frontend types must match the backend's OpenAPI schema.
+      - name: OpenAPI → frontend/src/api/generated.ts is up to date
+        run: |
+          uv run mindex openapi
+          git diff --exit-code -- ../frontend/src/api/generated.ts
 
   frontend:
     name: Frontend (lint, typecheck, test, build)

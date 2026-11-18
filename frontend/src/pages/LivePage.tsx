@@ -46,7 +46,9 @@ export default function LivePage() {
   const { id = '' } = useParams()
   const experiment = useExperiment(id)
   const isDraft = experiment.data?.status === 'draft'
-  const timeline = useTimeline(id, experiment.isSuccess && !isDraft)
+  const status = experiment.data?.status
+  const isActive = status === 'queued' || status === 'running'
+  const timeline = useTimeline(id, experiment.isSuccess && !isDraft, isActive)
 
   // Only the experiment's own assets are valid; the first one is the default.
   const assets = experiment.data?.assets ?? []
@@ -74,9 +76,10 @@ export default function LivePage() {
 
   const view = useMemo(() => {
     const t = timeline.data
-    if (!t) return null
+    if (!t || t.days.length === 0) return null
     const day = t.days[at]!
-    const candles = t.candles[asset].slice(0, at + 1)
+    // The API sends candles for the experiment's own assets only.
+    const candles = (t.candles[asset] ?? []).slice(0, at + 1)
     const visibleTrades = t.trades.filter((x) => x.day <= day)
     const markers: TradeMarker[] = visibleTrades
       .filter((x) => x.asset === asset && (agentFilter === 'all' || x.agentId === agentFilter))
@@ -90,10 +93,10 @@ export default function LivePage() {
       return { agent: r.agent, equity: eq, ret: eq / r.equity[0]!.equity - 1 }
     })
     const ranked = [...runs].sort((a, b) => b.equity - a.equity)
-    const tickers = (Object.keys(t.candles) as Asset[]).map((a) => {
-      const last = t.candles[a][at]!.close
-      const prev = t.candles[a][at - 1]?.close ?? last
-      return { asset: a, price: last, change: last / prev - 1 }
+    const tickers = Object.entries(t.candles).map(([a, series]) => {
+      const last = series[at]!.close
+      const prev = series[at - 1]?.close ?? last
+      return { asset: a as Asset, price: last, change: last / prev - 1 }
     })
     return {
       day,
@@ -105,8 +108,11 @@ export default function LivePage() {
       leader: ranked[0]!,
       tickers,
       feed: visibleTrades.slice(-10).reverse(),
-      price: candles.at(-1)!.close,
-      change: candles.at(-1)!.close / (candles.at(-2)?.close ?? candles.at(-1)!.close) - 1,
+      // No candles for the asset (the API sent none): show a dash instead of failing.
+      price: candles.at(-1)?.close ?? null,
+      change: candles.length
+        ? candles.at(-1)!.close / (candles.at(-2)?.close ?? candles.at(-1)!.close) - 1
+        : null,
     }
   }, [timeline.data, at, asset, agentFilter])
 
@@ -123,6 +129,23 @@ export default function LivePage() {
     )
   if (timeline.error)
     return <ErrorState error={timeline.error} onRetry={() => void timeline.refetch()} />
+  // Started, but no day has been simulated: still queued, or it failed before its first day.
+  if (timeline.data?.days.length === 0)
+    return (
+      <Card>
+        <EmptyState
+          icon={<Clock />}
+          title={status === 'failed' ? 'Deney sonuç üretmeden durdu.' : 'Deney sırada bekliyor.'}
+        >
+          {status === 'failed'
+            ? 'Koşucu ilk günden önce hata verdi; ayrıntı sunucu günlüğünde.'
+            : 'İlk gün işlendiğinde grafik burada belirir.'}{' '}
+          <Link to="/experiments" className="text-primary underline-offset-4 hover:underline">
+            Deneylere dön
+          </Link>
+        </EmptyState>
+      </Card>
+    )
   if (!view || !experiment.data) return <Skeleton className="h-[480px]" />
 
   const exp = experiment.data
@@ -182,21 +205,23 @@ export default function LivePage() {
                   <p className="text-xs text-muted-foreground">{asset}/USDT · günlük</p>
                   <div className="flex items-baseline gap-2.5">
                     <span className="text-silver text-4xl leading-tight font-medium num tracking-tight">
-                      {formatPrice(view.price)}
+                      {view.price === null ? '—' : formatPrice(view.price)}
                     </span>
-                    <span
-                      className={cn(
-                        'inline-flex items-center gap-1 text-sm num',
-                        view.change >= 0 ? 'text-up' : 'text-down',
-                      )}
-                    >
-                      {view.change >= 0 ? (
-                        <TrendingUp className="size-3.5" />
-                      ) : (
-                        <TrendingDown className="size-3.5" />
-                      )}
-                      {formatPct(view.change)}
-                    </span>
+                    {view.change !== null && (
+                      <span
+                        className={cn(
+                          'inline-flex items-center gap-1 text-sm num',
+                          view.change >= 0 ? 'text-up' : 'text-down',
+                        )}
+                      >
+                        {view.change >= 0 ? (
+                          <TrendingUp className="size-3.5" />
+                        ) : (
+                          <TrendingDown className="size-3.5" />
+                        )}
+                        {formatPct(view.change)}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>

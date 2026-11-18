@@ -15,6 +15,7 @@ from typing import Any, cast
 
 import polars as pl
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from sqlalchemy import Engine, delete, select, update
@@ -931,17 +932,18 @@ def test_two_workers_never_run_the_same_experiment(
             s.commit()
 
 
-def test_only_the_owner_starts(
-    api: TestClient, researcher: dict[str, str], db_session: Session, jobs: ListQueue
+def test_agents_say_which_ones_this_server_can_run(
+    api: TestClient, viewer: dict[str, str], settings: Settings
 ) -> None:
-    exp = api.post("/api/experiments", json=CONFIG, headers=researcher).json()
-    other = _login(api, db_session, "baska@mindex.dev", UserRole.RESEARCHER)
-    res = api.post(f"/api/experiments/{exp['id']}/start", headers=other)
-    assert res.status_code == 403
-    assert res.json() == {
-        "detail": "Bu deney başka bir araştırmacıya ait; yalnızca sahibi değiştirebilir."
-    }
-    assert jobs.jobs == []
+    def availability() -> dict[str, bool]:
+        return {a["id"]: a["available"] for a in api.get("/api/agents", headers=viewer).json()}
+
+    got = availability()
+    assert (got["ppo"], got["mcp-guest"]) == (False, False)  # no trained model; MCP not yet
+    assert all(v for k, v in got.items() if k not in {"ppo", "mcp-guest"})
+    with_model = settings.model_copy(update={"ppo_model_dir": Path("models/seed-1")})
+    cast(FastAPI, api.app).dependency_overrides[get_settings] = lambda: with_model
+    assert availability()["ppo"] is True
 
 
 def test_llm_outside_c0_is_refused_with_the_reason(
@@ -969,6 +971,19 @@ def test_paused_is_not_startable_until_pause_exists(
     assert api.post(f"/api/experiments/{exp['id']}/start", headers=researcher).status_code == 409
 
 
+def test_only_the_owner_starts(
+    api: TestClient, researcher: dict[str, str], db_session: Session, jobs: ListQueue
+) -> None:
+    exp = api.post("/api/experiments", json=CONFIG, headers=researcher).json()
+    other = _login(api, db_session, "baska@mindex.dev", UserRole.RESEARCHER)
+    res = api.post(f"/api/experiments/{exp['id']}/start", headers=other)
+    assert res.status_code == 403
+    assert res.json() == {
+        "detail": "Bu deney başka bir araştırmacıya ait; yalnızca sahibi değiştirebilir."
+    }
+    assert jobs.jobs == []
+
+
 def test_weights_come_from_cash_and_holdings_not_rounded_equity(settings: Settings) -> None:
     """`equity` is stored rounded to cents; dividing by it can push a fully invested
     portfolio above 100 %. The weights are valued from the snapshot's own cash and holdings."""
@@ -987,3 +1002,24 @@ def test_weights_come_from_cash_and_holdings_not_rounded_equity(settings: Settin
     assert w[Asset.BTC] == 1.0
     assert w[Asset.ETH] == 0.0
     assert sum(w.values()) <= 1.0
+
+
+def test_weights_with_cash_use_cash_plus_holdings_as_the_denominator(settings: Settings) -> None:
+    """With cash on hand nothing reaches 100 %, so the clamp cannot hide a wrong denominator:
+    the weight must be value / (cash + holdings), not value / rounded `equity`."""
+    from mindex.api.routers.results import _weights  # pyright: ignore[reportPrivateUsage]
+
+    market, start = load_market(settings.snapshot_dir, START, END, ["BTC", "ETH"])
+    close = market.bars[Asset.BTC][start].close
+    qty, cash = 2.0, 500.0
+    value = qty * close
+    snap = PortfolioSnapshot(
+        day=START,
+        equity=Decimal(str(round(cash + value, 2))) - Decimal("0.37"),  # stale / rounded off
+        cash=Decimal(str(cash)),
+        holdings={"BTC": qty},
+    )
+    w = _weights(snap, market, start)
+    assert w[Asset.BTC] == value / (cash + value)
+    assert w[Asset.BTC] != value / float(snap.equity)
+    assert w[Asset.BTC] < 1.0

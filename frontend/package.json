@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b",
+    "gen:api": "cd ../backend && uv run mindex openapi",
     "lint": "oxlint --deny-warnings && prettier --check .",
     "format": "prettier --write .",
     "test": "vitest run",

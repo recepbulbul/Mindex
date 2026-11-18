@@ -1,6 +1,9 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
+import { http, HttpResponse } from 'msw'
+import { AGENTS, seedExperiments } from '@/mocks/fixtures'
 import { renderApp, signIn } from '@/test/render'
+import { server } from '@/test/setup'
 
 describe('landing page', () => {
   it('introduces the arena and links anonymous visitors to the demo login', async () => {
@@ -89,6 +92,18 @@ describe('experiment setup (F2)', () => {
     expect(within(row).getByText('Taslak')).toBeInTheDocument()
   })
 
+  it('warns about selected agents this server cannot run', async () => {
+    server.use(
+      http.get('*/api/agents', () =>
+        HttpResponse.json(AGENTS.map((a) => ({ ...a, available: a.id !== 'ppo' }))),
+      ),
+    )
+    signIn('researcher')
+    renderApp('/experiments/new')
+    // PPO is in the default set and stays selectable, but the form says it will not run.
+    expect(await screen.findByText(/eğitilmiş PPO modeli yok/)).toBeInTheDocument()
+  })
+
   it('warns when the period touches the sealed test window', async () => {
     signIn('researcher')
     const { user } = renderApp('/experiments/new')
@@ -140,6 +155,28 @@ describe('live screen (F5)', () => {
     signIn('viewer')
     renderApp('/experiments/exp-val-c1/live')
     expect(await screen.findByText('Bu deney henüz başlatılmadı.')).toBeInTheDocument()
+  })
+
+  it('explains a started run that has no simulated day yet', async () => {
+    // What the real backend answers for a queued run, or one that failed before day one.
+    server.use(
+      http.get('*/api/experiments/exp-test-c3', () =>
+        HttpResponse.json({ ...seedExperiments()[0], status: 'failed' }),
+      ),
+      http.get('*/api/experiments/exp-test-c3/timeline', () =>
+        HttpResponse.json({
+          experimentId: 'exp-test-c3',
+          days: [],
+          regimes: [],
+          candles: {},
+          runs: [],
+          trades: [],
+        }),
+      ),
+    )
+    signIn('viewer')
+    renderApp('/experiments/exp-test-c3/live')
+    expect(await screen.findByText('Deney sonuç üretmeden durdu.')).toBeInTheDocument()
   })
 })
 

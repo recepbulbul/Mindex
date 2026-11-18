@@ -2,7 +2,7 @@ import { ChevronRight, Radio } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, NavLink, Outlet, useOutletContext, useParams } from 'react-router'
-import { useExperiment } from '@/api/queries'
+import { useExperiment, useRefreshWhenFinished } from '@/api/queries'
 import { CONDITION_LABELS } from '@/api/types'
 import { StatusBadge } from '@/components/common'
 import { Skeleton } from '@/components/ui/primitives'
@@ -21,6 +21,7 @@ const TABS = [
 export function ExperimentLayout() {
   const { id = '' } = useParams()
   const { data } = useExperiment(id)
+  useRefreshWhenFinished(id, data?.status)
   const [actions, setActions] = useState<HTMLElement | null>(null)
 
   return (

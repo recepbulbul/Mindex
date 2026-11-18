@@ -209,6 +209,14 @@ def regime_labels(market: MarketData, settings: Settings) -> list[Regime]:
 # ---------------------------------------------------------------- agents
 
 
+def agent_available(agent: AgentRow, settings: Settings) -> bool:
+    """Whether this server can run the agent: PPO needs a trained model, MCP guests are not
+    supported by the runner yet. Unavailable agents stay listed (the form warns about them)."""
+    if agent.kind is AgentKindDb.RL:
+        return settings.ppo_model_dir is not None
+    return agent.kind is not AgentKindDb.EXTERNAL
+
+
 def agent_rows(exp: Experiment) -> list[ExperimentAgent]:
     """The experiment's agent links in the order the configuration lists them."""
     by_slug = {ea.agent.slug: ea for ea in exp.agents}

@@ -1,11 +1,12 @@
 import { Download, FlaskConical, Play, Plus } from 'lucide-react'
 import { lazy, Suspense, useMemo } from 'react'
 import { Link } from 'react-router'
-import { api } from '@/api/client'
+import { api, ApiError } from '@/api/client'
 import {
   useAgents,
   useExperiments,
   useReport,
+  useRefreshWhenFinished,
   useStartExperiment,
   useTimeline,
 } from '@/api/queries'
@@ -52,6 +53,10 @@ const matches = (f: Filter, e: Experiment) =>
   f === 'all' ||
   (f === 'running' ? e.status === 'running' || e.status === 'queued' : e.status === f)
 
+/** A refused start in words: the 422's reasons sit in `fields`, not in its generic detail. */
+const startFailure = (err: Error) =>
+  [err.message, ...(err instanceof ApiError ? Object.values(err.fields) : [])].join(' ')
+
 export function ExperimentsPage() {
   const { user } = useAuth()
   const { data, isPending, error, refetch } = useExperiments()
@@ -70,7 +75,7 @@ export function ExperimentsPage() {
     <>
       <PageTitle
         title="Deneyler"
-        subtitle="Replay ve canlı paper-trading deneyleri. Bir deneyi açarak ajanların yarışını canlı izleyin."
+        subtitle="Geçmiş veriyle yeniden oynatma ve canlı kâğıt üzerinde işlem deneyleri. Bir deneyi açarak ajanların yarışını canlı izleyin."
         actions={
           isResearcher && (
             <Link to="/experiments/new" className={buttonVariants()}>
@@ -139,6 +144,9 @@ export function ExperimentsPage() {
                     e={e}
                     isResearcher={isResearcher}
                     starting={start.isPending}
+                    startError={
+                      start.isError && start.variables === e.id ? startFailure(start.error) : null
+                    }
                     onStart={() => start.mutate(e.id)}
                     onExport={() => void exportYaml(e.id)}
                   />
@@ -156,16 +164,20 @@ function ExperimentRow({
   e,
   isResearcher,
   starting,
+  startError,
   onStart,
   onExport,
 }: {
   e: Experiment
   isResearcher: boolean
   starting: boolean
+  startError: string | null
   onStart: () => void
   onExport: () => void
 }) {
   const isDraft = e.status === 'draft'
+  const canStart = isDraft || e.status === 'failed' // a failed run resumes from its checkpoint
+  useRefreshWhenFinished(e.id, e.status) // the list polls; a finished run's results reload
   return (
     <div className="group relative grid items-center gap-x-8 gap-y-3 py-6 transition-colors hover:bg-white/[0.025] md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_auto] md:px-3">
       <div className="min-w-0">
@@ -204,9 +216,9 @@ function ExperimentRow({
 
       <div className="relative z-10 flex items-center justify-end gap-2">
         <StatusBadge status={e.status} />
-        {isResearcher && isDraft && (
+        {isResearcher && canStart && (
           <Button size="sm" disabled={starting} onClick={onStart}>
-            <Play /> Başlat
+            <Play /> {isDraft ? 'Başlat' : 'Yeniden başlat'}
           </Button>
         )}
         {!isDraft && (
@@ -227,6 +239,12 @@ function ExperimentRow({
           <Download />
         </Button>
       </div>
+      {startError && (
+        // The API's own Turkish reason (409 wrong state, 422 the runner cannot run it).
+        <p role="alert" className="relative z-10 text-sm text-down md:col-span-3">
+          Başlatılamadı: {startError}
+        </p>
+      )}
     </div>
   )
 }
@@ -242,11 +260,13 @@ function FeaturedExperiment({ experiment }: { experiment: Experiment }) {
     const r = report.data
     if (!r || !agents.data) return null
     const llmIds = new Set(agents.data.filter((a) => a.kind === 'llm').map((a) => a.id))
-    const llm = r.agents.filter((a) => llmIds.has(a.agentId)).sort((a, b) => b.sharpe - a.sharpe)
-    const best = llm[0]
+    const llm = r.agents.filter((a) => llmIds.has(a.agentId))
+    // A run without LLM agents (e.g. rule agents only) ranks all of its agents instead.
+    const pool = (llm.length ? llm : r.agents).toSorted((a, b) => b.sharpe - a.sharpe)
+    const best = pool[0]
     const mddCut =
       best && r.benchmark.maxDrawdown > 0 ? 1 - best.maxDrawdown / r.benchmark.maxDrawdown : null
-    return { best, mddCut, r, top: llm.slice(0, 3).map((a) => a.agentId) }
+    return { best, mddCut, r, hasLlm: llm.length > 0, top: pool.slice(0, 3).map((a) => a.agentId) }
   }, [report.data, agents.data])
 
   const lines = useMemo(() => {
@@ -329,7 +349,9 @@ function FeaturedExperiment({ experiment }: { experiment: Experiment }) {
       <div className="stage min-w-0">
         <div className="mb-3 flex items-baseline justify-between">
           <p className="text-sm font-medium">Portföy yarışı</p>
-          <p className="text-xs text-muted-foreground">ilk 3 LLM ajanı ve BTC al-tut</p>
+          <p className="text-xs text-muted-foreground">
+            ilk 3 {summary && !summary.hasLlm ? 'ajan' : 'LLM ajanı'} ve BTC al-tut
+          </p>
         </div>
         {lines.length ? (
           <Suspense fallback={<Skeleton className="h-[340px]" />}>

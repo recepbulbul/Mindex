@@ -124,6 +124,7 @@ def test_agents_are_seeded_with_frontend_ids(api: TestClient, viewer: Headers) -
         "name": "LLM · Momentum",
         "kind": "llm",
         "persona": "Trendi takip eder; güçlenen varlıklara ağırlık verir.",
+        "available": True,
     }
 
 

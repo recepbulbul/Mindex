@@ -100,7 +100,7 @@ export default function AgentPage() {
                   <Badge tone={isLlm ? 'info' : 'neutral'}>{agent.kind.toUpperCase()}</Badge>
                   {rank !== null && (
                     <span className="text-xs text-muted-foreground">
-                      {rank}. sırada · {agents.data?.length ?? '–'} ajan
+                      {rank}. sırada · {report.data?.agents.length ?? '–'} ajan
                     </span>
                   )}
                 </div>

@@ -7,6 +7,7 @@ import { useAuth } from '@/auth/AuthContext'
 import { BrandMark } from '@/components/common'
 import { Button } from '@/components/ui/button'
 import { Field, Input } from '@/components/ui/primitives'
+import { DATA_NOTE, USING_MOCKS } from '@/lib/env'
 import { loginSchema, type LoginForm } from '@/lib/schemas'
 import { DEMO_USERS } from '@/mocks/fixtures'
 
@@ -104,46 +105,49 @@ export function LoginPage() {
                 </Button>
               </form>
 
-              <div className="mt-7">
-                <div className="flex items-center gap-3">
-                  <span className="h-px flex-1 bg-border" />
-                  <span className="eyebrow">Demo hesapları</span>
-                  <span className="h-px flex-1 bg-border" />
-                </div>
-                <div className="mt-3 grid gap-2">
-                  {Object.entries(DEMO_USERS).map(([email, { role }]) => (
-                    <Button
-                      key={email}
-                      variant="outline"
-                      className="group h-auto justify-start rounded-2xl px-3 py-2.5 text-left"
-                      onClick={() => fillDemo(email)}
-                    >
-                      <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-primary/15 text-primary ring-1 ring-primary/25">
-                        {role === 'researcher' ? <FlaskConical /> : <Eye />}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-[13px]">
-                          {role === 'researcher' ? 'Araştırmacı' : 'İzleyici'} · {email}
+              {/* The demo accounts exist only in the mock API. */}
+              {USING_MOCKS && (
+                <div className="mt-7">
+                  <div className="flex items-center gap-3">
+                    <span className="h-px flex-1 bg-border" />
+                    <span className="eyebrow">Demo hesapları</span>
+                    <span className="h-px flex-1 bg-border" />
+                  </div>
+                  <div className="mt-3 grid gap-2">
+                    {Object.entries(DEMO_USERS).map(([email, { role }]) => (
+                      <Button
+                        key={email}
+                        variant="outline"
+                        className="group h-auto justify-start rounded-2xl px-3 py-2.5 text-left"
+                        onClick={() => fillDemo(email)}
+                      >
+                        <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-primary/15 text-primary ring-1 ring-primary/25">
+                          {role === 'researcher' ? <FlaskConical /> : <Eye />}
                         </span>
-                        <span className="block text-[11px] font-normal text-muted-foreground">
-                          {role === 'researcher'
-                            ? 'Deney kurar, başlatır, dışa aktarır'
-                            : 'Sonuçları ve ajanları izler'}
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[13px]">
+                            {role === 'researcher' ? 'Araştırmacı' : 'İzleyici'} · {email}
+                          </span>
+                          <span className="block text-[11px] font-normal text-muted-foreground">
+                            {role === 'researcher'
+                              ? 'Deney kurar, başlatır, dışa aktarır'
+                              : 'Sonuçları ve ajanları izler'}
+                          </span>
                         </span>
-                      </span>
-                      <ArrowRight
-                        aria-hidden
-                        className="text-muted-foreground opacity-0 transition-[opacity,transform] group-hover:translate-x-0.5 group-hover:opacity-100"
-                      />
-                    </Button>
-                  ))}
+                        <ArrowRight
+                          aria-hidden
+                          className="text-muted-foreground opacity-0 transition-[opacity,transform] group-hover:translate-x-0.5 group-hover:opacity-100"
+                        />
+                      </Button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
 
           <p className="mt-6 text-center text-xs text-muted-foreground">
-            Sahte API · gerçek para kullanılmaz
+            {USING_MOCKS ? 'Sahte API' : 'Kâğıt üzerinde işlem'} · gerçek para kullanılmaz
           </p>
         </div>
       </div>
@@ -177,7 +181,7 @@ function BrandPanel() {
       </div>
 
       <p className="text-xs text-muted-foreground">
-        Bitirme projesi · tüm veriler sahte · gerçek para kullanılmaz
+        Bitirme projesi · {DATA_NOTE} · gerçek para kullanılmaz
       </p>
     </aside>
   )

@@ -45,9 +45,36 @@ cd frontend
 npm ci
 npm run dev        # http://localhost:5173
 
+# Frontend gerçek API ile: frontend/.env.development.local içine VITE_USE_MOCKS=false (bkz. .env.example)
+docker compose up -d db
+cd backend && uv run alembic upgrade head
+uv run mindex create-user --email siz@ornek.dev --role researcher
+uv run mindex serve                # :8000; Vite /api isteklerini buraya yönlendirir
+cd ../frontend && npm run dev
+
+# Sözleşme: backend OpenAPI → frontend/src/api/generated.ts (CI kaymayı yakalar)
+cd frontend && npm run gen:api
+
 # Git kancaları
 cd backend && uv run pre-commit install
 ```
+
+### API sözleşmesi denetimi
+
+`uv run mindex openapi`, backend'in OpenAPI şemasından `frontend/src/api/generated.ts` üretir. `frontend/src/api/contract.ts`, elle yazılan `types.ts`'i derleme zamanında bu tiplere bağlar:
+
+- **Şemalar:** yanıtlar UI'ın okuduğu tipe, istekler backend'in kabul ettiği tipe atanabilmeli; enum'lar iki yönde eşit olmalı.
+- **Uçlar:** her uç için JSON başarı yanıtı ve JSON istek gövdesi (`ApiResponses`, `ApiRequestBodies`) denetlenir. PATCH gövdesinin şeması `ExperimentUpdate`'tir.
+- **Hatalar:** tüm 4xx yanıtlar `{detail, fields?}` zarfıdır (`ApiErrorBody`).
+- CI ve `pytest`, `generated.ts` güncel değilse başarısız olur.
+
+Denetim dışında kalanlar:
+
+- YAML gövdeleri (`/experiments/import`, `export.yaml`).
+- Gövdesiz `204` (`DELETE`).
+- Sorgu parametreleri (`?regime=&agent=&q=`).
+- Hata mesajlarının metni.
+- PATCH'in birleşik doğrulaması: gövde önce birleştirilir, sonra bütün olarak `ExperimentCreate` kurallarıyla doğrulanır. Bunlar testlerle (`tests/test_experiments.py`, `src/mocks/*.test.ts`) korunur.
 
 ## Dokümantasyon
 

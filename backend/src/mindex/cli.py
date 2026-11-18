@@ -39,6 +39,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_SNAPSHOT = REPO_ROOT / "data" / "snapshots"
 DEFAULT_REPORTS = REPO_ROOT / "reports"
 DEFAULT_MODELS = REPO_ROOT / "models"
+DEFAULT_TS = REPO_ROOT / "frontend" / "src" / "api" / "generated.ts"
 LOOKBACK_DAYS = 31  # 30 daily returns need 31 closes
 
 
@@ -179,6 +180,19 @@ def train_hmm(snapshot: Path, out: Path, seed: int) -> None:
     )
 
 
+def export_openapi(ts: Path | None, json_out: Path | None) -> None:
+    """Write the API schema as TypeScript declarations (and optionally as JSON); no server."""
+    from mindex.api.app import create_app
+    from mindex.api.typescript import declarations
+
+    schema = create_app().openapi()
+    if json_out is not None:
+        _write_json(json_out, schema)
+    if ts is not None:
+        _write(ts, declarations(schema))
+        print(f"{ts} yazıldı")
+
+
 def serve_api(host: str, port: int, *, reload: bool) -> None:
     import uvicorn  # imported lazily: the data and baseline commands do not need a server
 
@@ -251,6 +265,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     user = sub.add_parser("create-user", help="Kullanıcı oluştur (parola istemle/stdin'den)")
     user.add_argument("--email", required=True)
     user.add_argument("--role", choices=["researcher", "viewer"], default="viewer")
+    spec = sub.add_parser("openapi", help="OpenAPI şemasını TypeScript tiplerine dök")
+    spec.add_argument("--ts", type=Path, default=DEFAULT_TS, help="generated.ts yolu")
+    spec.add_argument("--json", type=Path, default=None, help="isteğe bağlı openapi.json yolu")
     serve = sub.add_parser("serve", help="FastAPI sunucusunu başlat (geliştirme)")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
@@ -277,6 +294,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             train_ppo(args.snapshot, args.out, args.seed, hp)
         elif args.command == "create-user":
             create_user(args.email, args.role)
+        elif args.command == "openapi":
+            export_openapi(args.ts, args.json)
         elif args.command == "serve":
             serve_api(args.host, args.port, reload=args.reload)
         else:

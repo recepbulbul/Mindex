@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useRef } from 'react'
 import { api } from './client'
 import type {
   Agent,
@@ -32,21 +33,51 @@ export const useAgents = () =>
     staleTime: Infinity,
   })
 
+// The backend runs experiments in the background: poll while one is queued or running.
+const ACTIVE: Experiment['status'][] = ['queued', 'running']
+const POLL_MS = 2000
+
+/**
+ * When a run leaves queued/running, everything cached about it (experiment, timeline, agents,
+ * forum, memories, report: all under `['experiments', id]`) is refetched. Without this a run
+ * that finishes between two polls stays "waiting" forever: polling stops with the status and
+ * the timeline's `staleTime: Infinity` keeps its last, empty answer.
+ */
+export function useRefreshWhenFinished(id: string, status: Experiment['status'] | undefined) {
+  const qc = useQueryClient()
+  const previous = useRef(status)
+  useEffect(() => {
+    const was = previous.current
+    previous.current = status
+    if (was && ACTIVE.includes(was) && status && !ACTIVE.includes(status))
+      void qc.invalidateQueries({ queryKey: keys.experiment(id) })
+  }, [id, status, qc])
+}
+
 export const useExperiments = () =>
-  useQuery({ queryKey: keys.experiments, queryFn: () => api.get<Experiment[]>('/experiments') })
+  useQuery({
+    queryKey: keys.experiments,
+    queryFn: () => api.get<Experiment[]>('/experiments'),
+    refetchInterval: (q) =>
+      q.state.data?.some((e) => ACTIVE.includes(e.status)) ? POLL_MS : false,
+  })
 
 export const useExperiment = (id: string) =>
   useQuery({
     queryKey: keys.experiment(id),
     queryFn: () => api.get<Experiment>(`/experiments/${id}`),
+    refetchInterval: (q) =>
+      q.state.data && ACTIVE.includes(q.state.data.status) ? POLL_MS : false,
   })
 
-export const useTimeline = (id: string, enabled = true) =>
+/** `live`: the run is still queued or running, so new days keep arriving. */
+export const useTimeline = (id: string, enabled = true, live = false) =>
   useQuery({
     queryKey: keys.timeline(id),
     queryFn: () => api.get<Timeline>(`/experiments/${id}/timeline`),
     enabled,
-    staleTime: Infinity,
+    staleTime: live ? 0 : Infinity,
+    refetchInterval: live ? POLL_MS : false,
   })
 
 export const useAgentDetail = (id: string, agentId: string) =>
