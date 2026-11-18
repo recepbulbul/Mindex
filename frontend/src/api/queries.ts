@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useRef } from 'react'
 import { api } from './client'
 import type {
   Agent,
@@ -35,6 +36,23 @@ export const useAgents = () =>
 // The backend runs experiments in the background: poll while one is queued or running.
 const ACTIVE: Experiment['status'][] = ['queued', 'running']
 const POLL_MS = 2000
+
+/**
+ * When a run leaves queued/running, everything cached about it (experiment, timeline, agents,
+ * forum, memories, report: all under `['experiments', id]`) is refetched. Without this a run
+ * that finishes between two polls stays "waiting" forever: polling stops with the status and
+ * the timeline's `staleTime: Infinity` keeps its last, empty answer.
+ */
+export function useRefreshWhenFinished(id: string, status: Experiment['status'] | undefined) {
+  const qc = useQueryClient()
+  const previous = useRef(status)
+  useEffect(() => {
+    const was = previous.current
+    previous.current = status
+    if (was && ACTIVE.includes(was) && status && !ACTIVE.includes(status))
+      void qc.invalidateQueries({ queryKey: keys.experiment(id) })
+  }, [id, status, qc])
+}
 
 export const useExperiments = () =>
   useQuery({

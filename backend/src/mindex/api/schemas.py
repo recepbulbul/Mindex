@@ -180,6 +180,22 @@ class ExperimentCreate(ApiModel):
         return v
 
 
+class ExperimentUpdate(ApiModel):
+    """PATCH body, for the OpenAPI schema only: the endpoint merges these fields into the
+    stored configuration and validates the result as a whole `ExperimentCreate`."""
+
+    name: str | None = None
+    mode: ExperimentMode | None = None
+    condition: Condition | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    assets: list[Asset] | None = None
+    agent_ids: list[str] | None = None
+    seed: int | None = None
+    commission_rate: float | None = None
+    slippage_bps: float | None = None
+
+
 class ExperimentOut(ApiModel):
     id: str
     name: str

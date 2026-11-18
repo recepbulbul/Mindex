@@ -108,8 +108,11 @@ export default function LivePage() {
       leader: ranked[0]!,
       tickers,
       feed: visibleTrades.slice(-10).reverse(),
-      price: candles.at(-1)!.close,
-      change: candles.at(-1)!.close / (candles.at(-2)?.close ?? candles.at(-1)!.close) - 1,
+      // No candles for the asset (the API sent none): show a dash instead of failing.
+      price: candles.at(-1)?.close ?? null,
+      change: candles.length
+        ? candles.at(-1)!.close / (candles.at(-2)?.close ?? candles.at(-1)!.close) - 1
+        : null,
     }
   }, [timeline.data, at, asset, agentFilter])
 
@@ -202,21 +205,23 @@ export default function LivePage() {
                   <p className="text-xs text-muted-foreground">{asset}/USDT · günlük</p>
                   <div className="flex items-baseline gap-2.5">
                     <span className="text-silver text-4xl leading-tight font-medium num tracking-tight">
-                      {formatPrice(view.price)}
+                      {view.price === null ? '—' : formatPrice(view.price)}
                     </span>
-                    <span
-                      className={cn(
-                        'inline-flex items-center gap-1 text-sm num',
-                        view.change >= 0 ? 'text-up' : 'text-down',
-                      )}
-                    >
-                      {view.change >= 0 ? (
-                        <TrendingUp className="size-3.5" />
-                      ) : (
-                        <TrendingDown className="size-3.5" />
-                      )}
-                      {formatPct(view.change)}
-                    </span>
+                    {view.change !== null && (
+                      <span
+                        className={cn(
+                          'inline-flex items-center gap-1 text-sm num',
+                          view.change >= 0 ? 'text-up' : 'text-down',
+                        )}
+                      >
+                        {view.change >= 0 ? (
+                          <TrendingUp className="size-3.5" />
+                        ) : (
+                          <TrendingDown className="size-3.5" />
+                        )}
+                        {formatPct(view.change)}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>

@@ -126,8 +126,10 @@ describe('mock start mirrors the backend runner', () => {
       fields: { agentIds: expect.stringMatching(/MCP/) as string },
     })
     const ok = await create({ ...CONFIG, condition: 'C0' })
+    // Like the backend: start answers queued; the mock's "worker" has finished by the next read.
     await expect(api.post(`/experiments/${ok.id}/start`)).resolves.toMatchObject({
-      status: 'completed',
+      status: 'queued',
     })
+    await expect(api.get(`/experiments/${ok.id}`)).resolves.toMatchObject({ status: 'completed' })
   })
 })

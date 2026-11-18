@@ -6,7 +6,7 @@ import pytest
 
 from mindex import cli
 from mindex.api.app import create_app
-from mindex.api.typescript import declarations, generate, ts_type
+from mindex.api.typescript import declarations, generate, operations, ts_type
 
 GENERATED = Path(__file__).resolve().parents[2] / "frontend" / "src" / "api" / "generated.ts"
 
@@ -68,3 +68,18 @@ def test_cli_writes_ts_and_json(tmp_path: Path) -> None:
     cli.main(["openapi", "--ts", str(ts), "--json", str(js)])
     assert ts.read_text(encoding="utf-8") == generate(create_app())
     assert '"openapi"' in js.read_text(encoding="utf-8")
+
+
+def test_operations_map_responses_and_bodies() -> None:
+    spec = create_app().openapi()
+    responses, bodies = operations(spec)
+    assert responses["GET /api/experiments"] == "ExperimentOut[]"
+    assert responses["POST /api/experiments/{experiment_id}/start"] == "ExperimentOut"
+    assert "DELETE /api/experiments/{experiment_id}" not in responses  # 204, no body
+    assert bodies["PATCH /api/experiments/{experiment_id}"] == "ExperimentUpdate"
+    assert "POST /api/experiments/import" not in bodies  # YAML, not JSON
+    # Every 4xx is documented as the `{detail, fields?}` envelope.
+    patch = spec["paths"]["/api/experiments/{experiment_id}"]["patch"]["responses"]
+    assert patch["422"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/ApiErrorBody"
+    }

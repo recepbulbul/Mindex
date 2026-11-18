@@ -110,7 +110,7 @@ export function Layout() {
         <div className="space-y-2 border-t p-3">
           <div className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[11px] text-muted-foreground">
             <span className="size-1.5 rounded-full bg-warn" aria-hidden />
-            {USING_MOCKS ? 'Sahte API (MSW)' : 'Paper-trading'} · gerçek para yok
+            {USING_MOCKS ? 'Sahte API (MSW)' : 'Kâğıt üzerinde işlem'} · gerçek para yok
           </div>
           {/* The account is a row like any other link; signing out is always one click away. */}
           <div className="flex items-center gap-1">

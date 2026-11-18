@@ -147,7 +147,7 @@ export function LoginPage() {
           </div>
 
           <p className="mt-6 text-center text-xs text-muted-foreground">
-            {USING_MOCKS ? 'Sahte API' : 'Paper-trading'} · gerçek para kullanılmaz
+            {USING_MOCKS ? 'Sahte API' : 'Kâğıt üzerinde işlem'} · gerçek para kullanılmaz
           </p>
         </div>
       </div>

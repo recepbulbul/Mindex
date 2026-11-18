@@ -81,6 +81,40 @@ def _object(schema: Schema, indent: str = "") -> str:
     return "\n".join(lines)
 
 
+def _json_schema(container: Mapping[str, Any] | None) -> Schema | None:
+    content = cast(Mapping[str, Any], (container or {}).get("content", {}))
+    media = cast(Mapping[str, Any] | None, content.get("application/json"))
+    return None if media is None or "schema" not in media else cast(Schema, media["schema"])
+
+
+def operations(openapi: Mapping[str, Any]) -> tuple[dict[str, str], dict[str, str]]:
+    """`"METHOD /path"` → TypeScript type of its JSON success response, and of its JSON
+    request body, so the frontend can check endpoints, not only the schemas they use."""
+    responses: dict[str, str] = {}
+    bodies: dict[str, str] = {}
+    paths = cast(dict[str, dict[str, Any]], openapi.get("paths", {}))
+    for path in sorted(paths):
+        for method, op in sorted(paths[path].items()):
+            key = f"{method.upper()} {path}"
+            codes = cast(Mapping[str, Any], cast(Mapping[str, Any], op).get("responses", {}))
+            for code in ("200", "201"):
+                schema = _json_schema(cast(Mapping[str, Any] | None, codes.get(code)))
+                if schema is not None:
+                    responses[key] = ts_type(schema)
+                    break
+            body = _json_schema(cast(Mapping[str, Any] | None, op.get("requestBody")))
+            if body is not None:
+                bodies[key] = ts_type(body)
+    return responses, bodies
+
+
+def _map(name: str, doc: str, entries: Mapping[str, str]) -> str:
+    lines = [f"/** {doc} */", f"export interface {name} {{"]
+    lines += [f"  '{key}': {value}" for key, value in entries.items()]
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
 def declarations(openapi: Mapping[str, Any]) -> str:
     schemas = cast(dict[str, Schema], openapi.get("components", {}).get("schemas", {}))
     out = [HEADER]
@@ -91,6 +125,9 @@ def declarations(openapi: Mapping[str, Any]) -> str:
             out.append(f"export interface {name} {_object(schema)}\n")
         else:
             out.append(f"export type {name} = {ts_type(schema)}\n")
+    responses, bodies = operations(openapi)
+    out.append(_map("ApiResponses", "JSON success response of each operation.", responses))
+    out.append(_map("ApiRequestBodies", "JSON request body of each operation.", bodies))
     return "\n".join(out)
 
 

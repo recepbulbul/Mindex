@@ -33,6 +33,11 @@ export interface AgentRun {
   weights: Partial<Record<Asset, number>>[]
 }
 
+export interface ApiErrorBody {
+  detail: string
+  fields?: Record<string, string> | null
+}
+
 export type Asset = 'BTC' | 'ETH' | 'SOL' | 'BNB' | 'XRP'
 
 export interface CandleOut {
@@ -120,6 +125,19 @@ export interface ExperimentOut {
 
 export type ExperimentStatus = 'draft' | 'queued' | 'running' | 'paused' | 'completed' | 'failed'
 
+export interface ExperimentUpdate {
+  name?: string | null
+  mode?: ExperimentMode | null
+  condition?: Condition | null
+  startDate?: string | null
+  endDate?: string | null
+  assets?: Asset[] | null
+  agentIds?: string[] | null
+  seed?: number | null
+  commissionRate?: number | null
+  slippageBps?: number | null
+}
+
 export interface ForumMessageOut {
   id: string
   senderId: string
@@ -135,10 +153,6 @@ export interface ForumOut {
   messages: ForumMessageOut[]
   trust: TrustScoreOut[]
   trustHistory: TrustHistoryPoint[]
-}
-
-export interface HTTPValidationError {
-  detail?: ValidationError[]
 }
 
 export interface Health {
@@ -231,10 +245,30 @@ export interface UserOut {
 
 export type UserRole = 'researcher' | 'viewer'
 
-export interface ValidationError {
-  loc: (string | number)[]
-  msg: string
-  type: string
-  input?: unknown
-  ctx?: Record<string, unknown>
+/** JSON success response of each operation. */
+export interface ApiResponses {
+  'GET /api/agents': AgentOut[]
+  'POST /api/auth/login': LoginResponse
+  'GET /api/auth/me': UserOut
+  'POST /api/auth/register': LoginResponse
+  'GET /api/experiments': ExperimentOut[]
+  'POST /api/experiments': ExperimentOut
+  'POST /api/experiments/import': ExperimentOut
+  'GET /api/experiments/{experiment_id}': ExperimentOut
+  'PATCH /api/experiments/{experiment_id}': ExperimentOut
+  'GET /api/experiments/{experiment_id}/agents/{agent_id}': AgentDetailOut
+  'GET /api/experiments/{experiment_id}/forum': ForumOut
+  'GET /api/experiments/{experiment_id}/memories': MemoryOut[]
+  'GET /api/experiments/{experiment_id}/report': ReportOut
+  'POST /api/experiments/{experiment_id}/start': ExperimentOut
+  'GET /api/experiments/{experiment_id}/timeline': TimelineOut
+  'GET /api/health': Health
+}
+
+/** JSON request body of each operation. */
+export interface ApiRequestBodies {
+  'POST /api/auth/login': LoginRequest
+  'POST /api/auth/register': RegisterRequest
+  'POST /api/experiments': ExperimentCreate
+  'PATCH /api/experiments/{experiment_id}': ExperimentUpdate
 }

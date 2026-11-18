@@ -59,6 +59,23 @@ cd frontend && npm run gen:api
 cd backend && uv run pre-commit install
 ```
 
+### API sözleşmesi denetimi
+
+`uv run mindex openapi`, backend'in OpenAPI şemasından `frontend/src/api/generated.ts` üretir. `frontend/src/api/contract.ts`, elle yazılan `types.ts`'i derleme zamanında bu tiplere bağlar:
+
+- **Şemalar:** yanıtlar UI'ın okuduğu tipe, istekler backend'in kabul ettiği tipe atanabilmeli; enum'lar iki yönde eşit olmalı.
+- **Uçlar:** her uç için JSON başarı yanıtı ve JSON istek gövdesi (`ApiResponses`, `ApiRequestBodies`) denetlenir. PATCH gövdesinin şeması `ExperimentUpdate`'tir.
+- **Hatalar:** tüm 4xx yanıtlar `{detail, fields?}` zarfıdır (`ApiErrorBody`).
+- CI ve `pytest`, `generated.ts` güncel değilse başarısız olur.
+
+Denetim dışında kalanlar:
+
+- YAML gövdeleri (`/experiments/import`, `export.yaml`).
+- Gövdesiz `204` (`DELETE`).
+- Sorgu parametreleri (`?regime=&agent=&q=`).
+- Hata mesajlarının metni.
+- PATCH'in birleşik doğrulaması: gövde önce birleştirilir, sonra bütün olarak `ExperimentCreate` kurallarıyla doğrulanır. Bunlar testlerle (`tests/test_experiments.py`, `src/mocks/*.test.ts`) korunur.
+
 ## Dokümantasyon
 
 Projeyi ilk kez okuyorsanız **[belge dizininden](docs/README.md)** başlayın: kısa giriş, önerilen okuma sırası, her belgenin kime yönelik olduğu ve terimler sözlüğü (C0–C3, Sharpe, MDD, sürü korelasyonu, İP1–İP10, F/NF isterleri…) oradadır.

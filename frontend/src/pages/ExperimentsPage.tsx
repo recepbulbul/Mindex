@@ -6,6 +6,7 @@ import {
   useAgents,
   useExperiments,
   useReport,
+  useRefreshWhenFinished,
   useStartExperiment,
   useTimeline,
 } from '@/api/queries'
@@ -139,6 +140,9 @@ export function ExperimentsPage() {
                     e={e}
                     isResearcher={isResearcher}
                     starting={start.isPending}
+                    startError={
+                      start.isError && start.variables === e.id ? start.error.message : null
+                    }
                     onStart={() => start.mutate(e.id)}
                     onExport={() => void exportYaml(e.id)}
                   />
@@ -156,16 +160,20 @@ function ExperimentRow({
   e,
   isResearcher,
   starting,
+  startError,
   onStart,
   onExport,
 }: {
   e: Experiment
   isResearcher: boolean
   starting: boolean
+  startError: string | null
   onStart: () => void
   onExport: () => void
 }) {
   const isDraft = e.status === 'draft'
+  const canStart = isDraft || e.status === 'failed' // a failed run resumes from its checkpoint
+  useRefreshWhenFinished(e.id, e.status) // the list polls; a finished run's results reload
   return (
     <div className="group relative grid items-center gap-x-8 gap-y-3 py-6 transition-colors hover:bg-white/[0.025] md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_auto] md:px-3">
       <div className="min-w-0">
@@ -204,9 +212,9 @@ function ExperimentRow({
 
       <div className="relative z-10 flex items-center justify-end gap-2">
         <StatusBadge status={e.status} />
-        {isResearcher && isDraft && (
+        {isResearcher && canStart && (
           <Button size="sm" disabled={starting} onClick={onStart}>
-            <Play /> Başlat
+            <Play /> {isDraft ? 'Başlat' : 'Yeniden başlat'}
           </Button>
         )}
         {!isDraft && (
@@ -227,6 +235,12 @@ function ExperimentRow({
           <Download />
         </Button>
       </div>
+      {startError && (
+        // The API's own Turkish reason (409 wrong state, 422 the runner cannot run it).
+        <p role="alert" className="relative z-10 text-sm text-down md:col-span-3">
+          Başlatılamadı: {startError}
+        </p>
+      )}
     </div>
   )
 }

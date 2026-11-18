@@ -59,7 +59,14 @@ function roleOf(request: Request): UserRole | null {
   return (m?.[1] as UserRole | undefined) ?? null
 }
 
+// The mock's "worker": start answers `queued` like the backend, and the run has finished by
+// the next read (the real runner takes seconds; the UI polls until it is done).
+function settleRuns() {
+  for (const e of experiments) if (e.status === 'queued') e.status = 'completed'
+}
+
 function findExperiment(id: string | readonly string[] | undefined) {
+  settleRuns()
   return experiments.find((e) => e.id === id)
 }
 
@@ -273,6 +280,7 @@ export const handlers = [
 
   http.get(`${API}/experiments`, async () => {
     await delay()
+    settleRuns()
     return HttpResponse.json(
       [...experiments].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     )
@@ -340,15 +348,15 @@ export const handlers = [
   }),
 
   http.post(`${API}/experiments/:id/start`, ({ params, request }) => {
-    if (roleOf(request) !== 'researcher') return error(403, 'Yetkisiz.')
+    if (roleOf(request) !== 'researcher') return error(403, FORBIDDEN)
     const exp = findExperiment(params.id)
     if (!exp) return error(404, 'Deney bulunamadı.')
     if (exp.status !== 'draft' && exp.status !== 'failed')
       return error(409, `"${exp.status}" durumundaki deney başlatılamaz.`)
     const notRunnable = runnableErrors(exp)
     if (notRunnable) return error(422, 'Deney bu koşucuda başlatılamaz.', notRunnable)
-    exp.status = 'completed' // mock runs instantly; the real worker streams progress
-    return HttpResponse.json(exp)
+    exp.status = 'queued'
+    return HttpResponse.json({ ...exp })
   }),
 
   http.get(`${API}/experiments/:id/export.yaml`, ({ params }) => {

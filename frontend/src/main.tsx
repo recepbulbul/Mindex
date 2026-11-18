@@ -11,7 +11,7 @@ async function enableMocking() {
   // the app talks to the real backend, which the dev server proxies at /api.
   if (import.meta.env.VITE_USE_MOCKS !== 'true') {
     // A worker left registered by an earlier mock session must not answer for the real API.
-    const registrations = (await navigator.serviceWorker?.getRegistrations()) ?? []
+    const registrations = (await navigator.serviceWorker?.getRegistrations().catch(() => [])) ?? []
     await Promise.all(
       registrations
         .filter((r) => r.active?.scriptURL.endsWith('/mockServiceWorker.js'))

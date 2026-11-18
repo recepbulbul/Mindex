@@ -27,6 +27,7 @@ from mindex.services.runner import STARTABLE, agent_rows, runnable_errors
 
 router = APIRouter(prefix="/experiments", tags=["experiments"])
 
+SCHEMA_REF = "#/components/schemas/"
 NOT_FOUND = "Deney bulunamadı."
 INVALID_CONFIG = "Geçersiz deney yapılandırması."
 NOT_EDITABLE = "Yalnızca taslak deneyler düzenlenebilir."
@@ -247,6 +248,12 @@ def get_experiment(experiment_id: str, session: SessionDep, _: CurrentUser) -> E
 @router.patch(
     "/{experiment_id}",
     responses={status.HTTP_409_CONFLICT: {"description": NOT_EDITABLE}},
+    # The body is read as a dict (merged, then validated whole); document its real shape.
+    openapi_extra={
+        "requestBody": {
+            "content": {"application/json": {"schema": {"$ref": f"{SCHEMA_REF}ExperimentUpdate"}}}
+        }
+    },
 )
 def update_experiment(
     experiment_id: str,
