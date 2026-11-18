@@ -92,24 +92,37 @@ class LlamaServerEmbedder:
             with httpx2.Client(transport=self.transport, timeout=self.timeout) as client:
                 resp = client.post(self.url, json=body)
                 resp.raise_for_status()
-                payload = cast(dict[str, Any], resp.json())
+                payload: object = resp.json()
         except (httpx2.HTTPError, ValueError) as exc:
             raise EmbeddingUnavailableError(str(exc)) from exc
         return _parse_embeddings(payload, len(texts))
 
 
-def _parse_embeddings(payload: dict[str, Any], expected: int) -> list[list[float]]:
-    data = cast(list[dict[str, Any]], payload.get("data") or [])
-    if len(data) != expected:
-        raise EmbeddingUnavailableError(f"expected {expected} embeddings, got {len(data)}")
-    vectors: list[list[float]] = []
+def _parse_embeddings(payload: object, expected: int) -> list[list[float]]:
+    """Validate an OpenAI-style `{"data": [{"index", "embedding"}]}` response.
+
+    Anything malformed raises `EmbeddingUnavailableError`, including non-finite values and
+    the zero vector (its cosine distance is NaN, which would break the ranking).
+    """
+    data = cast(dict[str, Any], payload).get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, list):
+        raise EmbeddingUnavailableError("malformed embeddings response: no `data` list")
+    items = cast(list[object], data)
+    if len(items) != expected:
+        raise EmbeddingUnavailableError(f"expected {expected} embeddings, got {len(items)}")
     try:
-        items = sorted(data, key=lambda d: cast(int, d["index"]))
-        raw = [[float(x) for x in cast(list[float], item["embedding"])] for item in items]
+        rows = [cast(dict[str, Any], item) for item in items if isinstance(item, dict)]
+        if len(rows) != expected:
+            raise TypeError("embedding item is not an object")
+        rows.sort(key=lambda d: int(d["index"]))
+        vectors = [[float(x) for x in cast(list[Any], row["embedding"])] for row in rows]
     except (KeyError, TypeError, ValueError) as exc:
         raise EmbeddingUnavailableError(f"malformed embeddings response: {exc}") from exc
-    for vec in raw:
+    for vec in vectors:
         if len(vec) != EMBEDDING_DIM:
             raise EmbeddingUnavailableError(f"expected dim {EMBEDDING_DIM}, got {len(vec)}")
-        vectors.append(vec)
+        if not all(math.isfinite(x) for x in vec):
+            raise EmbeddingUnavailableError("embedding has non-finite values")
+        if not any(vec):
+            raise EmbeddingUnavailableError("embedding is the zero vector")
     return vectors

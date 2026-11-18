@@ -61,7 +61,7 @@ def test_text_match_lifts_a_lesson() -> None:
 def test_no_text_match_gets_no_text_term() -> None:
     """A lesson matching no term is not "last among text matches": it gets nothing."""
     alone = fuse_scores([cand(0.1)], regime=Regime.BULL, use_regime=False)
-    assert alone[0][1] == pytest.approx(0.5 * 0.85 / (1 + REGIME_BONUS))
+    assert alone[0][1] == pytest.approx(0.5 * 0.9 * 0.85 / (1 + REGIME_BONUS))
 
 
 def test_regime_bonus_on_and_off() -> None:
@@ -89,6 +89,28 @@ def test_importance_cannot_lift_an_irrelevant_lesson() -> None:
     important = cand(0.9, importance=1.0)
     scored = fuse_scores([*others, important, relevant], regime=Regime.BULL, use_regime=True)
     assert order(scored)[0] == relevant.memory_id
+
+
+@pytest.mark.parametrize(
+    ("regime", "importance"),
+    [(Regime.BEAR, 0.0), (Regime.BULL, 1.0), (Regime.BEAR, 1.0)],
+    ids=["regime-only", "importance-only", "both"],
+)
+def test_bonuses_cannot_lift_a_far_lesson(regime: Regime, importance: float) -> None:
+    """No text match: a lesson at distance 0.99 must not beat one at 0.01 on bonuses."""
+    near = cand(0.01, regime=Regime.BULL, importance=0.0)
+    far = cand(0.99, regime=regime, importance=importance)
+    scored = fuse_scores([far, near], regime=Regime.BEAR, use_regime=True)
+    assert order(scored) == [near.memory_id, far.memory_id]
+
+
+def test_regime_bonus_still_flips_close_lessons() -> None:
+    """The bonus must still matter between similarly relevant lessons (C1 vs C1')."""
+    other, same = cand(0.20, regime=Regime.BULL), cand(0.22, regime=Regime.BEAR)
+    on = fuse_scores([other, same], regime=Regime.BEAR, use_regime=True)
+    off = fuse_scores([other, same], regime=Regime.BEAR, use_regime=False)
+    assert order(on) == [same.memory_id, other.memory_id]
+    assert order(off) == [other.memory_id, same.memory_id]
 
 
 def test_scores_stay_in_unit_interval() -> None:
@@ -165,6 +187,12 @@ def test_llama_server_embedder_posts_and_reorders() -> None:
     assert client.embed([]) == []
 
 
+def _raw_vector(value: str) -> bytes:
+    """Raw JSON with a non-finite number (`Response(json=...)` would refuse to encode it)."""
+    values = ",".join([value] + ["0.1"] * (EMBEDDING_DIM - 1))
+    return f'{{"data": [{{"index": 0, "embedding": [{values}]}}]}}'.encode()
+
+
 @pytest.mark.parametrize(
     "response",
     [
@@ -174,8 +202,29 @@ def test_llama_server_embedder_posts_and_reorders() -> None:
         httpx2.Response(200, json={"data": [{"index": 0, "embedding": [0.1] * 8}]}),
         httpx2.Response(200, json={"data": [{"embedding": [0.1] * EMBEDDING_DIM}]}),
         httpx2.Response(200, json={"data": [{"index": 0, "embedding": None}]}),
+        httpx2.Response(200, json=[{"index": 0, "embedding": [0.1] * EMBEDDING_DIM}]),
+        httpx2.Response(200, json={"data": {"index": 0}}),
+        httpx2.Response(200, json={"data": ["not-an-object"]}),
+        httpx2.Response(200, json={"data": [{"index": "x", "embedding": [0.1]}]}),
+        httpx2.Response(200, content=_raw_vector("NaN")),
+        httpx2.Response(200, content=_raw_vector("1e999")),
+        httpx2.Response(200, json={"data": [{"index": 0, "embedding": [0.0] * EMBEDDING_DIM}]}),
     ],
-    ids=["http-500", "bad-json", "wrong-count", "wrong-dim", "no-index", "null-embedding"],
+    ids=[
+        "http-500",
+        "bad-json",
+        "wrong-count",
+        "wrong-dim",
+        "no-index",
+        "null-embedding",
+        "top-level-list",
+        "data-not-list",
+        "item-not-object",
+        "bad-index",
+        "nan",
+        "inf",
+        "zero-vector",
+    ],
 )
 def test_llama_server_embedder_errors(response: httpx2.Response) -> None:
     client = LlamaServerEmbedder(
