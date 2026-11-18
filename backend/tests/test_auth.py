@@ -135,6 +135,7 @@ def test_register_creates_a_viewer_and_logs_in(api: TestClient) -> None:
     assert res.status_code == 201
     body = res.json()
     assert body["user"] == {"email": "yeni@mindex.dev", "role": "viewer"}
+    assert security.decode_token(SETTINGS, body["token"]).role is UserRole.VIEWER
     me = api.get("/api/auth/me", headers={"Authorization": f"Bearer {body['token']}"})
     assert me.json() == {"email": "yeni@mindex.dev", "role": "viewer"}
 
