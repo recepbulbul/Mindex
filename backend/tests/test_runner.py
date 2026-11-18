@@ -967,3 +967,16 @@ def test_paused_is_not_startable_until_pause_exists(
     )
     db_session.commit()
     assert api.post(f"/api/experiments/{exp['id']}/start", headers=researcher).status_code == 409
+
+
+def test_only_the_owner_starts(
+    api: TestClient, researcher: dict[str, str], db_session: Session, jobs: ListQueue
+) -> None:
+    exp = api.post("/api/experiments", json=CONFIG, headers=researcher).json()
+    other = _login(api, db_session, "baska@mindex.dev", UserRole.RESEARCHER)
+    res = api.post(f"/api/experiments/{exp['id']}/start", headers=other)
+    assert res.status_code == 403
+    assert res.json() == {
+        "detail": "Bu deney başka bir araştırmacıya ait; yalnızca sahibi değiştirebilir."
+    }
+    assert jobs.jobs == []
