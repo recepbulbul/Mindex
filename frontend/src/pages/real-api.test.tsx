@@ -1,13 +1,14 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderHook, screen, waitFor, within } from '@testing-library/react'
-import { http, HttpResponse } from 'msw'
+import { delay, http, HttpResponse } from 'msw'
 import { describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
 import { api } from '@/api/client'
 import { useRefreshWhenFinished } from '@/api/queries'
 import type { Experiment, Timeline } from '@/api/types'
-import { dataNote, usingMocks } from '@/lib/env'
+import { DATA_NOTE, dataNote, USING_MOCKS } from '@/lib/env'
 import { seedExperiments } from '@/mocks/fixtures'
+import { setMockExperiment } from '@/mocks/handlers'
 import { getSimulation } from '@/mocks/simulation'
 import { renderApp, signIn } from '@/test/render'
 import { server } from '@/test/setup'
@@ -28,12 +29,9 @@ const timelineOf = (exp: Experiment): Timeline => {
 
 describe('real-API mode', () => {
   it('reads the mode flag', () => {
-    expect([usingMocks('true'), usingMocks('false'), usingMocks(undefined)]).toEqual([
-      true,
-      false,
-      false,
-    ])
-    expect(dataNote(false)).toBe('geçmiş fiyat verisiyle yeniden oynatma')
+    expect(USING_MOCKS).toBe(false) // this file runs as VITE_USE_MOCKS=false
+    expect(DATA_NOTE).toBe('geçmiş fiyat verisiyle yeniden oynatma')
+    expect(dataNote(true)).toBe('tüm veriler sahte')
   })
 
   it('hides the mock-only demo accounts and labels', async () => {
@@ -101,7 +99,10 @@ describe('experiments list against the backend', () => {
     within(row)
       .getByRole('button', { name: /Başlat/ })
       .click()
-    expect(await within(row).findByRole('alert')).toHaveTextContent(/Başlatılamadı: .+/)
+    const alert = await within(row).findByRole('alert')
+    expect(alert).toHaveTextContent(/Başlatılamadı: .+/)
+    // The reason lives in the 422's fields, not in its generic detail.
+    expect(alert).toHaveTextContent(/araştırma verisini bozar/)
   })
 
   it('features a run without LLM agents with its best agent', async () => {
@@ -132,5 +133,98 @@ describe('agent detail against the backend', () => {
     signIn('viewer')
     renderApp('/experiments/exp-test-c2/agents/llm-momentum') // 8 agents; the catalogue has 9
     await waitFor(() => expect(screen.getByText(/sırada · 8 ajan/)).toBeInTheDocument())
+  })
+})
+
+describe('real-API defaults and polling', () => {
+  it('starts with a configuration the runner accepts', async () => {
+    signIn('researcher')
+    const { user, router } = renderApp('/experiments/new')
+    await user.type(await screen.findByLabelText('Deney adı'), 'Varsayılan gerçek deney')
+    await user.click(screen.getByRole('button', { name: 'Deneyi oluştur' }))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/experiments'))
+    const row = (await screen.findByText('Varsayılan gerçek deney')).closest('li')!
+    await user.click(within(row).getByRole('button', { name: /Başlat/ }))
+    expect(await within(row).findByText('Tamamlandı', {}, { timeout: 6000 })).toBeInTheDocument()
+    expect(within(row).queryByRole('alert')).not.toBeInTheDocument()
+  }, 10_000)
+
+  it('refetches the timeline when a run completes, though its polling has stopped', async () => {
+    // The finishing poll answers late, after the timeline's own poll of that tick: the only
+    // timeline request that can see data is the refetch triggered by the status change.
+    let first: number | null = null
+    let completed = false
+    server.use(
+      http.get('*/api/experiments/exp-test-c3', async () => {
+        first ??= Date.now()
+        const done = Date.now() - first > 1500
+        if (done) await delay(150)
+        completed ||= done
+        return HttpResponse.json({ ...C3, status: done ? 'completed' : 'queued' })
+      }),
+      http.get('*/api/experiments/exp-test-c3/timeline', () => {
+        const t = timelineOf(C3)
+        return HttpResponse.json(
+          completed ? t : { ...t, days: [], regimes: [], candles: {}, runs: [], trades: [] },
+        )
+      }),
+    )
+    signIn('viewer')
+    renderApp('/experiments/exp-test-c3/live')
+    expect(await screen.findByText('Deney sırada bekliyor.')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('figure', { name: /BTC\/USDT/ }, { timeout: 6000 }),
+    ).toBeInTheDocument()
+  }, 10_000)
+
+  it('refreshes a listed run’s cached results when the list sees it finish', async () => {
+    let first: number | null = null
+    server.use(
+      http.get('*/api/experiments', () => {
+        first ??= Date.now()
+        const done = Date.now() - first > 1500
+        return HttpResponse.json([{ ...C3, status: done ? 'completed' : 'running' }])
+      }),
+    )
+    signIn('viewer')
+    const { client } = renderApp('/experiments')
+    const invalidate = vi.spyOn(client, 'invalidateQueries')
+    const row = (await screen.findByRole('heading', { level: 3, name: C3.name })).closest('li')!
+    expect(await within(row).findByText('Çalışıyor')).toBeInTheDocument()
+    expect(await within(row).findByText('Tamamlandı', {}, { timeout: 6000 })).toBeInTheDocument()
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['experiments', 'exp-test-c3'] })
+  }, 10_000)
+
+  it('polls the timeline of a running run, and refetches it on return', async () => {
+    let calls = 0
+    server.use(
+      http.get('*/api/experiments/exp-test-c3', () =>
+        HttpResponse.json({ ...C3, status: 'running' }),
+      ),
+      http.get('*/api/experiments/exp-test-c3/timeline', () => {
+        calls++
+        return HttpResponse.json(timelineOf(C3))
+      }),
+    )
+    signIn('viewer')
+    const { router } = renderApp('/experiments/exp-test-c3/live')
+    expect(await screen.findByText('Lider tablosu')).toBeInTheDocument()
+    expect(calls).toBe(1)
+    // Leaving and coming back refetches at once (staleTime 0 while the run is active) ...
+    await router.navigate('/experiments/exp-test-c3/forum')
+    await waitFor(() => expect(screen.queryByText('Lider tablosu')).not.toBeInTheDocument())
+    await router.navigate('/experiments/exp-test-c3/live')
+    await waitFor(() => expect(calls).toBe(2), { timeout: 1000 })
+    // ... and it keeps polling while running.
+    await waitFor(() => expect(calls).toBeGreaterThanOrEqual(3), { timeout: 4000 })
+  }, 10_000)
+
+  it('offers to restart a failed run', async () => {
+    setMockExperiment('exp-val-c1', { status: 'failed', error: 'LLMUnavailableError: kapalı' })
+    signIn('researcher')
+    renderApp('/experiments')
+    const title = { level: 3, name: 'Doğrulama · prompt ayarı' }
+    const row = (await screen.findByRole('heading', title)).closest('li')!
+    expect(within(row).getByRole('button', { name: /Yeniden başlat/ })).toBeInTheDocument()
   })
 })

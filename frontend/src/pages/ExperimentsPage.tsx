@@ -1,7 +1,7 @@
 import { Download, FlaskConical, Play, Plus } from 'lucide-react'
 import { lazy, Suspense, useMemo } from 'react'
 import { Link } from 'react-router'
-import { api } from '@/api/client'
+import { api, ApiError } from '@/api/client'
 import {
   useAgents,
   useExperiments,
@@ -53,6 +53,10 @@ const matches = (f: Filter, e: Experiment) =>
   f === 'all' ||
   (f === 'running' ? e.status === 'running' || e.status === 'queued' : e.status === f)
 
+/** A refused start in words: the 422's reasons sit in `fields`, not in its generic detail. */
+const startFailure = (err: Error) =>
+  [err.message, ...(err instanceof ApiError ? Object.values(err.fields) : [])].join(' ')
+
 export function ExperimentsPage() {
   const { user } = useAuth()
   const { data, isPending, error, refetch } = useExperiments()
@@ -71,7 +75,7 @@ export function ExperimentsPage() {
     <>
       <PageTitle
         title="Deneyler"
-        subtitle="Replay ve canlı paper-trading deneyleri. Bir deneyi açarak ajanların yarışını canlı izleyin."
+        subtitle="Geçmiş veriyle yeniden oynatma ve canlı kâğıt üzerinde işlem deneyleri. Bir deneyi açarak ajanların yarışını canlı izleyin."
         actions={
           isResearcher && (
             <Link to="/experiments/new" className={buttonVariants()}>
@@ -141,7 +145,7 @@ export function ExperimentsPage() {
                     isResearcher={isResearcher}
                     starting={start.isPending}
                     startError={
-                      start.isError && start.variables === e.id ? start.error.message : null
+                      start.isError && start.variables === e.id ? startFailure(start.error) : null
                     }
                     onStart={() => start.mutate(e.id)}
                     onExport={() => void exportYaml(e.id)}

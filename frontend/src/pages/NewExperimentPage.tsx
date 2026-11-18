@@ -14,6 +14,7 @@ import {
   TEST_WINDOW,
   type ExperimentCreateForm,
 } from '@/lib/schemas'
+import { USING_MOCKS } from '@/lib/env'
 import { cn } from '@/lib/utils'
 
 const KIND_LABEL = { rule: 'Kural', rl: 'RL', llm: 'LLM', external: 'MCP' } as const
@@ -24,7 +25,7 @@ const UNAVAILABLE_NOTE: Record<AgentKind, string> = {
   external: 'MCP misafir ajanı koşucuda henüz desteklenmiyor; deney başlatılamaz.',
 }
 
-const DEFAULTS: ExperimentCreateForm = {
+const PROTOTYPE_DEFAULTS: ExperimentCreateForm = {
   name: '',
   mode: 'replay',
   condition: 'C3',
@@ -45,6 +46,16 @@ const DEFAULTS: ExperimentCreateForm = {
   commissionRate: 0.001,
   slippageBps: 5,
 }
+
+// Against the real backend the first click must start: LLM agents run only in C0 until memory
+// and the forum are wired in, and PPO needs a trained model this server may not have.
+const DEFAULTS: ExperimentCreateForm = USING_MOCKS
+  ? PROTOTYPE_DEFAULTS
+  : {
+      ...PROTOTYPE_DEFAULTS,
+      condition: 'C0',
+      agentIds: PROTOTYPE_DEFAULTS.agentIds.filter((id) => id !== 'ppo'),
+    }
 
 function toggle<T>(list: T[], item: T) {
   return list.includes(item) ? list.filter((x) => x !== item) : [...list, item]
@@ -179,7 +190,7 @@ export default function NewExperimentPage() {
                 })}
               >
                 <option value="replay">Replay (geçmiş veri)</option>
-                <option value="live">Canlı paper-trading</option>
+                <option value="live">Canlı kâğıt üzerinde işlem</option>
               </Select>
             </Field>
             <Field

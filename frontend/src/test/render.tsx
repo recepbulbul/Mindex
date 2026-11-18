@@ -23,5 +23,5 @@ export function renderApp(path: string) {
       <RouterProvider router={router} />
     </Providers>,
   )
-  return { ...utils, router, user }
+  return { ...utils, router, user, client }
 }
