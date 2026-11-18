@@ -126,6 +126,9 @@ class Observation:
     portfolio: Portfolio
     weights: Mapping[Asset, float]
     equity: float
+    # Days from the agent's last fill (executed at an open up to `t`) to day `t`; None before
+    # its first trade. Derived from the checkpointed fills, so a resumed run sees the same.
+    days_since_trade: int | None = None
 
 
 class Agent(Protocol):
@@ -256,6 +259,7 @@ class Simulator:
                 book.portfolio,
                 book.portfolio.weights(close_t),
                 book.portfolio.value(close_t),
+                (view.day - book.fills[-1].day).days if book.fills else None,
             )
             decision = agent.decide(obs)
             book.decisions += 1

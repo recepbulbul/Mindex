@@ -31,6 +31,7 @@ uv sync
 uv run mindex fetch-data                 # Binance + Fear & Greed → data/snapshots/*.parquet + manifest.json
 uv run mindex baseline                   # doğrulama döneminde kural ajanları → reports/baseline-validation.{md,json}
 uv run mindex bench-llm --calls 30       # llama-server açıkken: karar çağrısı gecikmesi → reports/llm-benchmark.json
+uv run mindex bench-llm --calls 30 --prompt decision-v2 --lessons 3  # C1 bağlamı → reports/llm-benchmark-decision-v2-lessons3.json
 uv run mindex baseline --llm             # ilk LLM ajanını da koştur (llama-server gerekir)
 uv sync --group eda && uv run jupyter nbconvert --to notebook --execute --inplace notebooks/01-eda.ipynb
 ```
@@ -203,9 +204,58 @@ Sonraki adım: `decision-v2` prompt'u (pozisyonu koru seçeneği + işlem maliye
 
 **⏳ Diğer ölçülmeyen hedefler.** Post-mortem derslerinin sayısal tutarlılığı (≥ %90) post-mortem İP5'te yazılınca, ekran gecikmesi ve 50 izleyici hedefi canlı ekran ve yük testi İP7–İP9'da hazır olunca ölçülecek.
 
+## 7. `decision-v2`: hafıza ve post-mortem koşucuda (P5)
+
+C0 baseline'ı (bölüm 6) iki şey gösterdi: ajan her gün işlem yapıyor, ve hafıza ile post-mortem henüz koşucuya bağlı değil. Bu bölüm ikisini kapatan değişikliği ve gerçek modelle (Qwen3.5-9B Q4_K_M, RTX 6000 Ada) yapılan ölçümleri anlatır.
+
+### Ne değişti?
+
+| Konu | Davranış |
+|---|---|
+| Prompt | `decision-v2`: "pozisyonu koru" seçeneği (güncel ağırlıkları aynen döndürmek), işlem maliyeti (komisyon + kayma, ≈ %0,15), gözlemde `days_since_trade`. `decision-v1` bayt bayt aynı kalır; onunla kaydedilmiş deneyler aynı prompt'la koşar (NF5). Yeni deneyler `decision-v2` ile damgalanır. |
+| C0 | Hafıza yok. `decision-v2`'yi dersler olmadan koşar, böylece C0 → C1 farkı yalnızca hafızadan gelir. |
+| C1 | Karar öncesi ajanın **kendi** en alakalı 3 dersi prompt'a girer (rejim bonusuyla). |
+| C1′ (`C1_NO_REGIME`) | C1 ile aynı, ama rejim hiçbir yerde yok: ne sıralama bonusunda ne de arama sorgusunda (sorgudaki rejim kelimesi benzerlik sıralamasını değiştirirdi). |
+| C2, C3 | LLM ajanlarıyla hâlâ 422: forum İP6'da. |
+| Post-mortem | Bir pozisyon kapanınca (`postmortem-v1`) ders yazılır, sayısal tutarlılık denetiminden geçerse `MemoryStore.add` ile kaydedilir. Ders, kapanış gününün tarihini taşır. |
+| Look-ahead | Karar günü `t` için yalnızca `day < t` dersler döner (SQL'de). Bu gün yazılan ders yarın görünür, bugün görünmez; koşucu düzeyinde testle kanıtlıdır. |
+| Sürdürme (NF2) | Dersler günün işlemiyle birlikte yazılır; yarıda kesilip sürdürülen koşu, kesintisiz koşuyla aynı dersleri ve kararları üretir. Post-mortem sırasında LLM ulaşılamazsa koşu durur (eksik ders sessizce atlanmaz). |
+| Kayıt | Her karar `decision_memories`'e hangi derslerin hangi skorla kullanıldığını yazar; arayüzde "Kullanılan anılar". Deneyin `config`'ine `postmortem_prompt_version` ve `embedding_model` yazılır. |
+
+### Gerçek modelle bulunan bir hata
+
+İlk doğrulama koşusunda C0'da 75 kararın 9'u, C1'de 6'sı üç denemede de geçersiz çıktı ve "pozisyonu koru" olarak kaydedildi. Neden: prompt, tutmak için güncel ağırlıkları aynen döndürmeyi söylüyordu; ağırlıklar 4 haneye en yakına yuvarlanınca üç varlıklı tam yatırımlı bir portföyün toplamı 1,0001 çıkıyor (0,3655 + 0,3346 + 0,3), `Decision` ise toplamı 1'in üstünde reddediyor. `temperature = 0` olduğu için üç deneme de aynı çıktıyı verdi. Bu, karar gecikmesinin p95'ini de 13,6 sn'ye çıkardı. Düzeltme: `decision-v2` güncel ağırlıkları **aşağı** yuvarlayarak gösterir (toplam asla 1'i geçmez); regresyon testi var. `decision-v1` değişmedi.
+
+### Ölçümler
+
+Hepsi doğrulama dönemi; test dönemi açılmadı. `uv run mindex bench-llm --calls 30 --prompt decision-v2 --lessons 3` (dersler örnek metinlerdir, veritabanı yok):
+
+| Prompt | p50 | p95 | Geçersiz JSON |
+|---|--:|--:|--:|
+| `decision-v1` (C0 baseline) | 4,55 sn | 5,40 sn | 0 |
+| `decision-v2`, ders yok (C0) | 4,46 sn | 4,91 sn | 0 |
+| `decision-v2`, 3 ders (C1) | 4,85 sn | 5,30 sn | 0 |
+
+Koşucuyla kısa C0/C1/C1′ koşusu (2025-10-01 → 2025-12-15, 75 gün, BTC/ETH/SOL, `buy-hold-btc` + `llm-momentum`, seed 1, düzeltmeden sonra). Gecikme, yeniden denemeler ve hafıza aramasını (gömme çağrısı dahil) kapsar:
+
+| Koşul | LLM getirisi | Sharpe | MDD | İşlem | Koruma günü | Ders yazıldı | Kararlarda anı | Karar gecikmesi p50 / p95 |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| C0 | −%33,2 | −3,70 | %37,7 | 98 | 1 | 0 | 0 | 4,43 / 4,92 sn |
+| C1 | −%36,3 | −3,25 | %41,1 | 111 | 2 | 5 | 21 / 75 | 6,67 / 7,30 sn |
+| C1′ | −%34,1 | −2,94 | %39,3 | 96 | 4 | 0 | 0 / 75 | 6,65 / 7,80 sn |
+
+BTC al-ve-tut aynı dönemde −%27,2 (MDD %32,0). C1′ satırı, gözden geçirme sonrası düzeltilmiş koda (rejimsiz sorgu) göre yeniden koşuldu; bu koşuda hiçbir pozisyon tamamen kapanmadığı için ders yazılmadı (44 satış, hepsi kısmi), yani C1′ prompt'a boş `lessons` listesiyle koştu. `decision-v2` ile pozisyonlar nadiren tamamen kapandığından, dersler seyrek birikir: 75 günde 0–5. Bu, hafızanın etkisini ölçmek için uzun dönem ve çok seed gerektiğini gösterir. Bu koşu hattın uçtan uca çalıştığını gösterir; **koşullar arasında sonuç çıkarmak için yetersizdir** (tek seed, tek ajan, 75 gün, 0–5 ders). C0 → C1 karşılaştırması P6'daki çok seed'li koşulara kalır.
+
+Post-mortem tutarlılığı (`consistency_rate`, hedef ≥ %90): düzeltmeden sonraki C0/C1 koşusunda C1'de 5/5, ilk üç koşuda (düzeltme öncesi) 31/38 (%81,6). Toplam 36/43 = %83,7. Örnek sayısı küçüktür; hedefin sağlandığı söylenemez. Denetim yalnızca sayıların tabloyla uyumunu ve yönü kontrol eder, dersin anlamlı olduğunu değil (ilk koşuda birkaç ders sayıları doğru ama yorumu zayıftı).
+
+### HMM rejim etiketleri üzerine not
+
+Doğrulama döneminde etiket payları ayı %15,4, boğa %41,2, yatay %43,4. Dönemde BTC −%42,4 düştü; etiketlerin ardından BTC'nin ertesi gün getirisi ayı için +%0,20, boğa için −%0,32, yatay için −%0,39, son 30 günlük getirisi ise sırasıyla −%17,1, −%10,4 ve −%0,2. Yani "boğa" etiketi düşen piyasada da %41 oranında kullanılıyor ve post-mortem dersleri "boğa piyasasında bile..." diye yazılıyor. Etiketlerin anlamı (özellikle boğa durumunun nasıl adlandırıldığı) C1'in rejim bonusuna güvenmeden önce gözden geçirilmelidir.
+
 ## Doğrulama
 
 - `uv run ruff format --check .`, `uv run ruff check .`, `uv run pyright` (strict) ve `uv run pytest` lokalde geçiyor: 72 test, kapsam %94.
+- P5 sonrası (`decision-v2`, hafıza ve post-mortem koşucuda): backend 494 test (+ gerçek model gerektiren 3 test, `-m model`), kapsam %97; frontend 89 test; ruff, pyright ve oxlint temiz.
 - Polars 2'nin tip imzaları strict pyright'ta "partially unknown" uyarısı veriyor. Bu yüzden `reportUnknownMemberType` yalnızca Polars kullanan dosyalarda kapatıldı. ccxt tip dosyası içermediği için ccxt çağrıları iki adaptör sınıfında toplanıp `cast` edildi.
 
 ---

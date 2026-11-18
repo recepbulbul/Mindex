@@ -12,6 +12,7 @@ uv run pyright          # strict tip kontrolü
 uv run mindex fetch-data            # Binance + Fear & Greed → ../data/snapshots
 uv run mindex baseline [--llm]      # doğrulama döneminde baseline → ../reports
 uv run mindex bench-llm --calls 30  # llama-server karar çağrısı gecikmesi
+uv run mindex bench-llm --calls 30 --prompt decision-v2 --lessons 3  # C1 bağlamı: hafıza dersleriyle
 uv run mindex train-hmm             # rejim HMM'i, yalnızca eğitim dönemi → ../models/regime-hmm.json
 uv sync --group eda                 # EDA notebook'u için jupyter, matplotlib, duckdb
 uv sync --group rl                  # PPO eğitimi: stable-baselines3 + CPU torch (yalnızca eğitim makinesi / CI)
@@ -49,7 +50,7 @@ uv run mindex serve --reload        # API + deney koşucusu: http://127.0.0.1:80
 | `mindex.regime` | Gauss HMM rejim modeli (boğa/ayı/yatay); filtrelenmiş olasılık, look-ahead yok (P4) |
 | `mindex.evaluation` | Koşu özeti, nicel hedef karşılaştırması, LLM gecikmesi ve hesap bütçesi (P3) |
 | `mindex.db` | SQLAlchemy 2 modelleri ve oturum fabrikası (P4) |
-| `mindex.memory` | Kalıcı hafıza: `Embedder` (llama-server `/v1/embeddings`, testte `HashEmbedder`), pgvector + tam metin hibrit arama (P5) |
+| `mindex.memory` | Kalıcı hafıza: `Embedder` (llama-server `/v1/embeddings`, testte `HashEmbedder`), pgvector + tam metin hibrit arama; `recall`: bir ajanın kararı öncesi kendi derslerini getirir, C1/C1′ (P5) |
 | `mindex.postmortem` | Kapanan pozisyon için karşı-olgusal PnL tablosu (gerçek / girmemek / yarım / zarar-kes) ve sayısal tutarlılık denetimli ders yazımı (`postmortem-v1`, P5) |
 | `mindex.api` | FastAPI uygulaması, `{detail, fields}` hata zarfı, `/api/health` (P4); `/agents`, `/experiments` CRUD + YAML, sonuç uçları (P5) |
 | `mindex.services.runner` | Süreç içi deney koşucusu: `JobQueue` + `InProcessQueue`, gün sonu checkpoint, yeniden başlatmada sürdürme (NF2) |

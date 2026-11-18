@@ -1,5 +1,5 @@
 import type { Agent, Experiment, UserRole } from '@/api/types'
-import { ASSETS } from '@/api/types'
+import { ASSETS, PROMPT_VERSION } from '@/api/types'
 
 export const AGENTS: Agent[] = [
   { id: 'buy-hold-btc', name: 'Al-ve-tut BTC', kind: 'rule', persona: null, available: true },
@@ -51,7 +51,7 @@ const base = {
   commissionRate: 0.001,
   slippageBps: 5,
   modelVersion: 'qwen3.5-9b-q4_k_m',
-  promptVersion: 'decision-v1',
+  promptVersion: PROMPT_VERSION,
 } as const
 
 export const seedExperiments = (): Experiment[] => [

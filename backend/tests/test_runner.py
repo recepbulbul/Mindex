@@ -18,11 +18,18 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
-from sqlalchemy import Engine, delete, select, update
+from sqlalchemy import Engine, delete, func, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from conftest import synthetic_frame
-from mindex.agents.llm import LLMUnavailableError
+from mindex.agents.llm import (
+    DECISION_V1,
+    DECISION_V2,
+    LESSONS_PROMPT,
+    PERSONAS,
+    SYSTEM_PROMPT,
+    LLMUnavailableError,
+)
 from mindex.api import security
 from mindex.api.app import create_app, create_server_app
 from mindex.api.deps import get_job_queue
@@ -31,10 +38,12 @@ from mindex.data.snapshot import write_snapshot
 from mindex.data.splits import SealedTestSetError
 from mindex.db.models import (
     AgentRow,
+    DecisionMemory,
     DecisionRow,
     Experiment,
     ExperimentAgent,
     ExperimentStatus,
+    MemoryRow,
     PortfolioSnapshot,
     TradeRow,
     User,
@@ -46,9 +55,10 @@ from mindex.domain.regime import Regime
 from mindex.evaluation.report import summarise
 from mindex.memory.embedder import HashEmbedder
 from mindex.memory.store import MemoryStore
+from mindex.postmortem.lesson import POSTMORTEM_PROMPT_VERSION
 from mindex.regime.hmm import RegimeModel, regime_features
 from mindex.services.runner import (
-    LLM_NEEDS_C0,
+    LLM_NEEDS_FORUM,
     DataUnavailableError,
     ExperimentRunner,
     InProcessQueue,
@@ -231,6 +241,15 @@ def _record(db: Session, exp_id: uuid.UUID) -> dict[str, Any]:
     snaps = db.scalars(
         select(PortfolioSnapshot).where(PortfolioSnapshot.experiment_agent_id.in_(list(slug)))
     )
+    memories = db.scalars(select(MemoryRow).where(MemoryRow.experiment_agent_id.in_(list(slug))))
+    recalled = db.execute(
+        select(
+            DecisionRow.experiment_agent_id, DecisionRow.day, MemoryRow.lesson, DecisionMemory.score
+        )
+        .join(DecisionMemory, DecisionMemory.decision_id == DecisionRow.id)
+        .join(MemoryRow, MemoryRow.id == DecisionMemory.memory_id)
+        .where(DecisionRow.experiment_agent_id.in_(list(slug)))
+    ).all()
     return {
         "checkpoint": exp.checkpoint,
         "last_day": exp.last_checkpoint_day,
@@ -255,6 +274,18 @@ def _record(db: Session, exp_id: uuid.UUID) -> dict[str, Any]:
             (slug[s.experiment_agent_id], s.day, s.equity, s.cash, json.dumps(s.holdings))
             for s in snaps
         ),
+        "memories": sorted(
+            (
+                slug[m.experiment_agent_id],
+                m.day,
+                m.lesson,
+                m.regime,
+                m.importance,
+                json.dumps(m.counterfactual, sort_keys=True),
+            )
+            for m in memories
+        ),
+        "recalled": sorted((slug[ea], day, lesson, score) for ea, day, lesson, score in recalled),
     }
 
 
@@ -946,18 +977,6 @@ def test_agents_say_which_ones_this_server_can_run(
     assert availability()["ppo"] is True
 
 
-def test_llm_outside_c0_is_refused_with_the_reason(
-    api: TestClient, researcher: dict[str, str]
-) -> None:
-    exp = api.post(
-        "/api/experiments", json={**CONFIG, "condition": "C1"}, headers=researcher
-    ).json()
-    res = api.post(f"/api/experiments/{exp['id']}/start", headers=researcher)
-    assert res.status_code == 422
-    assert res.json()["fields"]["condition"] == LLM_NEEDS_C0
-    assert "araştırma verisini bozar" in LLM_NEEDS_C0
-
-
 def test_paused_is_not_startable_until_pause_exists(
     api: TestClient, researcher: dict[str, str], db_session: Session
 ) -> None:
@@ -1023,3 +1042,418 @@ def test_weights_with_cash_use_cash_plus_holdings_as_the_denominator(settings: S
     assert w[Asset.BTC] == value / (cash + value)
     assert w[Asset.BTC] != value / float(snap.equity)
     assert w[Asset.BTC] < 1.0
+
+
+# ---------------------------------------------------------------- memory and post-mortem (C1, C1')
+
+MEMORY_AGENTS = ["buy-hold-btc", "llm-momentum", "llm-risk-averse"]
+MOMENTUM = "You follow trends"  # persona text of llm-momentum in the system prompt
+
+
+class MemoryChat:
+    """Decisions: hold an asset (45 %) while its 7-day return is positive, else stay out, so
+    positions close and post-mortems happen. Post-mortems: a lesson that cites the table's
+    realised return, so it passes the consistency check (`bad_lessons` does not)."""
+
+    def __init__(
+        self,
+        *,
+        crash_on_day: int | None = None,
+        crash_on_postmortem: int | None = None,
+        postmortem_down: bool = False,
+        bad_lessons: bool = False,
+    ) -> None:
+        self.crash_on_day = crash_on_day
+        self.crash_on_postmortem = crash_on_postmortem
+        self.postmortem_down = postmortem_down
+        self.bad_lessons = bad_lessons
+        self.decisions: list[tuple[str, dict[str, Any]]] = []
+        self.postmortems = 0
+
+    def complete(self, messages: list[dict[str, str]], *, schema: Mapping[str, Any]) -> str:
+        system, user = messages[0]["content"], json.loads(messages[1]["content"])
+        if system.startswith("You review a closed position"):
+            return self._lesson(user)
+        if user["day"] == self.crash_on_day:
+            raise Crash
+        self.decisions.append((system, user))
+        allocations = [
+            {"asset": code, "weight": 0.45}
+            for code, f in sorted(user["assets"].items())
+            if (f["return_7d_pct"] or 0.0) > 0
+        ]
+        reply = {"allocations": allocations, "confidence": 0.6}
+        return json.dumps({**reply, "rationale": f"Sahte karar, gün {user['day']}."})
+
+    def _lesson(self, user: dict[str, Any]) -> str:
+        self.postmortems += 1
+        if self.postmortems == self.crash_on_postmortem:
+            raise Crash
+        if self.postmortem_down:
+            raise LLMUnavailableError("connection refused")
+        table: dict[str, float] = user["returns_pct"]
+        actual, code = table["actual"], user["asset"]
+        if self.bad_lessons:
+            text = "ASSET_B pozisyonu %99,99 kazandırdı; aynen devam etmek gerekir."
+        elif actual > 0.01:
+            text = f"{code} pozisyonu %{actual:.2f} kazandırdı; pozisyonu tutmak doğruydu."
+        elif actual < -0.01:
+            text = f"{code} pozisyonu %{-actual:.2f} kaybettirdi; çıkış zamanı bir ders oldu."
+        else:
+            text = f"{code} pozisyonu %{abs(actual):.2f} getirdi; fark yaratmadı, izlemeye devam."
+        outcome = "gain" if actual > 0.01 else "loss" if actual < -0.01 else "flat"
+        return json.dumps(
+            {
+                "lesson": text,
+                "importance": 0.6,
+                "regime": "bull" if actual >= 0 else "bear",
+                "outcome": outcome,
+                "best_scenario": max(table, key=lambda k: table[k]),
+            }
+        )
+
+
+def memory_clients(chat: MemoryChat) -> Callable[[Experiment], MemoryChat]:
+    return lambda exp: chat
+
+
+def memory_runner(
+    sessions: Callable[[], Session], settings: Settings, chat: MemoryChat | None = None
+) -> ExperimentRunner:
+    return ExperimentRunner(
+        sessions, settings, memory_clients(chat or MemoryChat()), HashEmbedder()
+    )
+
+
+def _link(db: Session, exp_id: uuid.UUID, slug: str) -> ExperimentAgent:
+    exp = db.get(Experiment, exp_id)
+    assert exp is not None
+    return next(ea for ea in exp.agents if ea.agent.slug == slug)
+
+
+def _seed(
+    db: Session, exp_id: uuid.UUID, slug: str, lessons: list[tuple[date, str, Regime]]
+) -> list[uuid.UUID]:
+    """Lessons the agent 'learned' before the run, to test recall without waiting for a
+    post-mortem."""
+    store = MemoryStore(db, HashEmbedder())
+    link = _link(db, exp_id, slug)
+    ids = [
+        store.add(link.id, day, text, {"actual": -0.03}, regime, 0.5).id
+        for day, text, regime in lessons
+    ]
+    db.commit()
+    return ids
+
+
+def _recalled(db: Session, exp_id: uuid.UUID, slug: str) -> list[tuple[date, date, float]]:
+    """(decision day, lesson day, score) for every lesson an agent's decisions recalled."""
+    link = _link(db, exp_id, slug)
+    rows = db.execute(
+        select(DecisionRow.day, MemoryRow.day, DecisionMemory.score)
+        .join(DecisionMemory, DecisionMemory.decision_id == DecisionRow.id)
+        .join(MemoryRow, MemoryRow.id == DecisionMemory.memory_id)
+        .where(DecisionRow.experiment_agent_id == link.id)
+        .order_by(DecisionRow.day, MemoryRow.day)
+    ).all()
+    return [(d, m, float(s)) for d, m, s in rows]
+
+
+def _first_momentum_decision(chat: MemoryChat) -> tuple[str, dict[str, Any]]:
+    return next((s, u) for s, u in chat.decisions if MOMENTUM in s)
+
+
+LESSON_TEXT = "ASSET_B pozisyonu %3,20 kaybettirdi; girmemek daha iyiydi."
+
+
+def test_c0_and_c1_differ_only_by_the_lessons(
+    api: TestClient,
+    researcher: dict[str, str],
+    db_session: Session,
+    sessions: Callable[[], Session],
+    settings: Settings,
+) -> None:
+    c0 = _started(api, researcher, agentIds=MEMORY_AGENTS)
+    c1 = _started(api, researcher, agentIds=MEMORY_AGENTS, condition="C1")
+    for exp_id in (c0, c1):
+        _seed(
+            db_session,
+            exp_id,
+            "llm-momentum",
+            [(START - timedelta(days=10), LESSON_TEXT, Regime.SIDEWAYS)],
+        )
+    chat0, chat1 = MemoryChat(), MemoryChat()
+    memory_runner(sessions, settings, chat0).run(c0, max_days=3)
+    memory_runner(sessions, settings, chat1).run(c1, max_days=3)
+
+    system0, user0 = _first_momentum_decision(chat0)
+    system1, user1 = _first_momentum_decision(chat1)
+    assert "lessons" not in user0
+    assert [x["lesson"] for x in user1["lessons"]] == [LESSON_TEXT]
+    # Remove what memory adds and the two prompts are the same: C0 -> C1 differs by memory only.
+    assert {k: v for k, v in user1.items() if k != "lessons"} == user0
+    assert system1.replace(LESSONS_PROMPT, "") == system0
+    for exp_id in (c0, c1):
+        exp = db_session.get(Experiment, exp_id)
+        assert exp is not None
+        assert exp.prompt_version == DECISION_V2
+
+    assert _recalled(db_session, c0, "llm-momentum") == []
+    got = _recalled(db_session, c1, "llm-momentum")
+    assert [(d, m) for d, m, _ in got] == [(START + timedelta(days=i), START - timedelta(days=10))
+                                           for i in range(3)]  # fmt: skip
+    assert all(0 < score <= 1 for _, _, score in got)
+    # Other agents have no lessons to recall, and rule agents never recall.
+    assert _recalled(db_session, c1, "llm-risk-averse") == []
+    assert _recalled(db_session, c1, "buy-hold-btc") == []
+
+
+def test_c1_ranks_with_the_regime_and_c1_prime_without(
+    api: TestClient,
+    researcher: dict[str, str],
+    db_session: Session,
+    sessions: Callable[[], Session],
+    settings: Settings,
+) -> None:
+    older, newer = START - timedelta(days=10), START - timedelta(days=5)
+    scores: dict[str, dict[date, float]] = {}
+    for condition in ("C1", "C1_NO_REGIME"):
+        exp_id = _started(api, researcher, agentIds=MEMORY_AGENTS, condition=condition)
+        # Same text, so the same similarity; only the regime differs. The run has no regime
+        # model, so every day is "sideways": the older lesson matches it, the newer one not.
+        _seed(
+            db_session,
+            exp_id,
+            "llm-momentum",
+            [(older, LESSON_TEXT, Regime.SIDEWAYS), (newer, LESSON_TEXT, Regime.BEAR)],
+        )
+        memory_runner(sessions, settings).run(exp_id, max_days=1)
+        scores[condition] = {m: s for _, m, s in _recalled(db_session, exp_id, "llm-momentum")}
+    assert scores["C1"][older] > scores["C1"][newer]  # regime bonus
+    assert scores["C1_NO_REGIME"][older] == scores["C1_NO_REGIME"][newer]  # no bonus
+
+
+def test_a_lesson_dated_the_decision_day_is_not_recalled_until_the_next_day(
+    api: TestClient,
+    researcher: dict[str, str],
+    db_session: Session,
+    sessions: Callable[[], Session],
+    settings: Settings,
+) -> None:
+    """Both lessons would rank in the top 3; only the SQL day boundary can keep one out."""
+    exp_id = _started(api, researcher, agentIds=MEMORY_AGENTS, condition="C1")
+    older = START - timedelta(days=5)
+    _seed(
+        db_session,
+        exp_id,
+        "llm-momentum",
+        [(older, LESSON_TEXT, Regime.SIDEWAYS), (START, LESSON_TEXT, Regime.SIDEWAYS)],
+    )
+    memory_runner(sessions, settings).run(exp_id, max_days=3)
+    by_day: dict[date, set[date]] = {}
+    for decided, learned, _ in _recalled(db_session, exp_id, "llm-momentum"):
+        by_day.setdefault(decided, set()).add(learned)
+    assert by_day[START] == {older}  # the lesson dated today is invisible
+    assert by_day[START + timedelta(days=1)] == {older, START}
+
+
+@pytest.fixture
+def c1_run(
+    api: TestClient,
+    researcher: dict[str, str],
+    sessions: Callable[[], Session],
+    settings: Settings,
+) -> uuid.UUID:
+    exp_id = _started(api, researcher, agentIds=MEMORY_AGENTS, condition="C1")
+    memory_runner(sessions, settings)(exp_id)
+    return exp_id
+
+
+def test_lessons_are_dated_the_closing_day_and_seen_from_the_next_day(
+    c1_run: uuid.UUID, db_session: Session, settings: Settings
+) -> None:
+    exp = db_session.get(Experiment, c1_run)
+    assert exp is not None
+    assert exp.status is ExperimentStatus.COMPLETED
+    for slug in ("llm-momentum", "llm-risk-averse"):
+        link = _link(db_session, c1_run, slug)
+        lessons = list(
+            db_session.scalars(select(MemoryRow).where(MemoryRow.experiment_agent_id == link.id))
+        )
+        assert lessons, f"{slug} closed positions, so it wrote lessons"
+        for m in lessons:
+            assert m.lesson.startswith("ASSET_")
+            sell = db_session.get(TradeRow, m.source_trade_id)
+            assert sell is not None
+            assert sell.side.value == "sell"
+            assert sell.executed_at.date() == m.day  # dated the closing day
+        recalled = _recalled(db_session, c1_run, slug)
+        # Look-ahead: a lesson written on day t is invisible on day t, visible from t + 1 ...
+        assert all(decided > learned for decided, learned, _ in recalled)
+        assert {m.day for m in lessons} & {d for d, _, _ in recalled}  # decisions exist that day
+        first_use = {
+            learned: min(d for d, m, _ in recalled if m == learned) for _, learned, _ in recalled
+        }
+        assert any(use == learned + timedelta(days=1) for learned, use in first_use.items())
+    # Rule agents have no memory; the run recorded how its lessons were made (NF5).
+    assert exp.config["postmortem_prompt_version"] == POSTMORTEM_PROMPT_VERSION
+    assert exp.config["embedding_model"] == settings.embedding_model
+
+
+def test_c0_run_has_no_memory_provenance_and_writes_no_lessons(
+    api: TestClient,
+    researcher: dict[str, str],
+    db_session: Session,
+    sessions: Callable[[], Session],
+    settings: Settings,
+) -> None:
+    exp_id = _started(api, researcher, agentIds=MEMORY_AGENTS)
+    chat = MemoryChat()
+    memory_runner(sessions, settings, chat)(exp_id)
+    exp = db_session.get(Experiment, exp_id)
+    assert exp is not None
+    assert "postmortem_prompt_version" not in exp.config
+    assert chat.postmortems == 0
+    assert db_session.scalar(select(func.count()).select_from(MemoryRow)) == 0
+
+
+@pytest.mark.parametrize("crash", ["decision", "postmortem"])
+def test_resume_with_memory_is_bit_for_bit(
+    api: TestClient,
+    researcher: dict[str, str],
+    db_session: Session,
+    sessions: Callable[[], Session],
+    settings: Settings,
+    c1_run: uuid.UUID,
+    crash: str,
+) -> None:
+    resumed = _started(api, researcher, agentIds=MEMORY_AGENTS, condition="C1")
+    memory_runner(sessions, settings).run(resumed, max_days=12)
+    chat = MemoryChat(crash_on_day=35) if crash == "decision" else MemoryChat(crash_on_postmortem=1)
+    with pytest.raises(Crash):
+        memory_runner(sessions, settings, chat)(resumed)
+    partial = _record(db_session, resumed)
+    assert partial["last_day"] < END  # the crashed day was rolled back as a whole
+    # A fresh runner, as after a restart, finishes from the checkpoint and the stored lessons.
+    queue = ListQueue()
+    assert resume_interrupted(sessions, queue) == [resumed]
+    memory_runner(sessions, settings)(queue.jobs[0])
+    assert _status(db_session, resumed) is ExperimentStatus.COMPLETED
+    got, want = _record(db_session, resumed), _record(db_session, c1_run)
+    assert got["memories"], "the run wrote lessons"
+    assert got["recalled"], "and its later decisions recalled them"
+    assert got == want
+
+
+def test_unreachable_llm_during_a_post_mortem_stops_the_run_and_it_resumes(
+    api: TestClient,
+    researcher: dict[str, str],
+    db_session: Session,
+    sessions: Callable[[], Session],
+    settings: Settings,
+    c1_run: uuid.UUID,
+    jobs: ListQueue,
+) -> None:
+    exp_id = _started(api, researcher, agentIds=MEMORY_AGENTS, condition="C1")
+    memory_runner(sessions, settings, MemoryChat(postmortem_down=True))(exp_id)
+    # A missing lesson is not a rejected one: the run stops (like an unreachable decision call)
+    # instead of continuing without it, which a resumed run could not reproduce.
+    assert _status(db_session, exp_id) is ExperimentStatus.FAILED
+    failed = _record(db_session, exp_id)
+    assert failed["last_day"] < END
+    assert failed["memories"] == []
+    got = api.get(f"/api/experiments/{exp_id}", headers=researcher).json()
+    assert "LLMUnavailableError" in got["error"]
+
+    assert api.post(f"/api/experiments/{exp_id}/start", headers=researcher).status_code == 200
+    memory_runner(sessions, settings)(jobs.jobs[-1])
+    assert _status(db_session, exp_id) is ExperimentStatus.COMPLETED
+    assert _record(db_session, exp_id) == _record(db_session, c1_run)
+
+
+def test_a_lesson_that_fails_the_check_is_not_stored(
+    api: TestClient,
+    researcher: dict[str, str],
+    db_session: Session,
+    sessions: Callable[[], Session],
+    settings: Settings,
+) -> None:
+    exp_id = _started(api, researcher, agentIds=MEMORY_AGENTS, condition="C1")
+    chat = MemoryChat(bad_lessons=True)
+    memory_runner(sessions, settings, chat)(exp_id)
+    assert _status(db_session, exp_id) is ExperimentStatus.COMPLETED  # a rejection is not an outage
+    assert chat.postmortems > 0
+    assert db_session.scalar(select(func.count()).select_from(MemoryRow)) == 0
+    assert _recalled(db_session, exp_id, "llm-momentum") == []
+
+
+@pytest.mark.parametrize("condition", ["C1", "C1_NO_REGIME"])
+def test_memory_conditions_start(
+    api: TestClient, researcher: dict[str, str], condition: str
+) -> None:
+    _started(api, researcher, condition=condition)  # the default agents include LLM agents
+
+
+@pytest.mark.parametrize("condition", ["C2", "C3"])
+def test_llm_in_forum_conditions_is_refused_with_the_reason(
+    api: TestClient, researcher: dict[str, str], condition: str
+) -> None:
+    exp = api.post(
+        "/api/experiments", json={**CONFIG, "condition": condition}, headers=researcher
+    ).json()
+    res = api.post(f"/api/experiments/{exp['id']}/start", headers=researcher)
+    assert res.status_code == 422
+    assert res.json()["fields"]["condition"] == LLM_NEEDS_FORUM
+    assert "araştırma verisini bozar" in LLM_NEEDS_FORUM
+
+
+def _draft_with_version(
+    api: TestClient, db: Session, headers: dict[str, str], version: str, **over: Any
+) -> str:
+    exp = api.post("/api/experiments", json={**CONFIG, **over}, headers=headers).json()
+    db.execute(
+        update(Experiment)
+        .where(Experiment.id == uuid.UUID(exp["id"]))
+        .values(prompt_version=version)
+    )
+    db.commit()
+    return cast(str, exp["id"])
+
+
+def test_a_stored_decision_v1_experiment_still_runs_the_v1_prompt(
+    api: TestClient,
+    researcher: dict[str, str],
+    db_session: Session,
+    sessions: Callable[[], Session],
+    settings: Settings,
+) -> None:
+    exp_id = _draft_with_version(api, db_session, researcher, DECISION_V1, agentIds=MEMORY_AGENTS)
+    assert api.post(f"/api/experiments/{exp_id}/start", headers=researcher).status_code == 200
+    chat = MemoryChat()
+    memory_runner(sessions, settings, chat).run(uuid.UUID(exp_id), max_days=2)
+    system, user = _first_momentum_decision(chat)
+    assert system == SYSTEM_PROMPT.format(persona=PERSONAS["momentum"])  # byte for byte (NF5)
+    assert set(user) == {"day", "fear_greed_index", "assets", "portfolio"}
+
+
+@pytest.mark.parametrize(
+    ("version", "over", "reason"),
+    [
+        (DECISION_V1, {"condition": "C1"}, "hafızayı bilmez"),
+        ("decision-v0", {}, "prompt'uyla kaydedilmiş"),
+    ],
+)
+def test_prompt_versions_the_runner_cannot_honour_are_refused(
+    api: TestClient,
+    researcher: dict[str, str],
+    db_session: Session,
+    jobs: ListQueue,
+    version: str,
+    over: dict[str, Any],
+    reason: str,
+) -> None:
+    exp_id = _draft_with_version(api, db_session, researcher, version, **over)
+    res = api.post(f"/api/experiments/{exp_id}/start", headers=researcher)
+    assert res.status_code == 422
+    assert reason in res.json()["fields"]["promptVersion"]
+    assert jobs.jobs == []

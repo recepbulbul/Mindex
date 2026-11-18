@@ -1,6 +1,7 @@
 import { delay, http, HttpResponse } from 'msw'
 import {
   CONDITIONS,
+  PROMPT_VERSION,
   type AgentDetail,
   type AgentMetrics,
   type ApiErrorBody,
@@ -247,7 +248,7 @@ function addDraft(config: ExperimentCreate, request: Request): Experiment {
     id: `exp-${crypto.randomUUID().slice(0, 8)}`,
     status: 'draft',
     modelVersion: 'qwen3.5-9b-q4_k_m',
-    promptVersion: 'decision-v1', // the backend's PROMPT_VERSION
+    promptVersion: PROMPT_VERSION,
     createdAt: new Date().toISOString(),
   }
   experiments.push(exp)
@@ -257,8 +258,8 @@ function addDraft(config: ExperimentCreate, request: Request): Experiment {
 
 // The backend runner's start-time refusals (services/runner.py `runnable_errors`). The mock
 // can run PPO, so only the rules that hold everywhere are mirrored.
-const LLM_NEEDS_C0 =
-  'LLM ajanları henüz hafıza ve foruma bağlı değil: C1–C3 koşulunda koşmak, hafızasız (C0) davranışı yanlış koşul etiketiyle kaydeder ve araştırma verisini bozar. LLM ajanlarını C0 koşulunda çalıştırın ya da deneyden çıkarın.'
+const LLM_NEEDS_FORUM =
+  'LLM ajanları henüz foruma bağlı değil: C2 ve C3 koşulunda koşmak, forumsuz davranışı yanlış koşul etiketiyle kaydeder ve araştırma verisini bozar. LLM ajanlarını C0, C1 ya da C1_NO_REGIME koşulunda çalıştırın ya da deneyden çıkarın.'
 
 function runnableErrors(exp: Experiment): Record<string, string> | null {
   const fields: Record<string, string> = {}
@@ -272,8 +273,11 @@ function runnableErrors(exp: Experiment): Record<string, string> | null {
     return []
   })
   if (problems.length) fields.agentIds = `${problems.join('; ')}.`
-  if (exp.condition !== 'C0' && exp.agentIds.some((id) => LLM_AGENT_IDS.includes(id)))
-    fields.condition = LLM_NEEDS_C0
+  if (
+    (exp.condition === 'C2' || exp.condition === 'C3') &&
+    exp.agentIds.some((id) => LLM_AGENT_IDS.includes(id))
+  )
+    fields.condition = LLM_NEEDS_FORUM
   return Object.keys(fields).length ? fields : null
 }
 

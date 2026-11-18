@@ -5,15 +5,21 @@ import getpass
 import json
 import sys
 import time
+import uuid
 from collections.abc import Sequence
 from dataclasses import asdict
+from datetime import timedelta
 from pathlib import Path
 
 from mindex.agents.base import BaseAgent
 from mindex.agents.llm import (
+    DECISION_V1,
+    MEMORY_K,
+    PROMPT_VERSIONS,
     LlamaCppClient,
     LLMAgent,
     LLMUnavailableError,
+    RecalledLesson,
     anonymise,
     build_messages,
     deanonymise,
@@ -107,8 +113,31 @@ def _write_json(path: Path, data: object) -> None:
     _write(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 
 
-def bench_llm(snapshot: Path, reports: Path, calls: int) -> None:
-    """Time real decision calls on validation-period observations (llama-server must be up)."""
+# Lessons as the model writes them (length and style), for timing the memory prompt: the
+# benchmark has no database, so C1's recalled lessons are stood in for by these.
+BENCH_LESSONS = (
+    "ASSET_A pozisyonu %10 kaybettirdi; %5 zarar-kes kaybı %5'e indirirdi, bu yüzden aşırı "
+    "oynak varlıklarda zarar-kes kullanmak gerekir.",
+    "ASSET_B pozisyonu %4,2 kazandırdı; yarım boyut %2,1 getirirdi, trend güçlüyken tam "
+    "boyutu tutmak doğruydu.",
+    "ASSET_C pozisyonu %1,8 kaybettirdi; girmemek en iyisiydi, belirsiz rejimlerde pozisyon "
+    "açmadan önce beklemek daha güvenli.",
+)
+
+
+def bench_llm(
+    snapshot: Path,
+    reports: Path,
+    calls: int,
+    prompt_version: str = DECISION_V1,
+    lessons: int | None = None,
+) -> None:
+    """Time real decision calls on validation-period observations (llama-server must be up).
+
+    `lessons` (decision-v2 only) adds that many sample lessons to every prompt, the C1 context;
+    `None` is C0. Anything but the default (`decision-v1`, no lessons) is written to its own
+    file, so the benchmark `baseline` reads stays the C0 baseline's.
+    """
     market, start = _market(snapshot, Split.VALIDATION, unseal=False)
     client = _llm_client()
     codes = anonymise(market.assets)
@@ -117,9 +146,24 @@ def bench_llm(snapshot: Path, reports: Path, calls: int) -> None:
     invalid = 0
     for i in range(calls):
         t = start + i % (len(market) - start - 1)
-        obs = Observation(MarketView(market, t), t - start, Portfolio(10_000.0), {}, 10_000.0)
+        obs = Observation(MarketView(market, t), t - start, Portfolio(10_000.0), {}, 10_000.0, 3)
+        recalled = None
+        if lessons is not None:
+            recalled = [
+                RecalledLesson(
+                    uuid.UUID(int=k),
+                    BENCH_LESSONS[k % len(BENCH_LESSONS)],
+                    0.9 - 0.1 * k,
+                    obs.view.day - timedelta(days=3 + 7 * k),
+                    "bear",
+                )
+                for k in range(lessons)
+            ]
+        messages = build_messages(
+            obs, "momentum", codes, prompt_version=prompt_version, lessons=recalled
+        )
         began = time.perf_counter()
-        raw = client.complete(build_messages(obs, "momentum", codes), schema=schema)
+        raw = client.complete(messages, schema=schema)
         seconds.append(time.perf_counter() - began)
         try:
             parse_decision(deanonymise(raw, codes))
@@ -129,6 +173,8 @@ def bench_llm(snapshot: Path, reports: Path, calls: int) -> None:
     budget = ComputeBudget()
     result = {
         "model": client.model,
+        "prompt_version": prompt_version,
+        "lessons": lessons,
         "calls": calls,
         "invalid_json": invalid,
         "latency": asdict(latency),
@@ -141,7 +187,13 @@ def bench_llm(snapshot: Path, reports: Path, calls: int) -> None:
         },
     }
     reports.mkdir(parents=True, exist_ok=True)
-    _write_json(reports / "llm-benchmark.json", result)
+    default = prompt_version == DECISION_V1 and lessons is None
+    name = (
+        "llm-benchmark.json"
+        if default
+        else f"llm-benchmark-{prompt_version}-lessons{lessons or 0}.json"
+    )
+    _write_json(reports / name, result)
     print(json.dumps(result, indent=2))
 
 
@@ -252,6 +304,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     base.add_argument("--unseal", action="store_true", help="yalnızca nihai değerlendirmede")
     bench = sub.add_parser("bench-llm", help="llama.cpp karar çağrısı hız ölçümü")
     bench.add_argument("--calls", type=int, default=30)
+    bench.add_argument("--prompt", choices=PROMPT_VERSIONS, default=DECISION_V1)
+    bench.add_argument(
+        "--lessons",
+        type=int,
+        choices=range(MEMORY_K + 1),
+        help="decision-v2: bu kadar örnek dersi prompt'a ekle (C1 bağlamı)",
+    )
     defaults = PPOHyperparams()
     ppo = sub.add_parser("train-ppo", help="PPO eğitimi (train), doğrulamada model seçimi")
     ppo.add_argument("--seed", type=int, default=0)
@@ -299,7 +358,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         elif args.command == "serve":
             serve_api(args.host, args.port, reload=args.reload)
         else:
-            bench_llm(args.snapshot, args.reports, args.calls)
+            bench_llm(args.snapshot, args.reports, args.calls, args.prompt, args.lessons)
     except SealedTestSetError as exc:
         parser.error(str(exc))
     except LLMUnavailableError as exc:
