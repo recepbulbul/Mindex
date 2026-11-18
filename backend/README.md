@@ -25,6 +25,10 @@ uv run mindex serve --reload        # API: http://127.0.0.1:8000/api/docs
 - `@pytest.mark.db` testleri ayrı bir `mindex_test` veritabanında koşar (otomatik oluşturulur, her test kendi işleminde geri alınır). Veritabanı yoksa bu testler **atlanır**; CI'da `MINDEX_REQUIRE_DB=1` ile atlanmaz, başarısız olur.
 - `@pytest.mark.model` testleri gerçek model ister (llama-server, embedding, eğitilmiş PPO); varsayılan koşuda yoktur, GPU'lu makinede `uv run pytest -m model` ile çalıştırılır.
 
+### Kalıcı hafıza
+
+`MemoryStore.search` ajanın kendi derslerini pgvector kosinüs benzerliği ve `lesson_tsv` tam metin eşleşmesiyle (`websearch_to_tsquery('simple', ...)`, kelimeler `or` ile) puanlar. İki sıralama RRF ile birleşir, önem (`importance`) ve rejim eşleşmesi çarpan olarak eklenir. Rejim bonusu C1′ (`C1_NO_REGIME`) koşulunda `use_regime=False` ile kapanır. **Look-ahead:** yalnızca `day < as_of_day` olan dersler döner, yani aynı günün dersi dönmez. Ayrıntı ve formül: [docs/04-ai-pipeline.md](../docs/04-ai-pipeline.md#kalıcı-hafıza). Gerçek embedding sunucusu `MINDEX_EMBEDDING_BASE_URL` (llama-server `--embedding`); sözleşme testi `uv run pytest -m model`.
+
 ## Modüller
 
 | Modül | İçerik |
@@ -39,6 +43,7 @@ uv run mindex serve --reload        # API: http://127.0.0.1:8000/api/docs
 | `mindex.agents` | `BaseAgent`, kural tabanlı ajanlar, llama.cpp ile ilk LLM ajanı (P3) |
 | `mindex.evaluation` | Koşu özeti, nicel hedef karşılaştırması, LLM gecikmesi ve hesap bütçesi (P3) |
 | `mindex.db` | SQLAlchemy 2 modelleri ve oturum fabrikası (P4) |
+| `mindex.memory` | Kalıcı hafıza: `Embedder` (llama-server `/v1/embeddings`, testte `HashEmbedder`), pgvector + tam metin hibrit arama (P5) |
 | `mindex.api` | FastAPI uygulaması, `{detail, fields}` hata zarfı, `/api/health` (P4) |
 | `mindex.cli` | `mindex fetch-data | baseline | bench-llm | serve` |
 
