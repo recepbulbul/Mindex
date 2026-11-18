@@ -7,14 +7,10 @@ import { createQueryClient, Providers } from '@/app/providers'
 import { routes } from '@/app/routes'
 
 export function signIn(role: UserRole) {
-  tokenStore.set(`mock.${role}.test`)
-  sessionStorage.setItem(
-    'mindex.user',
-    JSON.stringify({
-      email: role === 'researcher' ? 'arastirmaci@mindex.dev' : 'izleyici@mindex.dev',
-      role,
-    }),
-  )
+  const email = role === 'researcher' ? 'arastirmaci@mindex.dev' : 'izleyici@mindex.dev'
+  // The mock's token format, so it knows who owns what (as after a real login).
+  tokenStore.set(`mock.${role}.${btoa(email)}.${crypto.randomUUID()}`)
+  sessionStorage.setItem('mindex.user', JSON.stringify({ email, role }))
 }
 
 export function renderApp(path: string) {

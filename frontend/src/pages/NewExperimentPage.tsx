@@ -285,7 +285,7 @@ export default function NewExperimentPage() {
             </div>
             <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">Prompt sürümü</dt>
-              <dd className="num">decision-v3</dd>
+              <dd className="num">decision-v1</dd>
             </div>
             <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">Yürütme</dt>

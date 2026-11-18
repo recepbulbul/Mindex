@@ -72,7 +72,8 @@ export interface Experiment {
   error?: string | null // why the last run failed (status "failed"); a new start clears it
 }
 
-// Experiment management (F2). Reads need a session, writes the researcher role (403 otherwise).
+// Experiment management (F2). Reads need a session and are open to every user; creating needs
+// the researcher role, and PATCH / DELETE / start only the experiment's owner (403 otherwise).
 // POST /experiments (201): validated like `experimentCreateSchema`, and a period that touches
 //   the sealed test window (`TEST_WINDOW`) is refused with 422 + fields.startDate/endDate.
 //   So is the PPO agent (422 + fields.agentIds) on a server without a trained PPO model,
