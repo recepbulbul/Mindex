@@ -50,6 +50,7 @@ uv run mindex serve --reload        # API: http://127.0.0.1:8000/api/docs
 | `mindex.evaluation` | Koşu özeti, nicel hedef karşılaştırması, LLM gecikmesi ve hesap bütçesi (P3) |
 | `mindex.db` | SQLAlchemy 2 modelleri ve oturum fabrikası (P4) |
 | `mindex.memory` | Kalıcı hafıza: `Embedder` (llama-server `/v1/embeddings`, testte `HashEmbedder`), pgvector + tam metin hibrit arama (P5) |
+| `mindex.postmortem` | Kapanan pozisyon için karşı-olgusal PnL tablosu (gerçek / girmemek / yarım / zarar-kes) ve sayısal tutarlılık denetimli ders yazımı (`postmortem-v1`, P5) |
 | `mindex.api` | FastAPI uygulaması, `{detail, fields}` hata zarfı, `/api/health` (P4) |
 | `mindex.cli` | `mindex fetch-data | baseline | bench-llm | train-hmm | train-ppo | create-user | serve` |
 
