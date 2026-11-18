@@ -7,6 +7,7 @@ import sys
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -34,6 +35,7 @@ from mindex.rl.train import (
     PPOHyperparams,
     evaluate,
     sha256_file,
+    train_ppo,
     write_manifest,
 )
 from mindex.sim.engine import ExecutionCosts, Observation, Portfolio, Simulator, rebalance
@@ -397,3 +399,53 @@ def test_manifest_round_trip(tmp_path: Path) -> None:
     raw = (tmp_path / MANIFEST_FILE).read_bytes()
     assert b"\r\n" not in raw
     assert json.loads(raw) == {"seed": 1, "ğ": "ü"}
+
+
+class FakePPO:
+    """Torch-free stand-in for `stable_baselines3.PPO`: each `learn` chunk switches to the next
+    scripted policy, and `save` writes which one is current, so the kept checkpoint is visible."""
+
+    STAGES = (  # validation scores on the synthetic market: high, lowest, middle
+        np.array([1.0, -1.0, -1.0], dtype=np.float32),  # all in BTC (trends up)
+        np.array([-1.0, -1.0, 1.0], dtype=np.float32),  # all cash
+        np.array([0.1, -1.0, 0.0], dtype=np.float32),  # ~73 % BTC, rest cash
+    )
+
+    def __init__(self, policy: str, env: TradingEnv, **kwargs: Any) -> None:
+        self.num_timesteps = 0
+        self.stage = -1
+
+    def learn(self, total_timesteps: int, *, reset_num_timesteps: bool) -> None:
+        assert reset_num_timesteps == (self.num_timesteps == 0)
+        self.num_timesteps += total_timesteps
+        self.stage += 1
+
+    def predict(self, observation: NDArray[np.float32], *, deterministic: bool = False) -> Any:
+        return self.STAGES[self.stage], None
+
+    def save(self, path: str) -> None:
+        Path(path).write_text(f"stage {self.stage}", encoding="utf-8")
+
+
+def test_training_keeps_best_validation_checkpoint(
+    market: MarketData, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A later, worse validation score must not overwrite the best checkpoint."""
+    monkeypatch.setattr("mindex.rl.train.sb3", lambda: SimpleNamespace(PPO=FakePPO))
+
+    def fake_version(package: str) -> str:
+        return "test"
+
+    monkeypatch.setattr("mindex.rl.train.version", fake_version)
+    hp = PPOHyperparams(total_timesteps=300, eval_every=100, n_steps=100, batch_size=50)
+    train_env = TradingEnv(market, end=40, episode_length=20)
+    val_env = TradingEnv(market, start=40)
+    periods = {"train": (market.days[0], market.days[40])}
+    manifest = train_ppo(train_env, val_env, hp, seed=0, out_dir=tmp_path, periods=periods)
+
+    scores = [h["log_return"] for h in manifest["history"]]
+    assert [h["timesteps"] for h in manifest["history"]] == [100, 200, 300]
+    assert scores[0] > scores[2] > scores[1]  # best first, then worse, then better than last
+    assert manifest["best"] == manifest["history"][0]
+    assert (tmp_path / MODEL_FILE).read_text(encoding="utf-8") == "stage 0"
+    assert manifest["files"] == {MODEL_FILE: sha256_file(tmp_path / MODEL_FILE)}
