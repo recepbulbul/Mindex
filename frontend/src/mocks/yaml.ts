@@ -19,13 +19,19 @@ export function experimentToYaml(exp: Experiment): string {
     ...exp.agentIds.map((a) => `  - ${a}`),
     `seed: ${exp.seed}`,
     `execution:`,
-    `  commission_rate: ${exp.commissionRate}`,
-    `  slippage_bps: ${exp.slippageBps}`,
+    `  commission_rate: ${yamlNumber(exp.commissionRate)}`,
+    `  slippage_bps: ${yamlNumber(exp.slippageBps)}`,
     `llm:`,
     `  model: ${exp.modelVersion}`,
     `  prompt_version: ${exp.promptVersion}`,
     '',
   ].join('\n')
+}
+
+// JS writes 1e-7, which YAML 1.1 (PyYAML) reads as a string: always write plain decimals.
+function yamlNumber(x: number): string {
+  const s = String(x)
+  return /e/i.test(s) ? x.toFixed(20).replace(/\.?0+$/, '') : s
 }
 
 type Value = string | number | null | Value[] | { [key: string]: Value }
@@ -42,7 +48,10 @@ function scalar(raw: string): Value {
       .map((x) => x.trim())
       .filter(Boolean)
       .map(scalar)
-  if (/^-?\d+(\.\d+)?(e-?\d+)?$/i.test(s)) return Number(s)
+  // YAML 1.1 as PyYAML resolves it: an integer, or a float only with a dot (so `1e5` is text).
+  if (/^[-+]?(0|[1-9][0-9_]*)$/.test(s)) return Number(s.replaceAll('_', ''))
+  if (/^[-+]?([0-9][0-9_]*)?\.[0-9_]*([eE][-+][0-9]+)?$/.test(s) && /\d/.test(s))
+    return Number(s.replaceAll('_', ''))
   return s
 }
 

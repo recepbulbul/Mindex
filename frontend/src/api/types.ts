@@ -71,7 +71,8 @@ export interface Experiment {
   createdAt: string
 }
 
-// Experiment management (F2). Reads need a session, writes the researcher role (403 otherwise).
+// Experiment management (F2). Reads need a session and are open to every user; creating needs
+// the researcher role, and PATCH / DELETE / start only the experiment's owner (403 otherwise).
 // POST /experiments (201): validated like `experimentCreateSchema`, and a period that touches
 //   the sealed test window (`TEST_WINDOW`) is refused with 422 + fields.startDate/endDate.
 //   The server stamps `modelVersion` / `promptVersion` with what it will run.

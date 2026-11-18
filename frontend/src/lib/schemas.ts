@@ -4,7 +4,16 @@ import { ASSETS, CONDITIONS } from '@/api/types'
 // Test window is sealed until final evaluation (look-ahead bias protocol).
 export const TEST_WINDOW = { start: '2026-04-01', end: '2026-09-30' } as const
 
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Tarih YYYY-AA-GG olmalı')
+const DATE_MESSAGE = 'Tarih YYYY-AA-GG olmalı'
+const isRealDay = (s: string) => {
+  const d = new Date(`${s}T00:00:00Z`)
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s
+}
+// A real calendar day (2025-02-30 is refused), like the backend's date parsing.
+const isoDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, DATE_MESSAGE)
+  .refine(isRealDay, DATE_MESSAGE)
 
 export const loginSchema = z.object({
   email: z.email('Geçerli bir e-posta girin'),

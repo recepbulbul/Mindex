@@ -3,6 +3,10 @@
 `params` tells the experiment runner how to build each agent: the rule agent's class and
 settings, or the LLM persona key of `mindex.agents.llm.PERSONAS`.
 
+Downgrade removes the seeded agents together with every experiment link to them
+(`experiment_agents`, and through its cascades the runs' decisions, trades, snapshots and
+memories); the experiments themselves stay, without those agents.
+
 Revision ID: 0002
 Revises: 0001
 Create Date: 2026-11-18
@@ -93,8 +97,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    slugs = [str(a["slug"]) for a in AGENTS]
+    # `experiment_agents.agent_id` is ON DELETE RESTRICT: drop the links first.
     op.execute(
-        sa.text("DELETE FROM agents WHERE slug = ANY(:slugs)").bindparams(
-            slugs=[str(a["slug"]) for a in AGENTS]
-        )
+        sa.text(
+            "DELETE FROM experiment_agents WHERE agent_id IN "
+            "(SELECT id FROM agents WHERE slug = ANY(:slugs))"
+        ).bindparams(slugs=slugs)
     )
+    op.execute(sa.text("DELETE FROM agents WHERE slug = ANY(:slugs)").bindparams(slugs=slugs))
