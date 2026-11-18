@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = Field(default=30.0, gt=0)
     llm_max_retries: int = Field(default=2, ge=0, le=2)  # proposal: <= 2 (attempts 1-3)
 
+    embedding_base_url: str = "http://localhost:8081/v1"  # second llama-server (--embedding)
     embedding_model: str = "Qwen/Qwen3-Embedding-0.6B"
 
 

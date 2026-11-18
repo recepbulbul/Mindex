@@ -927,6 +927,7 @@ dependencies = [
     { name = "ccxt" },
     { name = "fastapi" },
     { name = "hmmlearn" },
+    { name = "httpx2" },
     { name = "numpy" },
     { name = "pgvector" },
     { name = "polars" },
@@ -940,7 +941,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx2" },
     { name = "pre-commit" },
     { name = "pyright" },
     { name = "pytest" },
@@ -960,6 +960,7 @@ requires-dist = [
     { name = "ccxt", specifier = ">=4.5.91" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "hmmlearn", specifier = ">=0.3.3" },
+    { name = "httpx2", specifier = ">=2.16.2" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "pgvector", specifier = ">=0.3" },
     { name = "polars", specifier = ">=2.1.0" },
@@ -973,7 +974,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx2", specifier = ">=2.16.2" },
     { name = "pre-commit", specifier = ">=4.0" },
     { name = "pyright", specifier = ">=1.1.390" },
     { name = "pytest", specifier = ">=8.3" },
