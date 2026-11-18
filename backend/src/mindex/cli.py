@@ -21,12 +21,13 @@ from mindex.agents.llm import (
 from mindex.agents.rule import BuyAndHoldAgent, EqualWeightAgent, MovingAverageCrossAgent
 from mindex.config import get_settings
 from mindex.data import sources
-from mindex.data.snapshot import build_frame, load_window, write_snapshot
+from mindex.data.snapshot import build_frame, load_split, load_window, write_snapshot
 from mindex.data.splits import FULL_RANGE, SPLITS, SealedTestSetError, Split
 from mindex.domain.decision import Asset, parse_decision
 from mindex.evaluation.budget import ComputeBudget, LatencySummary
 from mindex.evaluation.report import check_targets, herd, summarise, to_markdown
 from mindex.logging_config import configure_logging
+from mindex.regime.hmm import RegimeModel, regime_features
 from mindex.rl import train as rl_train
 from mindex.rl.env import TradingEnv
 from mindex.rl.train import PPOHyperparams
@@ -36,7 +37,7 @@ from mindex.sim.market import MarketData, MarketView
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_SNAPSHOT = REPO_ROOT / "data" / "snapshots"
 DEFAULT_REPORTS = REPO_ROOT / "reports"
-DEFAULT_MODELS = REPO_ROOT / "models" / "ppo"
+DEFAULT_MODELS = REPO_ROOT / "models"
 LOOKBACK_DAYS = 31  # 30 daily returns need 31 closes
 
 
@@ -163,6 +164,20 @@ def train_ppo(snapshot: Path, out: Path, seed: int, hp: PPOHyperparams) -> None:
     print(json.dumps({k: manifest[k] for k in ("seed", "best", "files")}, indent=2))
 
 
+def train_hmm(snapshot: Path, out: Path, seed: int) -> None:
+    """Fit the regime HMM on the training split only and report validation label shares."""
+    model = RegimeModel.fit(
+        regime_features(MarketData.from_frame(load_split(snapshot, Split.TRAIN))), seed=seed
+    )
+    digest = model.save(out)
+    market, start = _market(snapshot, Split.VALIDATION, unseal=False)
+    labels = model.label(regime_features(market))[start:]
+    shares = {str(r): round(labels.count(r) / len(labels), 3) for r in sorted(set(labels))}
+    print(
+        json.dumps({"artifact": str(out), "sha256": digest, "validation_shares": shares}, indent=2)
+    )
+
+
 def serve_api(host: str, port: int, *, reload: bool) -> None:
     import uvicorn  # imported lazily: the data and baseline commands do not need a server
 
@@ -223,10 +238,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     defaults = PPOHyperparams()
     ppo = sub.add_parser("train-ppo", help="PPO eğitimi (train), doğrulamada model seçimi")
     ppo.add_argument("--seed", type=int, default=0)
-    ppo.add_argument("--out", type=Path, default=DEFAULT_MODELS, help="artefakt kök dizini")
+    ppo.add_argument("--out", type=Path, default=DEFAULT_MODELS / "ppo", help="artefakt kök dizini")
     ppo.add_argument("--timesteps", type=int, default=defaults.total_timesteps)
     ppo.add_argument("--eval-every", type=int, default=defaults.eval_every)
     ppo.add_argument("--turnover-penalty", type=float, default=defaults.turnover_penalty)
+    hmm = sub.add_parser("train-hmm", help="Rejim HMM'ini yalnızca eğitim döneminde eğit")
+    hmm.add_argument("--out", type=Path, default=DEFAULT_MODELS / "regime-hmm.json")
+    hmm.add_argument("--seed", type=int, default=0)
     user = sub.add_parser("create-user", help="Kullanıcı oluştur (parola istemle/stdin'den)")
     user.add_argument("--email", required=True)
     user.add_argument("--role", choices=["researcher", "viewer"], default="viewer")
@@ -243,6 +261,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     try:
         if args.command == "fetch-data":
             fetch_data(args.snapshot)
+        elif args.command == "train-hmm":
+            train_hmm(args.snapshot, args.out, args.seed)
         elif args.command == "baseline":
             baseline(args.snapshot, args.reports, args.split, with_llm=args.llm, unseal=args.unseal)
         elif args.command == "train-ppo":

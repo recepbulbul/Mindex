@@ -16,9 +16,9 @@ from mindex.db.models import (
     Experiment,
     ExperimentAgent,
     ExperimentMode,
-    Regime,
     User,
 )
+from mindex.domain.regime import Regime
 from mindex.memory.embedder import HashEmbedder
 from mindex.memory.store import MemoryStore
 

@@ -16,6 +16,7 @@ dependencies = [
     "email-validator>=2.2",
     "fastapi>=0.115",
     "gymnasium>=1.2",
+    "hmmlearn>=0.3.3",
     "httpx2>=2.16.2",
     "numpy>=2.2",
     "pgvector>=0.3",
@@ -112,6 +113,10 @@ addopts = "-ra --strict-markers -m 'not model' --cov=mindex --cov-report=term-mi
 markers = [
     "db: needs PostgreSQL + pgvector (docker compose up -d db); skipped when unreachable",
     "model: needs a real model (llama-server, embedding, trained PPO); run with -m model",
+]
+filterwarnings = [
+    # hmmlearn 0.3 sets ndarray.shape, deprecated in NumPy 2.5; harmless until hmmlearn updates.
+    "ignore:Setting the shape on a NumPy array:DeprecationWarning",
 ]
 
 [tool.coverage.run]

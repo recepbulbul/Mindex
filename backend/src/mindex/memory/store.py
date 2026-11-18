@@ -23,7 +23,8 @@ from typing import Any
 from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.orm import Session
 
-from mindex.db.models import MemoryRow, Regime
+from mindex.db.models import MemoryRow
+from mindex.domain.regime import Regime
 from mindex.memory.embedder import Embedder, tokenize
 
 RRF_K = 10  # small lists (one agent's lessons): a lower k keeps rank differences visible

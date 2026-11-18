@@ -9,7 +9,8 @@ import httpx2
 import pytest
 
 from mindex.config import get_settings
-from mindex.db.models import EMBEDDING_DIM, Regime
+from mindex.db.models import EMBEDDING_DIM
+from mindex.domain.regime import Regime
 from mindex.memory.embedder import (
     EmbeddingUnavailableError,
     HashEmbedder,

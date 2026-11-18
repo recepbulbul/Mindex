@@ -12,6 +12,7 @@ uv run pyright          # strict tip kontrolü
 uv run mindex fetch-data            # Binance + Fear & Greed → ../data/snapshots
 uv run mindex baseline [--llm]      # doğrulama döneminde baseline → ../reports
 uv run mindex bench-llm --calls 30  # llama-server karar çağrısı gecikmesi
+uv run mindex train-hmm             # rejim HMM'i, yalnızca eğitim dönemi → ../models/regime-hmm.json
 uv sync --group eda                 # EDA notebook'u için jupyter, matplotlib, duckdb
 uv sync --group rl                  # PPO eğitimi: stable-baselines3 + CPU torch (yalnızca eğitim makinesi / CI)
 uv run mindex train-ppo --seed 0    # train'de eğit, validation'da seç → ../models/ppo/seed-0/
@@ -45,10 +46,11 @@ uv run mindex serve --reload        # API: http://127.0.0.1:8000/api/docs
 | `mindex.sim` | `t` kapanışında karar, `t+1` açılışında komisyon + kaymayla yürütme; checkpoint (P3) |
 | `mindex.agents` | `BaseAgent`, kural tabanlı ajanlar, llama.cpp ile ilk LLM ajanı (P3), eğitilmiş modelden `PPOAgent` (P4) |
 | `mindex.rl` | Günlük Gymnasium ortamı (simülatörle aynı yürütme ve maliyet, look-ahead yok), PPO eğitimi, SHA-256 manifest (P4) |
+| `mindex.regime` | Gauss HMM rejim modeli (boğa/ayı/yatay); filtrelenmiş olasılık, look-ahead yok (P4) |
 | `mindex.evaluation` | Koşu özeti, nicel hedef karşılaştırması, LLM gecikmesi ve hesap bütçesi (P3) |
 | `mindex.db` | SQLAlchemy 2 modelleri ve oturum fabrikası (P4) |
 | `mindex.memory` | Kalıcı hafıza: `Embedder` (llama-server `/v1/embeddings`, testte `HashEmbedder`), pgvector + tam metin hibrit arama (P5) |
 | `mindex.api` | FastAPI uygulaması, `{detail, fields}` hata zarfı, `/api/health` (P4) |
-| `mindex.cli` | `mindex fetch-data | baseline | bench-llm | train-ppo | serve` |
+| `mindex.cli` | `mindex fetch-data | baseline | bench-llm | train-hmm | train-ppo | create-user | serve` |
 
 Ayrıntılar: [docs/08-data-pipeline-baseline.md](../docs/08-data-pipeline-baseline.md). Sonraki haftalarda: `mindex.mcp`.
