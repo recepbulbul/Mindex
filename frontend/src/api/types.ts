@@ -51,6 +51,9 @@ export interface Agent {
   name: string
   kind: AgentKind
   persona: string | null
+  // false: this server cannot run the agent (no trained PPO model; MCP guests). It stays
+  // selectable, the form warns, and create/start answer 422.
+  available: boolean
 }
 
 export interface Experiment {
@@ -131,7 +134,7 @@ export interface AgentRun {
   weights: Partial<Record<Asset, number>>[] // held weights per day (experiment assets)
 }
 
-// POST /experiments/:id/start (researcher): draft, paused or failed → `queued` for the in-process
+// POST /experiments/:id/start (researcher): draft or failed → `queued` for the in-process
 //   runner (a failed run resumes from its checkpoint, e.g. after the LLM server came back),
 //   which commits each day's decisions, trades and snapshots with a checkpoint and resumes from it
 //   after a restart. 409 in other states; 422 + fields when the runner cannot run it yet: `mode`

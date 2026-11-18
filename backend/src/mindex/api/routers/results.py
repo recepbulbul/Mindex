@@ -58,6 +58,7 @@ from mindex.services.runner import (
     PLACEHOLDER_REGIME,
     REGIME_SOURCE,
     DataUnavailableError,
+    agent_available,
     agent_rows,
     experiment_market,
     load_market,
@@ -83,8 +84,14 @@ def _started(session: SessionDep, experiment_id: str, *, draft_status: int) -> E
     return exp
 
 
-def _agent_out(a: AgentRow) -> AgentOut:
-    return AgentOut(id=a.slug, name=a.name, kind=a.kind, persona=a.persona)
+def _agent_out(a: AgentRow, settings: Settings) -> AgentOut:
+    return AgentOut(
+        id=a.slug,
+        name=a.name,
+        kind=a.kind,
+        persona=a.persona,
+        available=agent_available(a, settings),
+    )
 
 
 def _snapshots(
@@ -143,7 +150,7 @@ def timeline(
 
     runs = [
         AgentRun(
-            agent=_agent_out(ea.agent),
+            agent=_agent_out(ea.agent, settings),
             equity=[EquityPoint(day=s.day, equity=float(s.equity)) for s in snaps[ea.id]],
             weights=[_weights(s, market, i) for s, i in zip(snaps[ea.id], index, strict=True)],
         )
@@ -230,7 +237,7 @@ def _decision_out(r: DecisionRow, agent_id: str, refs: list[MemoryRef]) -> Decis
 
 @router.get("/{experiment_id}/agents/{agent_id}")
 def agent_detail(
-    experiment_id: str, agent_id: str, session: SessionDep, _: CurrentUser
+    experiment_id: str, agent_id: str, session: SessionDep, settings: SettingsDep, _: CurrentUser
 ) -> AgentDetailOut:
     """One agent's equity and decisions (newest first); trust lists stay empty until P6."""
     exp = _started(session, experiment_id, draft_status=status.HTTP_404_NOT_FOUND)
@@ -252,7 +259,7 @@ def agent_detail(
     ):
         refs[link.decision_id].append(MemoryRef(id=str(link.memory_id), score=float(link.score)))
     return AgentDetailOut(
-        agent=_agent_out(ea.agent),
+        agent=_agent_out(ea.agent, settings),
         equity=[
             EquityPoint(day=s.day, equity=float(s.equity))
             for s in _snapshots(session, [ea.id])[ea.id]

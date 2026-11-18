@@ -14,6 +14,7 @@ from typing import Any, cast
 
 import polars as pl
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from sqlalchemy import Engine, delete, select, update
@@ -45,6 +46,7 @@ from mindex.memory.embedder import HashEmbedder
 from mindex.memory.store import MemoryStore
 from mindex.regime.hmm import RegimeModel, regime_features
 from mindex.services.runner import (
+    LLM_NEEDS_C0,
     DataUnavailableError,
     ExperimentRunner,
     InProcessQueue,
@@ -926,3 +928,42 @@ def test_two_workers_never_run_the_same_experiment(
             s.execute(delete(Experiment).where(Experiment.id == exp_id))
             s.execute(delete(User).where(User.id == owner_id))
             s.commit()
+
+
+def test_agents_say_which_ones_this_server_can_run(
+    api: TestClient, viewer: dict[str, str], settings: Settings
+) -> None:
+    def availability() -> dict[str, bool]:
+        return {a["id"]: a["available"] for a in api.get("/api/agents", headers=viewer).json()}
+
+    got = availability()
+    assert (got["ppo"], got["mcp-guest"]) == (False, False)  # no trained model; MCP not yet
+    assert all(v for k, v in got.items() if k not in {"ppo", "mcp-guest"})
+    with_model = settings.model_copy(update={"ppo_model_dir": Path("models/seed-1")})
+    cast(FastAPI, api.app).dependency_overrides[get_settings] = lambda: with_model
+    assert availability()["ppo"] is True
+
+
+def test_llm_outside_c0_is_refused_with_the_reason(
+    api: TestClient, researcher: dict[str, str]
+) -> None:
+    exp = api.post(
+        "/api/experiments", json={**CONFIG, "condition": "C1"}, headers=researcher
+    ).json()
+    res = api.post(f"/api/experiments/{exp['id']}/start", headers=researcher)
+    assert res.status_code == 422
+    assert res.json()["fields"]["condition"] == LLM_NEEDS_C0
+    assert "araştırma verisini bozar" in LLM_NEEDS_C0
+
+
+def test_paused_is_not_startable_until_pause_exists(
+    api: TestClient, researcher: dict[str, str], db_session: Session
+) -> None:
+    exp = api.post("/api/experiments", json=CONFIG, headers=researcher).json()
+    db_session.execute(
+        update(Experiment)
+        .where(Experiment.id == uuid.UUID(exp["id"]))
+        .values(status=ExperimentStatus.PAUSED)
+    )
+    db_session.commit()
+    assert api.post(f"/api/experiments/{exp['id']}/start", headers=researcher).status_code == 409

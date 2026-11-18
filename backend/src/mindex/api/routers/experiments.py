@@ -300,8 +300,8 @@ def start_experiment(
     _: Researcher,  # before the queue: no session is 401, not "runner down"
     jobs: JobQueueDep,
 ) -> ExperimentOut:
-    """Queue a draft, paused or failed experiment for the in-process runner (a failed one
-    resumes from its checkpoint); answers `queued`."""
+    """Queue a draft or failed experiment for the in-process runner (a failed one resumes
+    from its checkpoint); answers `queued`."""
     exp = get_experiment_row(session, experiment_id)
     if exp.status not in STARTABLE:
         raise HTTPException(status.HTTP_409_CONFLICT, NOT_STARTABLE.format(status=exp.status))

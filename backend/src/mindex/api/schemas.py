@@ -204,6 +204,7 @@ class AgentOut(ApiModel):
     name: str
     kind: AgentKindDb
     persona: str | None
+    available: bool  # false: this server cannot run it (no trained PPO model, MCP)
 
 
 # ---------------------------------------------------------------- results (F2-F6 read endpoints)

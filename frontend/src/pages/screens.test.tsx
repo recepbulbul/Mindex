@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
-import { seedExperiments } from '@/mocks/fixtures'
+import { AGENTS, seedExperiments } from '@/mocks/fixtures'
 import { renderApp, signIn } from '@/test/render'
 import { server } from '@/test/setup'
 
@@ -90,6 +90,18 @@ describe('experiment setup (F2)', () => {
     await waitFor(() => expect(router.state.location.pathname).toBe('/experiments'))
     const row = (await screen.findByText('Yeni doğrulama deneyi')).closest('li')!
     expect(within(row).getByText('Taslak')).toBeInTheDocument()
+  })
+
+  it('warns about selected agents this server cannot run', async () => {
+    server.use(
+      http.get('*/api/agents', () =>
+        HttpResponse.json(AGENTS.map((a) => ({ ...a, available: a.id !== 'ppo' }))),
+      ),
+    )
+    signIn('researcher')
+    renderApp('/experiments/new')
+    // PPO is in the default set and stays selectable, but the form says it will not run.
+    expect(await screen.findByText(/eğitilmiş PPO modeli yok/)).toBeInTheDocument()
   })
 
   it('warns when the period touches the sealed test window', async () => {

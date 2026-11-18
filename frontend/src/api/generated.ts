@@ -24,6 +24,7 @@ export interface AgentOut {
   name: string
   kind: AgentKindDb
   persona: string | null
+  available: boolean
 }
 
 export interface AgentRun {
@@ -114,6 +115,7 @@ export interface ExperimentOut {
   modelVersion: string
   promptVersion: string
   createdAt: string
+  error?: string | null
 }
 
 export type ExperimentStatus = 'draft' | 'queued' | 'running' | 'paused' | 'completed' | 'failed'

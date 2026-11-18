@@ -102,3 +102,32 @@ describe('mock experiment contract (F2)', () => {
     await expect(api.get('/experiments/exp-val-c1')).resolves.toMatchObject({ status: 'draft' })
   })
 })
+
+describe('mock start mirrors the backend runner', () => {
+  it('refuses LLM agents outside C0 and says why', async () => {
+    signIn('researcher')
+    const err = await failure(api.post('/experiments/exp-val-c1/start')) // C1 with LLM agents
+    expect(err).toMatchObject({
+      status: 422,
+      fields: { condition: expect.stringMatching(/araştırma verisini bozar/) as string },
+    })
+  })
+
+  it('refuses live runs and MCP guests, and restarts failed runs', async () => {
+    signIn('researcher')
+    const live = await create({ ...CONFIG, mode: 'live', startDate: '2026-10-01', endDate: null })
+    expect(await failure(api.post(`/experiments/${live.id}/start`))).toMatchObject({
+      status: 422,
+      fields: { mode: expect.any(String) as string },
+    })
+    const guest = await create({ ...CONFIG, condition: 'C0', agentIds: ['mcp-guest', 'ma-cross'] })
+    expect(await failure(api.post(`/experiments/${guest.id}/start`))).toMatchObject({
+      status: 422,
+      fields: { agentIds: expect.stringMatching(/MCP/) as string },
+    })
+    const ok = await create({ ...CONFIG, condition: 'C0' })
+    await expect(api.post(`/experiments/${ok.id}/start`)).resolves.toMatchObject({
+      status: 'completed',
+    })
+  })
+})

@@ -173,6 +173,28 @@ function addDraft(config: ExperimentCreate): Experiment {
   return exp
 }
 
+// The backend runner's start-time refusals (services/runner.py `runnable_errors`). The mock
+// can run PPO, so only the rules that hold everywhere are mirrored.
+const LLM_NEEDS_C0 =
+  'LLM ajanları henüz hafıza ve foruma bağlı değil: C1–C3 koşulunda koşmak, hafızasız (C0) davranışı yanlış koşul etiketiyle kaydeder ve araştırma verisini bozar. LLM ajanlarını C0 koşulunda çalıştırın ya da deneyden çıkarın.'
+
+function runnableErrors(exp: Experiment): Record<string, string> | null {
+  const fields: Record<string, string> = {}
+  if (exp.mode === 'live') fields.mode = 'Canlı mod koşucuda henüz desteklenmiyor (İP7).'
+  const problems = exp.agentIds.flatMap((id) => {
+    const agent = AGENTS.find((a) => a.id === id)
+    if (agent?.kind === 'external')
+      return [`${id}: dış (MCP) ajanlar koşucuda henüz desteklenmiyor`]
+    if (id === 'buy-hold-btc' && !exp.assets.includes('BTC'))
+      return [`${id}: varlıklarda BTC olmalı`]
+    return []
+  })
+  if (problems.length) fields.agentIds = `${problems.join('; ')}.`
+  if (exp.condition !== 'C0' && exp.agentIds.some((id) => LLM_AGENT_IDS.includes(id)))
+    fields.condition = LLM_NEEDS_C0
+  return Object.keys(fields).length ? fields : null
+}
+
 const SEEDS = [1, 2, 3, 4, 5]
 
 // Mock aggregate over 5 seeds; the backend replaces min/max with a block-bootstrap 95% CI.
@@ -321,8 +343,10 @@ export const handlers = [
     if (roleOf(request) !== 'researcher') return error(403, 'Yetkisiz.')
     const exp = findExperiment(params.id)
     if (!exp) return error(404, 'Deney bulunamadı.')
-    if (exp.status !== 'draft' && exp.status !== 'paused')
+    if (exp.status !== 'draft' && exp.status !== 'failed')
       return error(409, `"${exp.status}" durumundaki deney başlatılamaz.`)
+    const notRunnable = runnableErrors(exp)
+    if (notRunnable) return error(422, 'Deney bu koşucuda başlatılamaz.', notRunnable)
     exp.status = 'completed' // mock runs instantly; the real worker streams progress
     return HttpResponse.json(exp)
   }),
