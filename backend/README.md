@@ -12,6 +12,7 @@ uv run pyright          # strict tip kontrolü
 uv run mindex fetch-data            # Binance + Fear & Greed → ../data/snapshots
 uv run mindex baseline [--llm]      # doğrulama döneminde baseline → ../reports
 uv run mindex bench-llm --calls 30  # llama-server karar çağrısı gecikmesi
+uv run mindex train-hmm             # rejim HMM'i, yalnızca eğitim dönemi → ../models/regime-hmm.json
 uv sync --group eda                 # EDA notebook'u için jupyter, matplotlib, duckdb
 
 docker compose up -d db             # (kök dizinde) PostgreSQL 17 + pgvector, 127.0.0.1:5432
@@ -41,10 +42,11 @@ uv run mindex serve --reload        # API: http://127.0.0.1:8000/api/docs
 | `mindex.data` | ccxt + Fear & Greed kaynakları, Parquet anlık görüntüleri, zamansal ayrım ve mühürlü test seti (P3) |
 | `mindex.sim` | `t` kapanışında karar, `t+1` açılışında komisyon + kaymayla yürütme; checkpoint (P3) |
 | `mindex.agents` | `BaseAgent`, kural tabanlı ajanlar, llama.cpp ile ilk LLM ajanı (P3) |
+| `mindex.regime` | Gauss HMM rejim modeli (boğa/ayı/yatay); filtrelenmiş olasılık, look-ahead yok (P4) |
 | `mindex.evaluation` | Koşu özeti, nicel hedef karşılaştırması, LLM gecikmesi ve hesap bütçesi (P3) |
 | `mindex.db` | SQLAlchemy 2 modelleri ve oturum fabrikası (P4) |
 | `mindex.memory` | Kalıcı hafıza: `Embedder` (llama-server `/v1/embeddings`, testte `HashEmbedder`), pgvector + tam metin hibrit arama (P5) |
 | `mindex.api` | FastAPI uygulaması, `{detail, fields}` hata zarfı, `/api/health` (P4) |
-| `mindex.cli` | `mindex fetch-data | baseline | bench-llm | serve` |
+| `mindex.cli` | `mindex fetch-data | baseline | bench-llm | train-hmm | serve` |
 
 Ayrıntılar: [docs/08-data-pipeline-baseline.md](../docs/08-data-pipeline-baseline.md). Sonraki haftalarda: `mindex.mcp`.

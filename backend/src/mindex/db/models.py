@@ -35,6 +35,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY, CITEXT, JSONB, TSVECTOR, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from mindex.domain.regime import Regime
+
 EMBEDDING_DIM = 1024  # Qwen3-Embedding-0.6B
 
 NAMING_CONVENTION = {
@@ -78,12 +80,6 @@ class AgentKindDb(enum.StrEnum):
     RL = "rl"
     LLM = "llm"
     EXTERNAL = "external"
-
-
-class Regime(enum.StrEnum):
-    BULL = "bull"
-    BEAR = "bear"
-    SIDEWAYS = "sideways"
 
 
 class TradeSide(enum.StrEnum):
