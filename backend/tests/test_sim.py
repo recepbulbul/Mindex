@@ -122,6 +122,50 @@ def test_decide_at_close_execute_next_open(market: MarketData) -> None:
     assert len(state.books["a"].equity) == 2
 
 
+def test_days_since_trade_counts_from_the_last_fill(market: MarketData) -> None:
+    """None before the first trade; afterwards the days from the last fill's day (the open of
+    the day after the decision) to the decision day, reset by every new fill."""
+
+    class Trader(Scripted):
+        def decide(self, obs: Observation) -> Decision | None:
+            self.seen.append(obs)
+            if obs.step == 0:
+                return Decision(
+                    allocations=[Allocation(asset=Asset.BTC, weight=0.5)],
+                    confidence=0.5,
+                    rationale="scripted test decision",
+                )
+            if obs.step == 6:  # a clearly different target: trades again
+                return Decision(
+                    allocations=[Allocation(asset=Asset.BTC, weight=0.2)],
+                    confidence=0.5,
+                    rationale="scripted test decision",
+                )
+            return None
+
+    agent = Trader("a", None)
+    Simulator(market, [agent], start=5).run(until=16)
+    since = [o.days_since_trade for o in agent.seen]
+    # Step 0 trades (None before it); its fill is at the open of step 1's day, so step 1 sees 0.
+    # Step 6 trades again: step 7 sees 0 once more.
+    assert since == [None, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3]
+
+
+def test_days_since_trade_survives_a_checkpoint(market: MarketData) -> None:
+    def make() -> tuple[Simulator, Scripted]:
+        agent = Scripted("a", {Asset.BTC: 0.5})
+        return Simulator(market, [agent], start=5), agent
+
+    sim, full_agent = make()
+    sim.run(until=20)
+    sim2, _ = make()
+    half = sim2.run(until=10)
+    sim3, tail_agent = make()
+    sim3.run(SimState.from_json(half.to_json()), until=20)
+    full_tail = [o.days_since_trade for o in full_agent.seen[5:]]
+    assert [o.days_since_trade for o in tail_agent.seen] == full_tail
+
+
 def test_holding_agent_keeps_cash(market: MarketData) -> None:
     state = Simulator(market, [Scripted("cash", None)]).run()
     book = state.books["cash"]

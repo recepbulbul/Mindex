@@ -1,4 +1,5 @@
-"""First LLM agent (baseline, condition C0: no memory, no forum).
+"""LLM trading agent: `decision-v1` (C0 baseline) and `decision-v2` (hold option, trading cost,
+days since the last trade and, in C1/C1', the agent's own lessons from memory).
 
 Observation -> anonymised prompt -> llama.cpp (thinking off, JSON-schema constrained)
 -> Pydantic validation with retries -> hold on failure (NF2, flow 2 in docs/03-flows.md).
@@ -10,8 +11,10 @@ import math
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Mapping
+import uuid
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import date
 from itertools import pairwise
 from statistics import fmean, pstdev
 from typing import Any, Protocol, cast
@@ -20,11 +23,18 @@ import structlog
 
 from mindex.agents.base import AgentKind, BaseAgent
 from mindex.domain.decision import Asset, Decision, DecisionResult, decide_with_retries
-from mindex.sim.engine import Observation
+from mindex.sim.engine import ExecutionCosts, Observation
 from mindex.sim.market import MarketView
 
-PROMPT_VERSION = "decision-v1"
+# `decision-v1` is kept byte for byte so stored C0 baselines stay reproducible (NF5). New
+# experiments are stamped `decision-v2` (`PROMPT_VERSION`); C0 runs it without the lessons, so
+# C0 -> C1 differs only by memory.
+DECISION_V1 = "decision-v1"
+DECISION_V2 = "decision-v2"
+PROMPT_VERSION = DECISION_V2
+PROMPT_VERSIONS = (DECISION_V1, DECISION_V2)
 LOOKBACK_DAYS = 30
+MEMORY_K = 3  # lessons shown per decision (C1/C1'): short, so the call stays well under NF1
 
 PERSONAS: dict[str, str] = {
     "momentum": "You follow trends: overweight assets with strong recent momentum, "
@@ -45,6 +55,19 @@ held as cash. Omit assets you do not want to hold. Use only the data given; asse
 dates are anonymised on purpose. Write the rationale in Turkish, 1-3 sentences, citing the
 numbers you relied on."""
 
+COST_AND_HOLD_PROMPT = """
+Trading is not free: every change of weights costs about {cost_pct}% of the traded amount
+(commission plus slippage), so churning loses money. Keeping your current portfolio is a valid
+and often the best choice: to hold, return exactly the weights listed under portfolio.weights
+(omit assets you hold at zero). The listed weights are rounded down, so their sum never exceeds 1.
+`days_since_trade` is how many days ago you last traded. Change weights only when the expected
+gain clearly exceeds the cost."""
+
+LESSONS_PROMPT = """
+`lessons` are post-mortems of your own earlier closed positions, most relevant first, each with
+its `relevance` in [0, 1], `days_ago` and market `regime`. They are hints from your own history,
+not rules: weigh them against today's data, and ignore those that do not fit it."""
+
 log = structlog.get_logger(__name__)
 
 
@@ -54,6 +77,22 @@ class ChatClient(Protocol):
 
 class LLMUnavailableError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True, slots=True)
+class RecalledLesson:
+    """One of the agent's own earlier lessons, as retrieved for a decision (already anonymised)."""
+
+    memory_id: uuid.UUID
+    lesson: str
+    score: float  # in [0, 1], stored in `decision_memories.score`
+    day: date  # the day the lesson became known (strictly before the decision day)
+    regime: str
+
+
+# Looks up lessons for a decision: the runner binds it to the agent's `MemoryStore`, the day's
+# regime and `as_of_day`. Only lessons learned before the observation's day may come back.
+Recall = Callable[[Observation], Sequence[RecalledLesson]]
 
 
 class LlamaCppClient:
@@ -129,6 +168,16 @@ def _pct(x: float) -> float:
     return round(x * 100, 2)
 
 
+def _round4(w: float) -> float:
+    return round(w, 4)
+
+
+def _floor4(w: float) -> float:
+    """Round down to 4 decimals: echoing the rounded-down weights back never sums above 1
+    (rounding to nearest can, e.g. 0.3655 + 0.3346 + 0.3 = 1.0001, which `Decision` rejects)."""
+    return math.floor(w * 10_000 + 1e-9) / 10_000
+
+
 def asset_features(view: MarketView, asset: Asset) -> dict[str, Any]:
     closes = view.closes(asset, LOOKBACK_DAYS + 1)
     rets = [b / a - 1 for a, b in pairwise(closes)]
@@ -146,21 +195,52 @@ def asset_features(view: MarketView, asset: Asset) -> dict[str, Any]:
 
 
 def build_messages(
-    obs: Observation, persona: str, codes: Mapping[Asset, str]
+    obs: Observation,
+    persona: str,
+    codes: Mapping[Asset, str],
+    *,
+    prompt_version: str = DECISION_V1,
+    lessons: Sequence[RecalledLesson] | None = None,
+    costs: ExecutionCosts | None = None,
 ) -> list[dict[str, str]]:
+    """The decision prompt. `lessons` is None without memory (C0) and a (possibly empty) list
+    in C1/C1'; only `decision-v2` has them. `decision-v1` is unchanged from the C0 baseline."""
+    if prompt_version not in PROMPT_VERSIONS:
+        raise ValueError(f"unknown prompt version {prompt_version!r}")
+    if lessons is not None and prompt_version != DECISION_V2:
+        raise ValueError("lessons need prompt version decision-v2")
     view = obs.view
-    user = {
+    shown = _floor4 if prompt_version == DECISION_V2 else _round4
+    user: dict[str, Any] = {
         "day": obs.step,
         "fear_greed_index": view.fear_greed,
         "assets": {codes[a]: asset_features(view, a) for a in view.assets},
         "portfolio": {
-            "weights": {codes[a]: round(w, 4) for a, w in obs.weights.items()},
+            "weights": {codes[a]: shown(w) for a, w in obs.weights.items()},
             "cash_weight": round(1 - sum(obs.weights.values()), 4),
         },
     }
+    system = SYSTEM_PROMPT.format(persona=PERSONAS[persona])
+    if prompt_version == DECISION_V2:
+        costs = costs or ExecutionCosts()
+        cost_pct = round((costs.commission_rate + costs.slippage) * 100, 3)
+        user["days_since_trade"] = obs.days_since_trade
+        user["trading_cost_pct"] = cost_pct
+        system += COST_AND_HOLD_PROMPT.format(cost_pct=cost_pct)
+        if lessons is not None:
+            system += LESSONS_PROMPT
+            user["lessons"] = [
+                {
+                    "lesson": x.lesson,
+                    "relevance": round(x.score, 3),
+                    "days_ago": (view.day - x.day).days,
+                    "regime": x.regime,
+                }
+                for x in lessons
+            ]
     return [
-        {"role": "system", "content": SYSTEM_PROMPT.format(persona=PERSONAS[persona])},
-        {"role": "user", "content": json.dumps(user, separators=(",", ":"))},
+        {"role": "system", "content": system},
+        {"role": "user", "content": json.dumps(user, separators=(",", ":"), ensure_ascii=False)},
     ]
 
 
@@ -200,18 +280,38 @@ class LLMAgent(BaseAgent):
         persona: str = "momentum",
         max_retries: int = 2,
         agent_id: str | None = None,
+        prompt_version: str = DECISION_V1,
+        costs: ExecutionCosts | None = None,
+        recall: Recall | None = None,
     ) -> None:
         if persona not in PERSONAS:
             raise ValueError(f"unknown persona {persona!r}")
+        if prompt_version not in PROMPT_VERSIONS:
+            raise ValueError(f"unknown prompt version {prompt_version!r}")
+        if recall is not None and prompt_version != DECISION_V2:
+            raise ValueError("memory needs prompt version decision-v2")
         super().__init__(agent_id or f"llm-{persona}")
         self.client = client
         self.persona = persona
         self.max_retries = max_retries
+        self.prompt_version = prompt_version
+        self.costs = costs
+        self.recall = recall
         self.stats = CallStats()
+        self.last_lessons: tuple[RecalledLesson, ...] = ()  # what the latest decision recalled
 
     def decide(self, obs: Observation) -> Decision | None:
         codes = anonymise(obs.view.assets)
-        messages = build_messages(obs, self.persona, codes)
+        lessons = None if self.recall is None else tuple(self.recall(obs))
+        self.last_lessons = lessons or ()
+        messages = build_messages(
+            obs,
+            self.persona,
+            codes,
+            prompt_version=self.prompt_version,
+            lessons=lessons,
+            costs=self.costs,
+        )
         schema = decision_schema(list(codes.values()))
 
         def generate(attempt: int) -> str:
@@ -231,7 +331,8 @@ class LLMAgent(BaseAgent):
             "llm_decision",
             agent=self.agent_id,
             day=obs.step,
-            prompt_version=PROMPT_VERSION,
+            prompt_version=self.prompt_version,
+            lessons=len(self.last_lessons),
             attempts=result.attempts,
             held_position=result.held_position,
         )

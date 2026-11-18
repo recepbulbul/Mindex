@@ -1,0 +1,23 @@
+{
+  "model": "qwen3.5-9b-q4_k_m",
+  "prompt_version": "decision-v2",
+  "lessons": 3,
+  "calls": 30,
+  "invalid_json": 0,
+  "latency": {
+    "n": 30,
+    "p50_s": 4.847928799994406,
+    "p95_s": 5.301050299996859,
+    "max_s": 5.523657500001718
+  },
+  "budget": {
+    "days": 183,
+    "llm_agents": 4,
+    "conditions": 5,
+    "seeds": 5,
+    "llm_calls": 18300,
+    "hours_at_p50": 24.6,
+    "hours_at_p95": 26.9,
+    "max_seconds_per_call_for_50h": 9.84
+  }
+}

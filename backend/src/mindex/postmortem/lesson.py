@@ -32,6 +32,7 @@ from mindex.memory.store import MemoryStore
 from mindex.postmortem.counterfactual import Counterfactual
 
 POSTMORTEM_PROMPT_VERSION = "postmortem-v1"
+LLM_UNAVAILABLE = "LLM erişilemedi"  # reason prefix of an attempt the server never answered
 FLAT_RETURN = 1e-4  # |actual| below 0.01 % counts as flat
 CONSISTENCY_TARGET = 0.9
 
@@ -310,6 +311,13 @@ class PostmortemResult:
         """Why the lesson was rejected (last attempt's reason); None when accepted."""
         return None if self.accepted else self.attempts[-1].reason
 
+    @property
+    def llm_unavailable(self) -> bool:
+        """The server answered no attempt at all: the lesson is missing, not rejected."""
+        return self.draft is None and all(
+            (a.reason or "").startswith(LLM_UNAVAILABLE) for a in self.attempts
+        )
+
 
 def write_lesson(
     client: ChatClient,
@@ -329,7 +337,7 @@ def write_lesson(
         try:
             raw = client.complete(messages, schema=schema)
         except LLMUnavailableError as exc:
-            attempts.append(Attempt(False, False, f"LLM erişilemedi: {exc}"))
+            attempts.append(Attempt(False, False, f"{LLM_UNAVAILABLE}: {exc}"))
             continue
         try:
             draft = LessonDraft.model_validate_json(raw)

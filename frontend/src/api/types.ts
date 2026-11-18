@@ -7,6 +7,10 @@ export type Asset = (typeof ASSETS)[number]
 export const CONDITIONS = ['C0', 'C1', 'C1_NO_REGIME', 'C2', 'C3'] as const
 export type Condition = (typeof CONDITIONS)[number]
 
+// The decision prompt the server stamps on new experiments (agents/llm.py `PROMPT_VERSION`).
+// `decision-v1` (the C0 baseline) stays runnable for experiments stored with it.
+export const PROMPT_VERSION = 'decision-v2'
+
 export const CONDITION_LABELS: Record<Condition, string> = {
   C0: 'C0 · Hafızasız',
   C1: 'C1 · Kişisel hafıza',
@@ -82,6 +86,11 @@ export interface Experiment {
 //   So is the PPO agent (422 + fields.agentIds) on a server without a trained PPO model,
 //   on create, PATCH and import alike, so a run never fails half-way for it.
 //   The server stamps `modelVersion` / `promptVersion` with what it will run.
+// POST /experiments/:id/start: LLM agents run in C0 (no memory) and C1 / C1_NO_REGIME
+//   (own lessons recalled before each decision, post-mortem lessons written when a
+//   position closes). C2 / C3 need the forum (P6): 422 + fields.condition.
+//   A run recalls only lessons learned on an earlier day; each decision's recalled
+//   lessons come back as `Decision.memories`.
 // PATCH /experiments/:id (200, ExperimentUpdate): drafts only (409 otherwise); the merged
 //   configuration is validated as a whole, with the same rules as create.
 // DELETE /experiments/:id (204): draft, completed or failed only (409 while queued/running/paused).

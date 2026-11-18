@@ -7,9 +7,15 @@ committed in one transaction. A process that dies mid-day therefore loses only t
 on restart (`resume_interrupted`) the run continues from the checkpoint with the same result,
 bit for bit, as an uninterrupted run. Any error marks the experiment `failed`.
 
+Conditions of LLM agents: C0 has no memory; C1 and C1' recall the agent's own lessons before
+each decision (C1 ranks with the day's regime, C1' without) and, after a position closes,
+write a post-mortem lesson that passes the numeric consistency check (dated the closing day,
+so it is usable from the next day on). The lesson is part of the day's transaction, so a
+resumed run recalls and writes exactly what an uninterrupted run would.
+
 Scope until later work packages (refused with an explicit message, never run silently):
 - `live` mode (P7) and external MCP agents;
-- LLM agents outside C0: memory and forum are not wired into `LLMAgent` yet;
+- LLM agents in C2/C3: the forum comes in P6;
 - the PPO agent without a trained artefact (`MINDEX_PPO_MODEL_DIR`; training needs torch,
   which runs on the GPU machine).
 
@@ -41,7 +47,17 @@ from sqlalchemy import Engine, select, text
 from sqlalchemy.orm import Session
 
 from mindex.agents.base import BaseAgent
-from mindex.agents.llm import PROMPT_VERSION, ChatClient, LlamaCppClient, LLMAgent
+from mindex.agents.llm import (
+    DECISION_V1,
+    DECISION_V2,
+    PROMPT_VERSIONS,
+    ChatClient,
+    LlamaCppClient,
+    LLMAgent,
+    LLMUnavailableError,
+    Recall,
+    RecalledLesson,
+)
 from mindex.agents.rule import BuyAndHoldAgent, EqualWeightAgent, MovingAverageCrossAgent
 from mindex.config import Settings
 from mindex.data.snapshot import load_split
@@ -50,6 +66,7 @@ from mindex.db.models import (
     AgentKindDb,
     AgentRow,
     Condition,
+    DecisionMemory,
     DecisionRow,
     Experiment,
     ExperimentAgent,
@@ -61,7 +78,12 @@ from mindex.db.models import (
 )
 from mindex.domain.decision import Asset, Decision
 from mindex.domain.regime import Regime
-from mindex.sim.engine import ExecutionCosts, Observation, SimState, Simulator
+from mindex.memory.embedder import Embedder, LlamaServerEmbedder
+from mindex.memory.recall import make_recall
+from mindex.memory.store import MemoryStore
+from mindex.postmortem.counterfactual import closed_on, counterfactual
+from mindex.postmortem.lesson import POSTMORTEM_PROMPT_VERSION, postmortem
+from mindex.sim.engine import ExecutionCosts, Fill, Observation, SimState, Simulator
 from mindex.sim.market import MarketData
 
 LOOKBACK_DAYS = 31  # indicator warm-up before the first decision day (30 returns, MA(30))
@@ -69,10 +91,12 @@ PLACEHOLDER_REGIME = Regime.SIDEWAYS
 # `failed` restarts from its checkpoint (e.g. after the LLM server came back).
 # `paused` is not startable yet: nothing pauses a run until a pause endpoint exists.
 STARTABLE = (ExperimentStatus.DRAFT, ExperimentStatus.FAILED)
-LLM_NEEDS_C0 = (
-    "LLM ajanları henüz hafıza ve foruma bağlı değil: C1–C3 koşulunda koşmak, hafızasız (C0) "  # noqa: RUF001
-    "davranışı yanlış koşul etiketiyle kaydeder ve araştırma verisini bozar. LLM ajanlarını C0 "
-    "koşulunda çalıştırın ya da deneyden çıkarın."
+MEMORY_CONDITIONS = (Condition.C1, Condition.C1_NO_REGIME)
+FORUM_CONDITIONS = (Condition.C2, Condition.C3)
+LLM_NEEDS_FORUM = (
+    "LLM ajanları henüz foruma bağlı değil: C2 ve C3 koşulunda koşmak, forumsuz davranışı "
+    "yanlış koşul etiketiyle kaydeder ve araştırma verisini bozar. LLM ajanlarını C0, C1 ya da "
+    "C1_NO_REGIME koşulunda çalıştırın ya da deneyden çıkarın."
 )
 ACTIVE = (ExperimentStatus.QUEUED, ExperimentStatus.RUNNING)
 
@@ -197,6 +221,21 @@ def regime_provenance(settings: Settings) -> dict[str, str | None]:
     return {REGIME_SOURCE: "hmm", REGIME_SHA256: digest}
 
 
+POSTMORTEM_VERSION = "postmortem_prompt_version"  # more `config` keys, for memory conditions
+EMBEDDING_MODEL = "embedding_model"
+
+
+def memory_provenance(settings: Settings, memory: bool) -> dict[str, str | None]:
+    """What the lessons of a C1/C1' run depend on besides the decision prompt (NF5): the
+    post-mortem prompt version and the embedding model. Empty for C0 (no memory)."""
+    if not memory:
+        return {}
+    return {
+        POSTMORTEM_VERSION: POSTMORTEM_PROMPT_VERSION,
+        EMBEDDING_MODEL: settings.embedding_model,
+    }
+
+
 def regime_labels(market: MarketData, settings: Settings) -> list[Regime]:
     """The HMM's filtered (no look-ahead) label per day, or the placeholder without a model."""
     if settings.regime_model_path is None:
@@ -243,12 +282,16 @@ def runnable_errors(
     if problems:
         errors["agentIds"] = "; ".join(problems) + "."
     if any(a.kind is AgentKindDb.LLM for a in agents):
-        if exp.condition is not Condition.C0:
-            errors["condition"] = LLM_NEEDS_C0
-        if exp.prompt_version != PROMPT_VERSION:
+        if exp.condition in FORUM_CONDITIONS:
+            errors["condition"] = LLM_NEEDS_FORUM
+        if exp.prompt_version not in PROMPT_VERSIONS:
             errors["promptVersion"] = (
                 f"Deney {exp.prompt_version} prompt'uyla kaydedilmiş; bu sunucu "
-                f"{PROMPT_VERSION} çalıştırır."
+                f"{', '.join(PROMPT_VERSIONS)} çalıştırır."
+            )
+        elif exp.prompt_version == DECISION_V1 and exp.condition in MEMORY_CONDITIONS:
+            errors["promptVersion"] = (
+                f"{DECISION_V1} hafızayı bilmez; C1 ve C1_NO_REGIME koşulları {DECISION_V2} ister."
             )
     return errors
 
@@ -268,7 +311,11 @@ def llama_cpp_clients(settings: Settings) -> ChatClientFactory:
 
 
 def build_agent(
-    row: AgentRow, exp: Experiment, settings: Settings, chat_client: ChatClientFactory
+    row: AgentRow,
+    exp: Experiment,
+    settings: Settings,
+    chat_client: ChatClientFactory,
+    recall: Recall | None = None,
 ) -> BaseAgent:
     params = row.params
     match row.kind, params.get("rule"):
@@ -286,6 +333,9 @@ def build_agent(
                 persona=str(params["persona"]),
                 max_retries=settings.llm_max_retries,
                 agent_id=row.slug,
+                prompt_version=exp.prompt_version,
+                costs=experiment_costs(exp),
+                recall=recall,
             )
         case AgentKindDb.RL, _ if settings.ppo_model_dir is not None:
             from mindex.agents.ppo import PPOAgent  # loads SB3/torch only when used
@@ -301,6 +351,7 @@ class Recorded:
     weights: dict[Asset, float]  # before the decision (what a hold keeps)
     attempts: int
     latency_ms: int
+    lessons: tuple[RecalledLesson, ...] = ()  # recalled for this decision (C1/C1')
 
 
 class RecordingAgent:
@@ -318,12 +369,19 @@ class RecordingAgent:
         started = time.perf_counter()
         decision = self.inner.decide(obs)
         latency = round((time.perf_counter() - started) * 1000)
-        attempts = self.inner.stats.attempts[-1] if isinstance(self.inner, LLMAgent) else 1
-        self.last = Recorded(decision, dict(obs.weights), attempts, latency)
+        if isinstance(self.inner, LLMAgent):
+            attempts, lessons = self.inner.stats.attempts[-1], self.inner.last_lessons
+        else:
+            attempts, lessons = 1, ()
+        self.last = Recorded(decision, dict(obs.weights), attempts, latency, lessons)
         return decision
 
 
 # ---------------------------------------------------------------- runner
+
+
+def experiment_costs(exp: Experiment) -> ExecutionCosts:
+    return ExecutionCosts(float(exp.commission_rate), float(exp.slippage_bps))
 
 
 def _money(x: float) -> Decimal:
@@ -342,10 +400,16 @@ class ExperimentRunner:
         sessions: SessionFactory,
         settings: Settings,
         chat_client: ChatClientFactory | None = None,
+        embedder: Embedder | None = None,
     ) -> None:
         self.sessions = sessions
         self.settings = settings
         self.chat_client = chat_client or llama_cpp_clients(settings)
+        self.embedder = embedder or LlamaServerEmbedder(
+            settings.embedding_base_url,
+            settings.embedding_model,
+            timeout=settings.llm_timeout_seconds,
+        )
 
     def __call__(self, experiment_id: uuid.UUID) -> None:
         self.run(experiment_id)
@@ -408,19 +472,33 @@ class ExperimentRunner:
                 raise UnsupportedExperimentError(errors)
 
             market, start = experiment_market(exp, self.settings)
+            regimes = regime_labels(market, self.settings)
+            memory = exp.condition in MEMORY_CONDITIONS
+            store = MemoryStore(session, self.embedder) if memory else None
             agents = [
-                RecordingAgent(build_agent(ea.agent, exp, self.settings, self.chat_client))
+                RecordingAgent(
+                    build_agent(
+                        ea.agent,
+                        exp,
+                        self.settings,
+                        self.chat_client,
+                        recall=self._recall(store, exp, ea, regimes),
+                    )
+                )
                 for ea in links
             ]
             sim = Simulator(
                 market,
                 agents,
                 start=start,
-                costs=ExecutionCosts(float(exp.commission_rate), float(exp.slippage_bps)),
+                costs=experiment_costs(exp),
                 initial_cash=float(links[0].initial_cash),
             )
-            provenance = regime_provenance(self.settings)
-            regimes = regime_labels(market, self.settings)
+            provenance = {
+                **regime_provenance(self.settings),
+                **memory_provenance(self.settings, memory),
+            }
+            postmortem_chat = self.chat_client(exp) if memory else None
 
             if exp.checkpoint is None:
                 exp.config = {**exp.config, **provenance}
@@ -435,7 +513,7 @@ class ExperimentRunner:
                 recorded = {k: exp.config.get(k) for k in provenance}
                 if recorded != provenance:
                     raise RuntimeError(
-                        f"regime model changed since the run started: {recorded} -> {provenance}"
+                        f"run provenance changed since the run started: {recorded} -> {provenance}"
                     )
             exp.status = ExperimentStatus.RUNNING
             session.commit()
@@ -449,7 +527,17 @@ class ExperimentRunner:
                 before = {ea.agent.slug: len(state.books[ea.agent.slug].fills) for ea in links}
                 state = sim.step(state)
                 for ea, agent in zip(links, agents, strict=True):
-                    self._record_day(session, ea, agent, state, market, t, before, regimes[t])
+                    fill_ids = self._record_day(
+                        session, ea, agent, state, market, t, before, regimes[t]
+                    )
+                    if (
+                        store is not None
+                        and postmortem_chat is not None
+                        and ea.agent.kind is AgentKindDb.LLM
+                    ):
+                        self._post_mortems(
+                            store, postmortem_chat, exp, ea, state, market, t, regimes, fill_ids
+                        )
                 self._checkpoint(exp, state, market)
                 session.commit()  # the day's rows and the checkpoint, atomically
                 days += 1
@@ -457,6 +545,67 @@ class ExperimentRunner:
             exp.status = ExperimentStatus.COMPLETED
             session.commit()
             log.info("experiment_completed", experiment_id=str(exp.id))
+
+    @staticmethod
+    def _recall(
+        store: MemoryStore | None,
+        exp: Experiment,
+        ea: ExperimentAgent,
+        regimes: Sequence[Regime],
+    ) -> Recall | None:
+        """Memory recall for an LLM agent in C1/C1'; C1' ranks without the regime bonus."""
+        if store is None or ea.agent.kind is not AgentKindDb.LLM:
+            return None
+        return make_recall(
+            store, ea.id, regimes=regimes, use_regime=exp.condition is not Condition.C1_NO_REGIME
+        )
+
+    def _post_mortems(
+        self,
+        store: MemoryStore,
+        chat: ChatClient,
+        exp: Experiment,
+        ea: ExperimentAgent,
+        state: SimState,
+        market: MarketData,
+        t: int,
+        regimes: Sequence[Regime],
+        fill_ids: Mapping[Fill, uuid.UUID],
+    ) -> None:
+        """Post-mortems for the positions the day's fills closed, at the close of that day.
+
+        Fills of decision day `t` execute at the open of day `t + 1`; the lesson is dated that
+        closing day, so `MemoryStore.search` (`day < as_of_day`) first returns it on the next
+        decision day. Nothing after the closing day is read.
+        """
+        exit_day = market.days[t + 1]
+        for trip in closed_on(state.books[ea.agent.slug].fills, exit_day):
+            cf = counterfactual(trip, market, costs=experiment_costs(exp))
+            result, _ = postmortem(
+                chat,
+                store,
+                ea.id,
+                cf,
+                assets=market.assets,
+                regime_hint=regimes[t + 1],
+                max_retries=self.settings.llm_max_retries,
+                source_trade_id=fill_ids.get(trip.fills[-1]),
+            )
+            valid = [a for a in result.attempts if a.schema_valid]
+            log.info(
+                "postmortem_stats",
+                experiment_id=str(exp.id),
+                agent=ea.agent.slug,
+                exit_day=exit_day.isoformat(),
+                accepted=result.accepted,
+                attempts=len(result.attempts),
+                valid_attempts=len(valid),
+                consistent_attempts=sum(a.consistent for a in valid),
+            )
+            if result.llm_unavailable:
+                # A missing lesson would make a resumed run differ from an uninterrupted one:
+                # stop like an unreachable decision call, the day is rolled back and replayed.
+                raise LLMUnavailableError(result.reason or "LLM erişilemedi")
 
     @staticmethod
     def _checkpoint(exp: Experiment, state: SimState, market: MarketData) -> None:
@@ -486,7 +635,9 @@ class ExperimentRunner:
         t: int,
         fills_before: Mapping[str, int],
         regime: Regime,
-    ) -> None:
+    ) -> dict[Fill, uuid.UUID]:
+        """Write the day's decision, recalled memories, trades and snapshot; returns the new
+        fills with their trade ids (the post-mortem links its lesson to the closing trade)."""
         rec = agent.last
         assert rec is not None  # noqa: S101 (step() asked every agent)
         d = rec.decision
@@ -504,10 +655,22 @@ class ExperimentRunner:
             latency_ms=rec.latency_ms,
         )
         session.add(decision)
+        session.flush()  # the rows below reference it; the mappers declare no relationships
+        for lesson in rec.lessons:
+            session.add(
+                DecisionMemory(
+                    decision_id=decision.id,
+                    memory_id=lesson.memory_id,
+                    score=Decimal(str(round(lesson.score, 5))),
+                )
+            )
         book = state.books[ea.agent.slug]
+        fill_ids: dict[Fill, uuid.UUID] = {}
         for f in book.fills[fills_before[ea.agent.slug] :]:
+            fill_ids[f] = uuid.uuid4()
             session.add(
                 TradeRow(
+                    id=fill_ids[f],
                     decision_id=decision.id,
                     asset=str(f.asset),
                     side=TradeSide(str(f.side)),
@@ -518,3 +681,5 @@ class ExperimentRunner:
                 )
             )
         self._snapshot(session, ea, state, market.days[t + 1])
+        session.flush()  # a lesson's `source_trade_id` points at one of these trades
+        return fill_ids

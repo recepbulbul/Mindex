@@ -125,7 +125,7 @@ execution:
   slippage_bps: 5.0
 llm:
   model: qwen3.5-9b-q4_k_m
-  prompt_version: decision-v1
+  prompt_version: decision-v2
 `
 
 const asResearcher = (email: string) =>
@@ -226,19 +226,28 @@ describe('mock contract alignment with the backend', () => {
   it('writes plain decimals PyYAML reads as numbers, and the backend prompt version', async () => {
     signIn('researcher')
     const exp = await create(CONFIG)
-    expect(exp.promptVersion).toBe('decision-v1')
+    expect(exp.promptVersion).toBe('decision-v2')
     const yaml = experimentToYaml({ ...exp, commissionRate: 1e-7 })
     expect(yaml).toContain('  commission_rate: 0.0000001\n')
   })
 })
 
 describe('mock start mirrors the backend runner', () => {
-  it('refuses LLM agents outside C0 and says why', async () => {
+  it.each(['C2', 'C3'] as const)('refuses LLM agents in %s and says why', async (condition) => {
     signIn('researcher')
-    const err = await failure(api.post('/experiments/exp-val-c1/start')) // C1 with LLM agents
+    const draft = await create({ ...CONFIG, condition }) // LLM agents need the forum
+    const err = await failure(api.post(`/experiments/${draft.id}/start`))
     expect(err).toMatchObject({
       status: 422,
       fields: { condition: expect.stringMatching(/araştırma verisini bozar/) as string },
+    })
+  })
+
+  it.each(['C0', 'C1', 'C1_NO_REGIME'] as const)('starts LLM agents in %s', async (condition) => {
+    signIn('researcher')
+    const draft = await create({ ...CONFIG, condition })
+    await expect(api.post(`/experiments/${draft.id}/start`)).resolves.toMatchObject({
+      status: expect.stringMatching(/queued|running|completed/) as string,
     })
   })
 

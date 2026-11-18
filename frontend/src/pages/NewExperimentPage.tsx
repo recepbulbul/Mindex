@@ -4,7 +4,14 @@ import { Controller, useForm, useWatch } from 'react-hook-form'
 import { useNavigate } from 'react-router'
 import { ApiError } from '@/api/client'
 import { useAgents, useCreateExperiment } from '@/api/queries'
-import { ASSETS, CONDITION_LABELS, CONDITIONS, type Agent, type AgentKind } from '@/api/types'
+import {
+  ASSETS,
+  CONDITION_LABELS,
+  CONDITIONS,
+  PROMPT_VERSION,
+  type Agent,
+  type AgentKind,
+} from '@/api/types'
 import { PageTitle } from '@/components/common'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, Field, Input, Select } from '@/components/ui/primitives'
@@ -321,7 +328,7 @@ export default function NewExperimentPage() {
             </div>
             <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">Prompt sürümü</dt>
-              <dd className="num">decision-v1</dd>
+              <dd className="num">{PROMPT_VERSION}</dd>
             </div>
             <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">Yürütme</dt>

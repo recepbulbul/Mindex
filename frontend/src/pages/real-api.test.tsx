@@ -93,9 +93,21 @@ describe('runs that finish in the background', () => {
 describe('experiments list against the backend', () => {
   it('shows why a start was refused', async () => {
     signIn('researcher')
+    // LLM agents in a forum condition (C3): the runner refuses them until the forum exists.
+    await api.post<Experiment>('/experiments', {
+      name: 'Forum bekleyen deney',
+      mode: 'replay',
+      condition: 'C3',
+      startDate: '2025-10-01',
+      endDate: '2026-03-31',
+      assets: ['BTC', 'ETH'],
+      agentIds: ['buy-hold-btc', 'llm-momentum'],
+      seed: 1,
+      commissionRate: 0.001,
+      slippageBps: 5,
+    })
     renderApp('/experiments')
-    // The seeded C1 draft runs LLM agents, which the runner refuses outside C0.
-    const row = (await screen.findByText('Doğrulama · prompt ayarı')).closest('li')!
+    const row = (await screen.findByText('Forum bekleyen deney')).closest('li')!
     within(row)
       .getByRole('button', { name: /Başlat/ })
       .click()
