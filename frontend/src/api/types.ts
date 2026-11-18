@@ -69,12 +69,15 @@ export interface Experiment {
   modelVersion: string
   promptVersion: string
   createdAt: string
+  error?: string | null // why the last run failed (status "failed"); a new start clears it
 }
 
 // Experiment management (F2). Reads need a session and are open to every user; creating needs
 // the researcher role, and PATCH / DELETE / start only the experiment's owner (403 otherwise).
 // POST /experiments (201): validated like `experimentCreateSchema`, and a period that touches
 //   the sealed test window (`TEST_WINDOW`) is refused with 422 + fields.startDate/endDate.
+//   So is the PPO agent (422 + fields.agentIds) on a server without a trained PPO model,
+//   on create, PATCH and import alike, so a run never fails half-way for it.
 //   The server stamps `modelVersion` / `promptVersion` with what it will run.
 // PATCH /experiments/:id (200, ExperimentUpdate): drafts only (409 otherwise); the merged
 //   configuration is validated as a whole, with the same rules as create.
@@ -129,6 +132,19 @@ export interface AgentRun {
   weights: Record<Asset, number>[] // target weights per day
 }
 
+// POST /experiments/:id/start (researcher): draft, paused or failed → `queued` for the in-process
+//   runner (a failed run resumes from its checkpoint, e.g. after the LLM server came back),
+//   which commits each day's decisions, trades and snapshots with a checkpoint and resumes from it
+//   after a restart. 409 in other states; 422 + fields when the runner cannot run it yet: `mode`
+//   (live, P7), `agentIds` (external MCP agents, buy-hold-btc without BTC), `condition` (LLM agents run only as the C0 baseline until memory/forum are wired in).
+// Results of a started experiment (drafts: timeline 409, the others 404):
+// GET /experiments/:id/timeline: days up to the last checkpoint; `candles` has a key per
+//   experiment asset (not all five). `regimes` are the labels the run decided with: the HMM's
+//   (its SHA-256 is pinned in the experiment's stored config) or, without a regime model, the
+//   placeholder 'sideways' on every day (stored as `regime_source: "placeholder"`).
+// GET /experiments/:id/report: 409 before the first checkpoint; `conditions` is [] until the
+//   multi-seed comparison (P9). GET /experiments/:id/forum: empty lists until the forum (P6).
+// GET /experiments/:id/memories?regime=&agent=&q=: most important first.
 export interface Timeline {
   experimentId: string
   days: string[]

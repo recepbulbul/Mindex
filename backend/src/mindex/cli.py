@@ -13,6 +13,7 @@ from mindex.agents.base import BaseAgent
 from mindex.agents.llm import (
     LlamaCppClient,
     LLMAgent,
+    LLMUnavailableError,
     anonymise,
     build_messages,
     deanonymise,
@@ -181,7 +182,9 @@ def train_hmm(snapshot: Path, out: Path, seed: int) -> None:
 def serve_api(host: str, port: int, *, reload: bool) -> None:
     import uvicorn  # imported lazily: the data and baseline commands do not need a server
 
-    uvicorn.run("mindex.api.app:create_app", factory=True, host=host, port=port, reload=reload)
+    uvicorn.run(
+        "mindex.api.app:create_server_app", factory=True, host=host, port=port, reload=reload
+    )
 
 
 def _read_password() -> str:
@@ -280,6 +283,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             bench_llm(args.snapshot, args.reports, args.calls)
     except SealedTestSetError as exc:
         parser.error(str(exc))
+    except LLMUnavailableError as exc:
+        raise SystemExit(
+            f"LLM sunucusuna ulaşılamadı ({get_settings().llm_base_url}): {exc}. "
+            "llama-server'ın çalıştığını ve MINDEX_LLM_BASE_URL'i denetleyin."
+        ) from None
 
 
 if __name__ == "__main__":

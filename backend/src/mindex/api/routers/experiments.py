@@ -6,7 +6,7 @@ window is refused here, on the server, whatever the client shows (look-ahead pro
 
 import math
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from datetime import date
 from decimal import Decimal
 from typing import Annotated, Any, cast
@@ -15,14 +15,24 @@ import structlog
 import yaml
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import CursorResult, select, update
 
 from mindex.agents.llm import PROMPT_VERSION
-from mindex.api.deps import CurrentUser, Researcher, SessionDep, SettingsDep
+from mindex.api.deps import CurrentUser, JobQueueDep, Researcher, SessionDep, SettingsDep
 from mindex.api.errors import validation_fields
 from mindex.api.schemas import ExperimentCreate, ExperimentOut
+from mindex.config import Settings
 from mindex.data.splits import SPLITS, Split
-from mindex.db.models import AgentRow, Experiment, ExperimentAgent, ExperimentStatus, User
+from mindex.db.models import (
+    AgentKindDb,
+    AgentRow,
+    Experiment,
+    ExperimentAgent,
+    ExperimentStatus,
+    User,
+)
+from mindex.services.runner import ERROR as RUN_ERROR
+from mindex.services.runner import STARTABLE, agent_rows, runnable_errors
 
 router = APIRouter(prefix="/experiments", tags=["experiments"])
 log = structlog.get_logger(__name__)
@@ -31,7 +41,10 @@ NOT_FOUND = "Deney bulunamadı."
 INVALID_CONFIG = "Geçersiz deney yapılandırması."
 NOT_EDITABLE = "Yalnızca taslak deneyler düzenlenebilir."
 BAD_YAML = "YAML okunamadı."
+NOT_STARTABLE = '"{status}" durumundaki deney başlatılamaz.'
+NOT_RUNNABLE = "Deney bu koşucuda başlatılamaz."
 NOT_OWNER = "Bu deney başka bir araştırmacıya ait; yalnızca sahibi değiştirebilir."
+PPO_UNAVAILABLE = "PPO ajanı eğitilmiş model ister; bu sunucuda MINDEX_PPO_MODEL_DIR ayarlı değil."
 TEST_WINDOW = SPLITS[Split.TEST]
 SEALED = (
     f"Dönem test penceresiyle ({TEST_WINDOW.start} – {TEST_WINDOW.end}) çakışıyor; "  # noqa: RUF001
@@ -65,9 +78,10 @@ def parse_config(data: Mapping[str, Any]) -> ExperimentCreate:
         raise _invalid(validation_fields(errs)) from None
 
 
-def check_config(cfg: ExperimentCreate, known_agents: Sequence[str]) -> None:
+def check_config(cfg: ExperimentCreate, agents: Mapping[str, AgentRow], settings: Settings) -> None:
     """The rules that need the whole configuration: the form's two refinements, known and
-    distinct agents, and the sealed test window."""
+    distinct agents, agents this server can build, and the sealed test window."""
+    known_agents = list(agents)
     if cfg.mode == "replay" and cfg.end_date is None:
         raise _invalid({"endDate": "Replay modunda bitiş tarihi zorunlu"})
     if cfg.end_date is not None and cfg.end_date <= cfg.start_date:
@@ -77,6 +91,11 @@ def check_config(cfg: ExperimentCreate, known_agents: Sequence[str]) -> None:
         raise _invalid({"agentIds": f"Bilinmeyen ajan: {unknown}"})
     if len(set(cfg.agent_ids)) != len(cfg.agent_ids):
         raise _invalid({"agentIds": "Aynı ajan birden fazla seçilmiş."})
+    # Refused here, not half-way through a run: the PPO agent needs a trained artefact.
+    if settings.ppo_model_dir is None and any(
+        agents[a].kind is AgentKindDb.RL for a in cfg.agent_ids
+    ):
+        raise _invalid({"agentIds": PPO_UNAVAILABLE})
     if overlaps_test_window(cfg.start_date, cfg.end_date):
         field = (
             "endDate"
@@ -107,11 +126,25 @@ def _out(exp: Experiment) -> ExperimentOut:
         model_version=exp.model_version,
         prompt_version=exp.prompt_version,
         created_at=exp.created_at,
+        error=cast(str | None, exp.config.get(RUN_ERROR)),
     )
 
 
+CONFIG_FIELDS = {f.alias or name for name, f in ExperimentCreate.model_fields.items()}
+
+
+def user_config(exp: Experiment) -> dict[str, Any]:
+    """The configuration the user chose, without what the runner adds (`regime_source`...)."""
+    return {k: v for k, v in exp.config.items() if k in CONFIG_FIELDS}
+
+
+def user_config_with_runner_keys(exp: Experiment) -> dict[str, Any]:
+    """`config` for a new start: everything but the previous run's error."""
+    return {k: v for k, v in exp.config.items() if k != RUN_ERROR}
+
+
 def config_of(exp: Experiment) -> ExperimentCreate:
-    return ExperimentCreate.model_validate(exp.config)
+    return ExperimentCreate.model_validate(user_config(exp))
 
 
 def _apply(exp: Experiment, cfg: ExperimentCreate, agents: Mapping[str, AgentRow]) -> None:
@@ -151,7 +184,7 @@ def require_owner(exp: Experiment, user: User) -> None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, NOT_OWNER)
 
 
-def _get(session: SessionDep, experiment_id: str) -> Experiment:
+def get_experiment_row(session: SessionDep, experiment_id: str) -> Experiment:
     try:
         key = uuid.UUID(experiment_id)
     except ValueError:
@@ -166,7 +199,7 @@ def _create(
     session: SessionDep, settings: SettingsDep, user: Researcher, cfg: ExperimentCreate
 ) -> ExperimentOut:
     agents = _agents_by_slug(session)
-    check_config(cfg, list(agents))
+    check_config(cfg, agents, settings)
     exp = Experiment(
         owner_id=user.id,
         status=ExperimentStatus.DRAFT,
@@ -228,7 +261,7 @@ def import_experiment(
 
 @router.get("/{experiment_id}")
 def get_experiment(experiment_id: str, session: SessionDep, _: CurrentUser) -> ExperimentOut:
-    return _out(_get(session, experiment_id))
+    return _out(get_experiment_row(session, experiment_id))
 
 
 @router.patch(
@@ -236,20 +269,23 @@ def get_experiment(experiment_id: str, session: SessionDep, _: CurrentUser) -> E
     responses={status.HTTP_409_CONFLICT: {"description": NOT_EDITABLE}},
 )
 def update_experiment(
-    experiment_id: str, body: dict[str, Any], session: SessionDep, user: Researcher
+    experiment_id: str,
+    body: dict[str, Any],
+    session: SessionDep,
+    settings: SettingsDep,
+    user: Researcher,
 ) -> ExperimentOut:
     """Partial `ExperimentCreate`; the merged configuration is validated as a whole."""
-    exp = _get(session, experiment_id)
+    exp = get_experiment_row(session, experiment_id)
     require_owner(exp, user)
     if exp.status is not ExperimentStatus.DRAFT:
         raise HTTPException(status.HTTP_409_CONFLICT, NOT_EDITABLE)
-    allowed = {f.alias or name for name, f in ExperimentCreate.model_fields.items()}
-    unknown = sorted(k for k in body if k not in allowed)
+    unknown = sorted(k for k in body if k not in CONFIG_FIELDS)
     if unknown:
         raise _invalid(dict.fromkeys(unknown, "Bilinmeyen alan."))
-    cfg = parse_config({**exp.config, **body})
+    cfg = parse_config({**user_config(exp), **body})
     agents = _agents_by_slug(session)
-    check_config(cfg, list(agents))
+    check_config(cfg, agents, settings)
     _apply(exp, cfg, agents)
     session.commit()
     session.refresh(exp)
@@ -262,7 +298,7 @@ def update_experiment(
     responses={status.HTTP_409_CONFLICT: {"description": "Koşan deney silinemez"}},
 )
 def delete_experiment(experiment_id: str, session: SessionDep, user: Researcher) -> Response:
-    exp = _get(session, experiment_id)
+    exp = get_experiment_row(session, experiment_id)
     require_owner(exp, user)
     if exp.status not in DELETABLE:
         raise HTTPException(
@@ -273,13 +309,51 @@ def delete_experiment(experiment_id: str, session: SessionDep, user: Researcher)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.post(
+    "/{experiment_id}/start",
+    responses={
+        status.HTTP_409_CONFLICT: {"description": "Deney bu durumda başlatılamaz"},
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {"description": "Koşucu bu deneyi çalıştıramaz"},
+    },
+)
+def start_experiment(
+    experiment_id: str,
+    session: SessionDep,
+    settings: SettingsDep,
+    user: Researcher,  # before the queue: no session is 401, not "runner down"
+    jobs: JobQueueDep,
+) -> ExperimentOut:
+    """Queue a draft or failed experiment for the in-process runner (a failed one
+    resumes from its checkpoint); answers `queued`. Only the experiment's owner may start it."""
+    exp = get_experiment_row(session, experiment_id)
+    require_owner(exp, user)
+    if exp.status not in STARTABLE:
+        raise HTTPException(status.HTTP_409_CONFLICT, NOT_STARTABLE.format(status=exp.status))
+    errors = runnable_errors(exp, [ea.agent for ea in agent_rows(exp)], settings)
+    if errors:
+        raise _invalid(errors, NOT_RUNNABLE)
+    # Claimed in SQL, so two concurrent starts cannot both queue the same experiment.
+    claimed: CursorResult[Any] = session.execute(  # pyright: ignore[reportAssignmentType]
+        update(Experiment)
+        .where(Experiment.id == exp.id, Experiment.status.in_(STARTABLE))
+        .values(status=ExperimentStatus.QUEUED, config=user_config_with_runner_keys(exp))
+    )
+    if not claimed.rowcount:
+        session.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, NOT_STARTABLE.format(status=exp.status))
+    session.commit()
+    session.refresh(exp)
+    jobs.submit(exp.id)
+    return _out(exp)
+
+
 @router.get(
     "/{experiment_id}/export.yaml",
     response_class=Response,
     responses={200: {"content": {"application/yaml": {"schema": {"type": "string"}}}}},
 )
 def export_experiment(experiment_id: str, session: SessionDep, _: CurrentUser) -> Response:
-    exp = _get(session, experiment_id)
+    exp = get_experiment_row(session, experiment_id)
     return Response(experiment_to_yaml(exp), media_type="application/yaml")
 
 

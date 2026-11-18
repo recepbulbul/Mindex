@@ -123,9 +123,16 @@ def text_query(query: str) -> str:
 
 
 class MemoryStore:
-    def __init__(self, session: Session, embedder: Embedder) -> None:
+    def __init__(self, session: Session, embedder: Embedder | None = None) -> None:
+        """`embedder` is needed to add and search lessons, not to `browse` them."""
         self.session = session
-        self.embedder = embedder
+        self._embedder = embedder
+
+    @property
+    def embedder(self) -> Embedder:
+        if self._embedder is None:
+            raise ValueError("this MemoryStore was created without an embedder")
+        return self._embedder
 
     def add(
         self,
@@ -202,3 +209,21 @@ class MemoryStore:
             )
         }
         return [MemoryHit(memory=loaded[c.memory_id], score=s) for c, s in top]
+
+    def browse(
+        self,
+        experiment_agent_ids: Sequence[uuid.UUID],
+        *,
+        regime: Regime | None = None,
+        contains: str | None = None,
+    ) -> list[MemoryRow]:
+        """Lessons for the memory screen, most important first. Unlike `search` this is a read
+        for people, not for an agent's decision: no embedding and no `as_of_day` cut-off."""
+        query = select(MemoryRow).where(MemoryRow.experiment_agent_id.in_(experiment_agent_ids))
+        if regime is not None:
+            query = query.where(MemoryRow.regime == regime)
+        if contains:
+            escaped = contains.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            query = query.where(MemoryRow.lesson.ilike(f"%{escaped}%", escape="\\"))
+        order = (MemoryRow.importance.desc(), MemoryRow.day.desc(), MemoryRow.id)
+        return list(self.session.scalars(query.order_by(*order)))

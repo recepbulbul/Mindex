@@ -92,6 +92,8 @@ def rebalance(
         if delta < -min_trade:
             price = prices[asset] * (1 - costs.slippage)
             qty = min(holdings.get(asset, 0.0), -delta / prices[asset])
+            if qty <= 0:
+                continue
             fee = qty * price * costs.commission_rate
             cash += qty * price - fee
             holdings[asset] = holdings.get(asset, 0.0) - qty
@@ -104,6 +106,8 @@ def rebalance(
     for asset, delta in buys.items():
         price = prices[asset] * unit_cost
         qty = delta * scale / prices[asset]
+        if qty <= 0:  # no cash at all (sells below the threshold): nothing to fill
+            continue
         fee = qty * price * costs.commission_rate
         cash -= qty * price + fee
         holdings[asset] = holdings.get(asset, 0.0) + qty
