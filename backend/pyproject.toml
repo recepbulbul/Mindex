@@ -11,6 +11,8 @@ authors = [
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "ccxt>=4.5.91",
+    "hmmlearn>=0.3.3",
+    "numpy>=2.0",
     "polars>=2.1.0",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
@@ -78,6 +80,10 @@ venv = ".venv"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers --cov=mindex --cov-report=term-missing --cov-fail-under=70"
+filterwarnings = [
+    # hmmlearn 0.3 sets ndarray.shape, deprecated in NumPy 2.5; harmless until hmmlearn updates.
+    "ignore:Setting the shape on a NumPy array:DeprecationWarning",
+]
 
 [tool.coverage.run]
 branch = true

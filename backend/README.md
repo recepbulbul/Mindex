@@ -12,6 +12,7 @@ uv run pyright          # strict tip kontrolü
 uv run mindex fetch-data            # Binance + Fear & Greed → ../data/snapshots
 uv run mindex baseline [--llm]      # doğrulama döneminde baseline → ../reports
 uv run mindex bench-llm --calls 30  # llama-server karar çağrısı gecikmesi
+uv run mindex train-hmm             # rejim HMM'i, yalnızca eğitim dönemi → ../models/regime-hmm.json
 uv sync --group eda                 # EDA notebook'u için jupyter, matplotlib, duckdb
 ```
 
@@ -27,6 +28,7 @@ uv sync --group eda                 # EDA notebook'u için jupyter, matplotlib, 
 | `mindex.data` | ccxt + Fear & Greed kaynakları, Parquet anlık görüntüleri, zamansal ayrım ve mühürlü test seti (P3) |
 | `mindex.sim` | `t` kapanışında karar, `t+1` açılışında komisyon + kaymayla yürütme; checkpoint (P3) |
 | `mindex.agents` | `BaseAgent`, kural tabanlı ajanlar, llama.cpp ile ilk LLM ajanı (P3) |
+| `mindex.regime` | Gauss HMM rejim modeli (boğa/ayı/yatay); filtrelenmiş olasılık, look-ahead yok (P4) |
 | `mindex.evaluation` | Koşu özeti, nicel hedef karşılaştırması, LLM gecikmesi ve hesap bütçesi (P3) |
 | `mindex.cli` | `mindex fetch-data | baseline | bench-llm` |
 

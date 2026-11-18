@@ -8,8 +8,10 @@ from conftest import synthetic_frame
 from mindex import cli
 from mindex.data.snapshot import write_snapshot
 from mindex.data.splits import SPLITS, Split
+from mindex.domain.regime import Regime
 from mindex.evaluation.budget import ComputeBudget, LatencySummary, percentile
 from mindex.evaluation.report import AgentSummary, check_targets, herd, to_markdown
+from mindex.regime.hmm import RegimeModel
 from mindex.sim.engine import AgentBook, Portfolio
 
 
@@ -99,3 +101,10 @@ def test_cli_refuses_sealed_test_split(snapshot: Path, monkeypatch: pytest.Monke
     monkeypatch.delenv("CI", raising=False)
     with pytest.raises(SystemExit):
         cli.main(["--snapshot", str(snapshot), "baseline", "--split", "test"])
+
+
+def test_cli_train_hmm_fits_on_train_only(snapshot: Path, tmp_path: Path) -> None:
+    out = tmp_path / "models" / "regime-hmm.json"
+    cli.main(["--snapshot", str(snapshot), "train-hmm", "--out", str(out)])
+    model = RegimeModel.load(out)
+    assert sorted(model.labels) == sorted(Regime)
