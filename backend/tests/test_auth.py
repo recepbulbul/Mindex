@@ -1,3 +1,4 @@
+import io
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
@@ -310,6 +311,12 @@ def test_cli_rejects_duplicate_and_weak_password(cli_sessions: Session) -> None:
     message = str(rejected.value)
     assert "password" in message
     assert "kisa-pw" not in message  # the rejected password is never echoed
+
+
+def test_cli_reads_piped_password_keeping_spaces(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Only the line ending is dropped: leading/trailing spaces are part of the password.
+    monkeypatch.setattr("sys.stdin", io.StringIO("  bosluklu parola \r\nikinci satir\n"))
+    assert cli._read_password() == "  bosluklu parola "  # pyright: ignore[reportPrivateUsage]
 
 
 def test_auth_routes_are_in_openapi() -> None:
