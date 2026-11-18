@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { api, ApiError, tokenStore } from '@/api/client'
 import type { Experiment, ExperimentCreate } from '@/api/types'
 import { signIn } from '@/test/render'
+import { setMockExperiment } from './handlers'
 import { experimentToYaml } from './yaml'
 
 const CONFIG: ExperimentCreate = {
@@ -101,37 +102,6 @@ describe('mock experiment contract (F2)', () => {
     ]
     for (const write of writes) await expect(write()).rejects.toMatchObject({ status: 403 })
     await expect(api.get('/experiments/exp-val-c1')).resolves.toMatchObject({ status: 'draft' })
-  })
-})
-
-describe('mock start mirrors the backend runner', () => {
-  it('refuses LLM agents outside C0 and says why', async () => {
-    signIn('researcher')
-    const err = await failure(api.post('/experiments/exp-val-c1/start')) // C1 with LLM agents
-    expect(err).toMatchObject({
-      status: 422,
-      fields: { condition: expect.stringMatching(/araştırma verisini bozar/) as string },
-    })
-  })
-
-  it('refuses live runs and MCP guests, and restarts failed runs', async () => {
-    signIn('researcher')
-    const live = await create({ ...CONFIG, mode: 'live', startDate: '2026-10-01', endDate: null })
-    expect(await failure(api.post(`/experiments/${live.id}/start`))).toMatchObject({
-      status: 422,
-      fields: { mode: expect.any(String) as string },
-    })
-    const guest = await create({ ...CONFIG, condition: 'C0', agentIds: ['mcp-guest', 'ma-cross'] })
-    expect(await failure(api.post(`/experiments/${guest.id}/start`))).toMatchObject({
-      status: 422,
-      fields: { agentIds: expect.stringMatching(/MCP/) as string },
-    })
-    const ok = await create({ ...CONFIG, condition: 'C0' })
-    // Like the backend: start answers queued; the mock's "worker" has finished by the next read.
-    await expect(api.post(`/experiments/${ok.id}/start`)).resolves.toMatchObject({
-      status: 'queued',
-    })
-    await expect(api.get(`/experiments/${ok.id}`)).resolves.toMatchObject({ status: 'completed' })
   })
 })
 
@@ -259,5 +229,53 @@ describe('mock contract alignment with the backend', () => {
     expect(exp.promptVersion).toBe('decision-v1')
     const yaml = experimentToYaml({ ...exp, commissionRate: 1e-7 })
     expect(yaml).toContain('  commission_rate: 0.0000001\n')
+  })
+})
+
+describe('mock start mirrors the backend runner', () => {
+  it('refuses LLM agents outside C0 and says why', async () => {
+    signIn('researcher')
+    const err = await failure(api.post('/experiments/exp-val-c1/start')) // C1 with LLM agents
+    expect(err).toMatchObject({
+      status: 422,
+      fields: { condition: expect.stringMatching(/araştırma verisini bozar/) as string },
+    })
+  })
+
+  it('refuses live runs, MCP guests and buy-hold-btc without BTC', async () => {
+    signIn('researcher')
+    const refusals: [Partial<ExperimentCreate>, string, RegExp][] = [
+      [{ mode: 'live', startDate: '2026-10-01', endDate: null }, 'mode', /Canlı/],
+      [{ condition: 'C0', agentIds: ['mcp-guest', 'ma-cross'] }, 'agentIds', /MCP/],
+      [
+        { condition: 'C0', assets: ['ETH'], agentIds: ['buy-hold-btc', 'ma-cross'] },
+        'agentIds',
+        /BTC olmalı/,
+      ],
+    ]
+    for (const [over, field, reason] of refusals) {
+      const exp = await create({ ...CONFIG, ...over })
+      expect(await failure(api.post(`/experiments/${exp.id}/start`))).toMatchObject({
+        status: 422,
+        fields: { [field]: expect.stringMatching(reason) as string },
+      })
+    }
+  })
+
+  it('answers queued, restarts failed runs clearing their error, refuses paused', async () => {
+    signIn('researcher')
+    const exp = await create({ ...CONFIG, condition: 'C0' })
+    // Like the backend: start answers queued; the mock's "worker" has finished by the next read.
+    await expect(api.post(`/experiments/${exp.id}/start`)).resolves.toMatchObject({
+      status: 'queued',
+    })
+    await expect(api.get(`/experiments/${exp.id}`)).resolves.toMatchObject({ status: 'completed' })
+    setMockExperiment(exp.id, { status: 'failed', error: 'LLMUnavailableError: kapalı' })
+    await expect(api.post(`/experiments/${exp.id}/start`)).resolves.toMatchObject({
+      status: 'queued',
+      error: null,
+    })
+    setMockExperiment(exp.id, { status: 'paused' })
+    expect(await failure(api.post(`/experiments/${exp.id}/start`))).toMatchObject({ status: 409 })
   })
 })

@@ -13,6 +13,7 @@ from mindex.agents.base import BaseAgent
 from mindex.agents.llm import (
     LlamaCppClient,
     LLMAgent,
+    LLMUnavailableError,
     anonymise,
     build_messages,
     deanonymise,
@@ -301,6 +302,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             bench_llm(args.snapshot, args.reports, args.calls)
     except SealedTestSetError as exc:
         parser.error(str(exc))
+    except LLMUnavailableError as exc:
+        raise SystemExit(
+            f"LLM sunucusuna ulaşılamadı ({get_settings().llm_base_url}): {exc}. "
+            "llama-server'ın çalıştığını ve MINDEX_LLM_BASE_URL'i denetleyin."
+        ) from None
 
 
 if __name__ == "__main__":

@@ -330,8 +330,8 @@ def start_experiment(
     user: Researcher,  # before the queue: no session is 401, not "runner down"
     jobs: JobQueueDep,
 ) -> ExperimentOut:
-    """Queue a draft or failed experiment for the in-process runner (a failed one resumes
-    from its checkpoint); answers `queued`. Only the experiment's owner may start it."""
+    """Queue a draft or failed experiment for the in-process runner (a failed one
+    resumes from its checkpoint); answers `queued`. Only the experiment's owner may start it."""
     exp = get_experiment_row(session, experiment_id)
     require_owner(exp, user)
     if exp.status not in STARTABLE:

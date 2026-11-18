@@ -170,3 +170,19 @@ def test_llama_client_reports_unreachable_server() -> None:
     client = LlamaCppClient("http://127.0.0.1:9/v1", "m", timeout=1.0)
     with pytest.raises(LLMUnavailableError):
         client.complete([{"role": "user", "content": "hi"}], schema={})
+
+
+def test_baseline_with_unreachable_llm_exits_with_a_message(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from mindex import cli
+
+    def down(*_: object, **__: object) -> None:
+        raise LLMUnavailableError("connection refused")
+
+    monkeypatch.setattr(cli, "baseline", down)
+    with pytest.raises(SystemExit) as exited:
+        cli.main(["baseline", "--llm"])
+    assert exited.value.code != 0
+    assert "LLM sunucusuna ulaşılamadı" in str(exited.value.code)
+    assert "Traceback" not in capsys.readouterr().err

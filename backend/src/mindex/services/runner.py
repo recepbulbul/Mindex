@@ -66,8 +66,8 @@ from mindex.sim.market import MarketData
 
 LOOKBACK_DAYS = 31  # indicator warm-up before the first decision day (30 returns, MA(30))
 PLACEHOLDER_REGIME = Regime.SIDEWAYS
-# `failed` restarts from its checkpoint (e.g. after the LLM server came back). `paused` is not
-# startable yet: nothing pauses a run until a pause endpoint exists.
+# `failed` restarts from its checkpoint (e.g. after the LLM server came back).
+# `paused` is not startable yet: nothing pauses a run until a pause endpoint exists.
 STARTABLE = (ExperimentStatus.DRAFT, ExperimentStatus.FAILED)
 LLM_NEEDS_C0 = (
     "LLM ajanları henüz hafıza ve foruma bağlı değil: C1–C3 koşulunda koşmak, hafızasız (C0) "  # noqa: RUF001

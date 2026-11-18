@@ -74,6 +74,14 @@ function findExperiment(id: string | readonly string[] | undefined) {
   return experiments.find((e) => e.id === id)
 }
 
+/** Tests only: put an experiment in a state no mock endpoint leads to (e.g. a failed run). */
+export function setMockExperiment(id: string, patch: Partial<Experiment>) {
+  Object.assign(
+    experiments.find((e) => e.id === id)!,
+    patch,
+  )
+}
+
 function metricsFor(sim: Simulation, agentId: string): AgentMetrics {
   const run = sim.runs.find((r) => r.agent.id === agentId)!
   const eq = run.equity.map((p) => p.equity)
@@ -426,6 +434,7 @@ export const handlers = [
     const notRunnable = runnableErrors(exp)
     if (notRunnable) return error(422, 'Deney bu koşucuda başlatılamaz.', notRunnable)
     exp.status = 'queued'
+    exp.error = null // a new start clears the previous run's error, as the backend does
     return HttpResponse.json({ ...exp })
   }),
 
