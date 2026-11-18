@@ -954,6 +954,7 @@ dependencies = [
     { name = "ccxt" },
     { name = "email-validator" },
     { name = "fastapi" },
+    { name = "httpx2" },
     { name = "pgvector" },
     { name = "polars" },
     { name = "psycopg", extra = ["binary"] },
@@ -967,7 +968,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx2" },
     { name = "pre-commit" },
     { name = "pyright" },
     { name = "pytest" },
@@ -988,6 +988,7 @@ requires-dist = [
     { name = "ccxt", specifier = ">=4.5.91" },
     { name = "email-validator", specifier = ">=2.2" },
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx2", specifier = ">=2.16.2" },
     { name = "pgvector", specifier = ">=0.3" },
     { name = "polars", specifier = ">=2.1.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
@@ -1001,7 +1002,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx2", specifier = ">=2.16.2" },
     { name = "pre-commit", specifier = ">=4.0" },
     { name = "pyright", specifier = ">=1.1.390" },
     { name = "pytest", specifier = ">=8.3" },

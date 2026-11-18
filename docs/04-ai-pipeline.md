@@ -29,7 +29,7 @@ flowchart LR
 
     subgraph loop[3 · LLM karar döngüsü - her gün]
         obs[Gözlem<br/>anonim varlık adları] --> reg[Rejim etiketi]:::novel
-        reg --> mem[Hafıza geri çağırma<br/>vektör + BM25 hibrit<br/>+ rejim bonusu]:::novel
+        reg --> mem[Hafıza geri çağırma<br/>vektör + tam metin hibrit<br/>+ rejim bonusu]:::novel
         mem --> forum[Forum<br/>Beta güven ağırlığı]:::novel
         forum --> llm[Qwen3.5-9B Q4<br/>JSON şeması, düşünme kapalı]
         llm --> val{Pydantic<br/>doğrulama}
@@ -65,11 +65,26 @@ flowchart LR
 
 1. **Veri:** Binance'ten 5 varlığın günlük fiyatları (OHLCV), Fear & Greed endeksi ve funding rate çekilip Parquet dosyalarına yazılır, sonra zamana göre eğitim / doğrulama / test olarak üçe bölünür. 🔒 işareti test verisinin mühürlü olduğunu, yalnızca nihai değerlendirmede açıldığını gösterir.
 2. **Eğitilen modeller:** Eğitim verisiyle piyasa rejimini bulan HMM (gizli Markov modeli, `hmmlearn`) ve pekiştirmeli öğrenme ajanı PPO (Stable-Baselines3 = SB3, Gymnasium ortamında) eğitilir; doğrulama verisiyle prompt ve parametreler ayarlanır.
-3. **LLM karar döngüsü:** Her gün ajan gözlem yapar, rejim etiketini alır, hafızasından ilgili dersleri çağırır (anlam benzerliği + BM25 anahtar kelime araması), forumu okur ve LLM'den hedef portföy ağırlıklarını ister. İlk deneme ve 2 yeniden deneme (toplam 3) geçerli karar üretmezse pozisyon korunur ([Akış 2](03-flows.md#akış-2--llm-ajan-karar-döngüsü-nf2-nf3)).
+3. **LLM karar döngüsü:** Her gün ajan gözlem yapar, rejim etiketini alır, hafızasından ilgili dersleri çağırır (anlam benzerliği + PostgreSQL tam metin araması; ayrıntı: [Kalıcı hafıza](#kalıcı-hafıza)), forumu okur ve LLM'den hedef portföy ağırlıklarını ister. İlk deneme ve 2 yeniden deneme (toplam 3) geçerli karar üretmezse pozisyon korunur ([Akış 2](03-flows.md#akış-2--llm-ajan-karar-döngüsü-nf2-nf3)).
 4. **Öğrenme:** Karar simülatörde ertesi gün komisyon ve kayma ile yürütülür. Pozisyon kapanınca karşı-olgusal kâr/zarar (PnL) tablosu hesaplanır, LLM bundan bir ders yazar. Dersteki sayısal iddialar tabloyla çelişiyorsa ders reddedilir; tutarlıysa vektöre çevrilip (Qwen3-Embedding) rejim etiketiyle hafızaya (pgvector) yazılır. Aynı zamanda forumdaki tavsiyelerin tutup tutmadığı sayılır (`a` / `b`) ve güven skorları güncellenir.
 5. **Değerlendirme:** Test döneminde her koşul (C0–C3) 5 farklı seed ile koşulur; Sharpe, MDD (maksimum düşüş), getiri, sürü korelasyonu ve ders tutarlılık oranı hesaplanır. Koşullar arası farkların tesadüf olup olmadığı blok bootstrap ile %95 güven aralığında (GA) sınanır.
 
 Bölümler arasındaki oklar verinin aktığı yönü gösterir; hafızadan (`pgvector`) karar döngüsüne ve güven sayaçlarından foruma geri dönen oklar, ajanın zamanla öğrenmesini sağlayan **geri besleme döngüleridir**. Kesikli ok (`iz` → Langfuse) her LLM çağrısının izleme kaydıdır. **Yeşil kutular** projenin özgün katkılarıdır. Bu diyagramda kırmızı hata kutusu yoktur; "pozisyonu koru" ve "ders reddedilir" dalları buradaki hata/ret yollarıdır, ayrıntıları [akış diyagramlarındadır](03-flows.md).
+
+## Kalıcı hafıza
+
+Kod: `backend/src/mindex/memory/` (`embedder.py`, `store.py`). Her ders `memories` tablosunda; `embedding` (pgvector, 1024 boyut, HNSW) ve `lesson_tsv` (`to_tsvector('simple', lesson)`, GIN) sütunlarıyla tutulur.
+
+- **Yazma:** `MemoryStore.add(...)` dersi `Embedder` ile vektöre çevirir ve oturuma ekler (`flush`; commit çağırana aittir). Gerçekte `LlamaServerEmbedder` llama-server'ın OpenAI uyumlu `/v1/embeddings` ucuna gider (`MINDEX_EMBEDDING_BASE_URL`); testlerde model gerektirmeyen, deterministik `HashEmbedder` kullanılır.
+- **Hibrit arama:** `MemoryStore.search(...)` sorguyu vektöre çevirir; ajanın uygun bütün derslerini pgvector kosinüs uzaklığı ve `ts_rank` ile puanlar. Tam metin sorgusu `websearch_to_tsquery('simple', ...)` ile kurulur, ama sorgunun kelimeleri `or` ile bağlanır: varsayılan VE bağlacıyla cümle gibi bir sorgu, yalnızca bütün kelimeleri içeren derslerle eşleşirdi. (`ts_rank` BM25 değildir; PostgreSQL'in yerleşik sıralamasıdır.)
+- **Skor birleştirme:** `fuse_scores` saf fonksiyondur ve karşılıklı sıra füzyonu (RRF, `k = 10`) kullanır. İki sinyalin ölçekleri farklı olduğu ve min-max tek aday ya da eşit skorlarda bozulduğu için ağırlıklı min-max yerine RRF seçildi. Hiçbir sorgu kelimesini içermeyen ders tam metin payı almaz. RRF yalnızca sıraya baktığı için uzaklığın büyüklüğünü atar; bu yüzden birleşik değer mutlak kosinüs benzerliğiyle çarpılır (sürekli bir ilgi tabanı). Sabit bir uzaklık eşiği gerçek modelin benzerlik aralığına bağlı olurdu. Sonuç `[0, 1]` aralığındadır (`decision_memories.score`):
+  `ilgi = RRF × max(0, 1 − kosinüs_uzaklığı)`
+  `skor = ilgi × (0,7 + 0,3 × önem) × (1 + 0,2 × rejim_eşleşmesi) / 1,2`
+  **Gerçek sınır:** Önem ve rejim bonusu bir skoru en fazla `1,2 / 0,7 ≈ 1,71` kat büyütür. Yani bir ders, başka bir dersi ancak ilgisi onunkinin yaklaşık %58'i ya da daha fazlasıysa geçebilir. Uzaklığı 0,99 olan ders, 0,01 olanı bonuslarla geçemez; birbirine yakın iki ders arasında ise rejim bonusu sırayı değiştirebilir. Bedeli: vektör benzerliği sıfır olan bir tam metin eşleşmesi 0 puan alır. Sabitler (`RRF_K`, `IMPORTANCE_WEIGHT`, `REGIME_BONUS`) yalnızca doğrulama döneminde ayarlanır.
+- **Rejim bonusu:** Dersin rejimi bugünkü rejimle aynıysa ilgi ×1,2 olur. C1′ (`C1_NO_REGIME`) koşulunda `use_regime=False` ile bonus kapanır; diğer her şey C1 ile aynıdır, böylece C1 − C1′ farkı yalnızca bonusun etkisini ölçer.
+- **Look-ahead kuralı:** Yalnızca `day < as_of_day` olan dersler döner. Bugün öğrenilen ders bugünkü kararda kullanılamaz. Filtre SQL'in `WHERE` koşulundadır, sonradan elenmez; DB testi aynı günün ve sonraki günün derslerini sorguyla birebir aynı yazıp dönmediklerini kanıtlar.
+- **Sahiplik:** Yalnızca o ajanın (`experiment_agent_id`) kendi dersleri döner (C1). Paylaşım forumun işidir (İP6).
+- Aday adımında `ORDER BY embedding <=> q LIMIT n` kullanılmaz. HNSW taraması süzmeyi indeks yürüyüşünden sonra yapar ve az anısı olan bir ajan için `k`'den az satır döndürebilir. Bir ajanın bir koşudaki dersi birkaç yüzü geçmez, tam tarama ucuzdur.
 
 ## Look-ahead bias protokolü
 
