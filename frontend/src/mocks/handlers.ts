@@ -7,6 +7,7 @@ import {
   type ConditionSummary,
   type Experiment,
   type ExperimentCreate,
+  type ExperimentUpdate,
   type Health,
   type LoginRequest,
   type LoginResponse,
@@ -17,9 +18,10 @@ import {
   type UserRole,
 } from '@/api/types'
 import { dailyReturns, herdCorrelation, maxDrawdown, sharpeRatio } from '@/lib/metrics'
-import { experimentCreateSchema } from '@/lib/schemas'
+import { experimentCreateSchema, overlapsTestWindow, TEST_WINDOW } from '@/lib/schemas'
 import { AGENTS, DEMO_USERS, LLM_AGENT_IDS, seedExperiments } from './fixtures'
 import { getSimulation, type Simulation } from './simulation'
+import { experimentToYaml, parseYaml } from './yaml'
 
 // Paths use a wildcard origin/prefix so they match both dev ("/api") and GitHub Pages ("/<repo>/api").
 const API = '*/api'
@@ -86,6 +88,89 @@ function llmHerd(sim: Simulation) {
       }),
     )
   return herdCorrelation(series)
+}
+
+const FORBIDDEN = 'Bu işlem için yetkiniz yok.'
+const INVALID_CONFIG = 'Geçersiz deney yapılandırması.'
+const SEALED = `Dönem test penceresiyle (${TEST_WINDOW.start} – ${TEST_WINDOW.end}) çakışıyor; test seti yalnızca nihai değerlendirmede açılır.`
+const DELETABLE: Experiment['status'][] = ['draft', 'completed', 'failed']
+const AGENT_IDS = new Set(AGENTS.map((a) => a.id))
+
+// The same rules as the backend: the form schema, known and distinct agents, the sealed test set.
+function checkConfig(
+  body: unknown,
+): { data: ExperimentCreate } | { fields: Record<string, string> } {
+  const parsed = experimentCreateSchema.safeParse(body)
+  if (!parsed.success)
+    return {
+      fields: Object.fromEntries(parsed.error.issues.map((i) => [i.path.join('.'), i.message])),
+    }
+  const v = parsed.data
+  const unknown = v.agentIds.find((id) => !AGENT_IDS.has(id))
+  if (unknown) return { fields: { agentIds: `Bilinmeyen ajan: ${unknown}` } }
+  if (new Set(v.agentIds).size !== v.agentIds.length)
+    return { fields: { agentIds: 'Aynı ajan birden fazla seçilmiş.' } }
+  if (overlapsTestWindow(v.startDate, v.endDate)) {
+    const field = v.endDate !== null && v.startDate < TEST_WINDOW.start ? 'endDate' : 'startDate'
+    return { fields: { [field]: SEALED } }
+  }
+  return { data: v }
+}
+
+const configOf = (exp: Experiment): ExperimentCreate => ({
+  name: exp.name,
+  mode: exp.mode,
+  condition: exp.condition,
+  startDate: exp.startDate,
+  endDate: exp.endDate,
+  assets: exp.assets,
+  agentIds: exp.agentIds,
+  seed: exp.seed,
+  commissionRate: exp.commissionRate,
+  slippageBps: exp.slippageBps,
+})
+
+const YAML_KEYS = new Set([
+  'name',
+  'mode',
+  'condition',
+  'period',
+  'assets',
+  'agents',
+  'seed',
+  'execution',
+  'llm',
+])
+
+function configFromYaml(doc: ReturnType<typeof parseYaml>): unknown {
+  if (Object.keys(doc).some((k) => !YAML_KEYS.has(k))) throw new Error('bilinmeyen anahtar')
+  const period = (doc.period ?? {}) as Record<string, unknown>
+  const execution = (doc.execution ?? {}) as Record<string, unknown>
+  return {
+    name: doc.name,
+    mode: doc.mode,
+    condition: doc.condition,
+    startDate: period.start,
+    endDate: period.end ?? null,
+    assets: doc.assets,
+    agentIds: doc.agents,
+    seed: doc.seed,
+    commissionRate: execution.commission_rate,
+    slippageBps: execution.slippage_bps,
+  }
+}
+
+function addDraft(config: ExperimentCreate): Experiment {
+  const exp: Experiment = {
+    ...config,
+    id: `exp-${crypto.randomUUID().slice(0, 8)}`,
+    status: 'draft',
+    modelVersion: 'qwen3.5-9b-q4_k_m',
+    promptVersion: 'decision-v3',
+    createdAt: new Date().toISOString(),
+  }
+  experiments.push(exp)
+  return exp
 }
 
 const SEEDS = [1, 2, 3, 4, 5]
@@ -173,31 +258,55 @@ export const handlers = [
 
   http.post(`${API}/experiments`, async ({ request }) => {
     await delay()
-    if (roleOf(request) !== 'researcher')
-      return error(403, 'Deney oluşturmak için araştırmacı rolü gerekir.')
-    const parsed = experimentCreateSchema.safeParse(await request.json())
-    if (!parsed.success) {
-      const fields = Object.fromEntries(
-        parsed.error.issues.map((i) => [i.path.join('.'), i.message]),
-      )
-      return error(422, 'Geçersiz deney yapılandırması.', fields)
+    if (roleOf(request) !== 'researcher') return error(403, FORBIDDEN)
+    const checked = checkConfig(await request.json())
+    if ('fields' in checked) return error(422, INVALID_CONFIG, checked.fields)
+    return HttpResponse.json(addDraft(checked.data), { status: 201 })
+  }),
+
+  http.post(`${API}/experiments/import`, async ({ request }) => {
+    await delay()
+    if (roleOf(request) !== 'researcher') return error(403, FORBIDDEN)
+    let body: unknown
+    try {
+      body = configFromYaml(parseYaml(await request.text()))
+    } catch {
+      return error(422, 'YAML dosyası okunamadı.', {
+        body: 'Geçerli bir deney YAML dosyası olmalı.',
+      })
     }
-    const body: ExperimentCreate = parsed.data
-    const exp: Experiment = {
-      ...body,
-      id: `exp-${crypto.randomUUID().slice(0, 8)}`,
-      status: 'draft',
-      modelVersion: 'qwen3.5-9b-q4_k_m',
-      promptVersion: 'decision-v3',
-      createdAt: new Date().toISOString(),
-    }
-    experiments.push(exp)
-    return HttpResponse.json(exp, { status: 201 })
+    const checked = checkConfig(body)
+    if ('fields' in checked) return error(422, INVALID_CONFIG, checked.fields)
+    return HttpResponse.json(addDraft(checked.data), { status: 201 })
   }),
 
   http.get(`${API}/experiments/:id`, ({ params }) => {
     const exp = findExperiment(params.id)
     return exp ? HttpResponse.json(exp) : error(404, 'Deney bulunamadı.')
+  }),
+
+  http.patch(`${API}/experiments/:id`, async ({ params, request }) => {
+    await delay()
+    if (roleOf(request) !== 'researcher') return error(403, FORBIDDEN)
+    const exp = findExperiment(params.id)
+    if (!exp) return error(404, 'Deney bulunamadı.')
+    if (exp.status !== 'draft') return error(409, 'Yalnızca taslak deneyler düzenlenebilir.')
+    const patch = (await request.json()) as ExperimentUpdate
+    const checked = checkConfig({ ...configOf(exp), ...patch })
+    if ('fields' in checked) return error(422, INVALID_CONFIG, checked.fields)
+    Object.assign(exp, checked.data)
+    return HttpResponse.json(exp)
+  }),
+
+  http.delete(`${API}/experiments/:id`, async ({ params, request }) => {
+    await delay()
+    if (roleOf(request) !== 'researcher') return error(403, FORBIDDEN)
+    const exp = findExperiment(params.id)
+    if (!exp) return error(404, 'Deney bulunamadı.')
+    if (!DELETABLE.includes(exp.status))
+      return error(409, `"${exp.status}" durumundaki deney silinemez.`)
+    experiments = experiments.filter((e) => e !== exp)
+    return new HttpResponse(null, { status: 204 })
   }),
 
   http.post(`${API}/experiments/:id/start`, ({ params, request }) => {
@@ -213,26 +322,7 @@ export const handlers = [
   http.get(`${API}/experiments/:id/export.yaml`, ({ params }) => {
     const exp = findExperiment(params.id)
     if (!exp) return error(404, 'Deney bulunamadı.')
-    const yaml = [
-      `# Mindex deney yapılandırması (F2)`,
-      `name: "${exp.name}"`,
-      `mode: ${exp.mode}`,
-      `condition: ${exp.condition}`,
-      `period:`,
-      `  start: ${exp.startDate}`,
-      `  end: ${exp.endDate ?? 'null'}`,
-      `assets: [${exp.assets.join(', ')}]`,
-      `agents:`,
-      ...exp.agentIds.map((a) => `  - ${a}`),
-      `seed: ${exp.seed}`,
-      `execution:`,
-      `  commission_rate: ${exp.commissionRate}`,
-      `  slippage_bps: ${exp.slippageBps}`,
-      `llm:`,
-      `  model: ${exp.modelVersion}`,
-      `  prompt_version: ${exp.promptVersion}`,
-      '',
-    ].join('\n')
+    const yaml = experimentToYaml(exp)
     return new HttpResponse(yaml, { headers: { 'Content-Type': 'application/yaml' } })
   }),
 

@@ -36,7 +36,9 @@ export const onUnauthorized = (fn: Listener) => {
 // The API always answers with JSON (or YAML for exports). Anything else, such as the dev
 // server's index.html or its empty 404, means the request never reached an API: in the
 // prototype that is the mock service worker having been stopped by the browser.
-const answeredByApi = (res: Response) => /json|yaml/.test(res.headers.get('Content-Type') ?? '')
+// A 204 (DELETE) has no body and so no Content-Type; the dev server never answers 204.
+const answeredByApi = (res: Response) =>
+  res.status === 204 || /json|yaml/.test(res.headers.get('Content-Type') ?? '')
 
 let recoverApi: (() => Promise<void>) | null = null
 // Queries refetch together (e.g. when the tab regains focus), so they fail together: they share
@@ -69,14 +71,25 @@ async function request(path: string, init: RequestInit = {}, retried = false): P
   return res
 }
 
+const send = async <T>(method: string, path: string, body?: unknown) =>
+  (
+    await request(path, { method, body: body === undefined ? undefined : JSON.stringify(body) })
+  ).json() as Promise<T>
+
 export const api = {
   get: async <T>(path: string) => (await request(path)).json() as Promise<T>,
   text: async (path: string) => (await request(path)).text(),
-  post: async <T>(path: string, body?: unknown) =>
+  post: <T>(path: string, body?: unknown) => send<T>('POST', path, body),
+  patch: <T>(path: string, body: unknown) => send<T>('PATCH', path, body),
+  /** POSTs a YAML document as-is (e.g. an exported experiment configuration). */
+  postYaml: async <T>(path: string, yaml: string) =>
     (
       await request(path, {
         method: 'POST',
-        body: body === undefined ? undefined : JSON.stringify(body),
+        body: yaml,
+        headers: { 'Content-Type': 'application/yaml' },
       })
     ).json() as Promise<T>,
+  /** DELETE answers 204 with no body. */
+  delete: async (path: string) => void (await request(path, { method: 'DELETE' })),
 }

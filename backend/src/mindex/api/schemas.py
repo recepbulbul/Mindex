@@ -1,11 +1,23 @@
 """Base for API schemas: camelCase on the wire (frontend/src/api/types.ts), snake_case in Python."""
 
+import re
+from datetime import date, datetime
 from typing import Annotated, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    EmailStr,
+    Field,
+    StrictStr,
+    field_validator,
+)
 from pydantic.alias_generators import to_camel
 
-from mindex.db.models import UserRole
+from mindex.db.models import AgentKindDb, Condition, ExperimentMode, ExperimentStatus, UserRole
+from mindex.domain.decision import Asset
 
 
 class ApiModel(BaseModel):
@@ -54,3 +66,130 @@ class UserOut(ApiModel):
 class LoginResponse(ApiModel):
     token: str
     user: UserOut
+
+
+# ---------------------------------------------------------------- experiments (F2)
+# The rules mirror `experimentCreateSchema` in frontend/src/lib/schemas.ts, messages included;
+# cross-field rules, known agents and the sealed test window are checked in
+# `mindex.api.routers.experiments.check_config` (they need the whole configuration).
+
+SEED_MAX = 2**31 - 1
+
+
+def _iso_date(value: object) -> object:
+    """`YYYY-MM-DD` strings (JSON) or `date` objects (YAML's `safe_load`); nothing else."""
+    if value is None or (isinstance(value, date) and not isinstance(value, datetime)):
+        return value
+    if isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            pass
+    raise ValueError("Tarih YYYY-AA-GG olmalı")
+
+
+def _number(value: object) -> object:
+    # Like `z.number()`: no strings or booleans coerced into numbers.
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError("Sayı olmalı")
+    return value
+
+
+def _integer(value: object) -> object:
+    # Like `z.number().int()`: 5 and 5.0 are the same JS number, "5" is not a number.
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError("Tam sayı olmalı")
+    return value
+
+
+IsoDate = Annotated[date, BeforeValidator(_iso_date)]
+Number = Annotated[float, BeforeValidator(_number)]
+
+
+class ExperimentCreate(ApiModel):
+    name: str
+    mode: ExperimentMode
+    condition: Condition
+    start_date: IsoDate
+    end_date: IsoDate | None
+    assets: list[Asset]
+    agent_ids: list[StrictStr]
+    seed: Annotated[int, BeforeValidator(_integer)]
+    commission_rate: Number
+    slippage_bps: Number
+
+    @field_validator("name")
+    @classmethod
+    def _name(cls, v: str) -> str:
+        v = v.strip()
+        if len(v) < 3:
+            raise ValueError("En az 3 karakter")
+        if len(v) > 120:
+            raise ValueError("En fazla 120 karakter")
+        return v
+
+    @field_validator("assets")
+    @classmethod
+    def _assets(cls, v: list[Asset]) -> list[Asset]:
+        if not v:
+            raise ValueError("En az bir varlık seçin")
+        return v
+
+    @field_validator("agent_ids")
+    @classmethod
+    def _agents(cls, v: list[str]) -> list[str]:
+        if len(v) < 2:
+            raise ValueError("En az iki ajan seçin")
+        return v
+
+    @field_validator("seed")
+    @classmethod
+    def _seed(cls, v: int) -> int:
+        if not 0 <= v <= SEED_MAX:
+            raise ValueError(f"0 ile {SEED_MAX} arasında olmalı")
+        return v
+
+    @field_validator("commission_rate")
+    @classmethod
+    def _commission(cls, v: float) -> float:
+        if v < 0:
+            raise ValueError("Negatif olamaz")
+        if v > 0.01:
+            raise ValueError("En fazla %1")
+        return v
+
+    @field_validator("slippage_bps")
+    @classmethod
+    def _slippage(cls, v: float) -> float:
+        if v < 0:
+            raise ValueError("Negatif olamaz")
+        if v > 100:
+            raise ValueError("En fazla 100 bp")
+        return v
+
+
+class ExperimentOut(ApiModel):
+    id: str
+    name: str
+    mode: ExperimentMode
+    condition: Condition
+    status: ExperimentStatus
+    start_date: date
+    end_date: date | None
+    assets: list[Asset]
+    agent_ids: list[str]
+    seed: int
+    commission_rate: float
+    slippage_bps: float
+    model_version: str
+    prompt_version: str
+    created_at: datetime
+
+
+class AgentOut(ApiModel):
+    id: str  # the slug
+    name: str
+    kind: AgentKindDb
+    persona: str | None

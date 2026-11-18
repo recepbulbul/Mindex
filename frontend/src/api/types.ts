@@ -71,6 +71,16 @@ export interface Experiment {
   createdAt: string
 }
 
+// Experiment management (F2). Reads need a session, writes the researcher role (403 otherwise).
+// POST /experiments (201): validated like `experimentCreateSchema`, and a period that touches
+//   the sealed test window (`TEST_WINDOW`) is refused with 422 + fields.startDate/endDate.
+//   The server stamps `modelVersion` / `promptVersion` with what it will run.
+// PATCH /experiments/:id (200, ExperimentUpdate): drafts only (409 otherwise); the merged
+//   configuration is validated as a whole, with the same rules as create.
+// DELETE /experiments/:id (204): draft, completed or failed only (409 while queued/running/paused).
+// GET /experiments/:id/export.yaml: the configuration as YAML (`application/yaml`).
+// POST /experiments/import (201): that YAML as the body (`Content-Type: application/yaml`)
+//   creates a new draft; `llm.*` in the file is informational, the server stamps its own.
 export type ExperimentCreate = Pick<
   Experiment,
   | 'name'
@@ -84,6 +94,8 @@ export type ExperimentCreate = Pick<
   | 'commissionRate'
   | 'slippageBps'
 >
+
+export type ExperimentUpdate = Partial<ExperimentCreate>
 
 export interface Candle {
   time: string // YYYY-MM-DD (UTC)

@@ -75,6 +75,28 @@ describe('api client', () => {
     expect((err as ApiError).message).toMatch(/Sunucuya ulaşılamadı/)
   })
 
+  it('treats a bodiless 204 as an API answer, not an unreachable server', async () => {
+    server.use(
+      http.delete(`${API_BASE}/experiments/x`, () => new HttpResponse(null, { status: 204 })),
+    )
+    const recover = vi.fn<() => Promise<void>>().mockResolvedValue()
+    setApiRecovery(recover)
+    await expect(api.delete('/experiments/x')).resolves.toBeUndefined()
+    expect(recover).not.toHaveBeenCalled()
+  })
+
+  it('sends YAML bodies with a YAML content type', async () => {
+    let type: string | null = null
+    server.use(
+      http.post(`${API_BASE}/experiments/import`, ({ request }) => {
+        type = request.headers.get('Content-Type')
+        return HttpResponse.json({ ok: true }, { status: 201 })
+      }),
+    )
+    await api.postYaml('/experiments/import', 'name: x\n')
+    expect(type).toBe('application/yaml')
+  })
+
   it('reads the public health endpoint without a token', async () => {
     await expect(api.get<Health>('/health')).resolves.toEqual({ status: 'ok', database: true })
   })
