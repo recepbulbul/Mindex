@@ -1233,6 +1233,30 @@ def test_c1_ranks_with_the_regime_and_c1_prime_without(
     assert scores["C1_NO_REGIME"][older] == scores["C1_NO_REGIME"][newer]  # no bonus
 
 
+def test_a_lesson_dated_the_decision_day_is_not_recalled_until_the_next_day(
+    api: TestClient,
+    researcher: dict[str, str],
+    db_session: Session,
+    sessions: Callable[[], Session],
+    settings: Settings,
+) -> None:
+    """Both lessons would rank in the top 3; only the SQL day boundary can keep one out."""
+    exp_id = _started(api, researcher, agentIds=MEMORY_AGENTS, condition="C1")
+    older = START - timedelta(days=5)
+    _seed(
+        db_session,
+        exp_id,
+        "llm-momentum",
+        [(older, LESSON_TEXT, Regime.SIDEWAYS), (START, LESSON_TEXT, Regime.SIDEWAYS)],
+    )
+    memory_runner(sessions, settings).run(exp_id, max_days=3)
+    by_day: dict[date, set[date]] = {}
+    for decided, learned, _ in _recalled(db_session, exp_id, "llm-momentum"):
+        by_day.setdefault(decided, set()).add(learned)
+    assert by_day[START] == {older}  # the lesson dated today is invisible
+    assert by_day[START + timedelta(days=1)] == {older, START}
+
+
 @pytest.fixture
 def c1_run(
     api: TestClient,

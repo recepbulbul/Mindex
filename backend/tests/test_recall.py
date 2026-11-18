@@ -58,6 +58,20 @@ def test_c1_prime_asks_without_the_regime_bonus(market: MarketData) -> None:
     assert store.calls[0]["use_regime"] is False
 
 
+def test_c1_prime_keeps_the_regime_out_of_the_query_too(market: MarketData) -> None:
+    """Only dropping the bonus is not enough: the regime word in the query changes the
+    similarity ranking, so C1 vs C1' would not isolate regime conditioning."""
+    queries: dict[bool, list[str]] = {}
+    for use_regime in (True, False):
+        store = SpyStore([])
+        for regime in (Regime.BULL, Regime.BEAR):
+            recall_with(store, [regime] * 60, use_regime=use_regime)(obs(market, 30))
+        queries[use_regime] = [c["query"] for c in store.calls]
+    assert queries[True][0] != queries[True][1]  # C1: the label is in the query
+    assert queries[False][0] == queries[False][1]  # C1': same situation, same query
+    assert not any(w in queries[False][0] for w in ("bull", "bear", "sideways"))
+
+
 def test_lesson_naming_a_real_asset_is_left_out(market: MarketData) -> None:
     clean = hit("ASSET_B pozisyonu %2,5 kazandırdı; tutmak doğruydu.")
     leaky = hit("BTC pozisyonu %2,5 kazandırdı; tutmak doğruydu.")

@@ -215,7 +215,7 @@ C0 baseline'ı (bölüm 6) iki şey gösterdi: ajan her gün işlem yapıyor, ve
 | Prompt | `decision-v2`: "pozisyonu koru" seçeneği (güncel ağırlıkları aynen döndürmek), işlem maliyeti (komisyon + kayma, ≈ %0,15), gözlemde `days_since_trade`. `decision-v1` bayt bayt aynı kalır; onunla kaydedilmiş deneyler aynı prompt'la koşar (NF5). Yeni deneyler `decision-v2` ile damgalanır. |
 | C0 | Hafıza yok. `decision-v2`'yi dersler olmadan koşar, böylece C0 → C1 farkı yalnızca hafızadan gelir. |
 | C1 | Karar öncesi ajanın **kendi** en alakalı 3 dersi prompt'a girer (rejim bonusuyla). |
-| C1′ (`C1_NO_REGIME`) | C1 ile aynı, ama sıralamada rejim bonusu yok. |
+| C1′ (`C1_NO_REGIME`) | C1 ile aynı, ama rejim hiçbir yerde yok: ne sıralama bonusunda ne de arama sorgusunda (sorgudaki rejim kelimesi benzerlik sıralamasını değiştirirdi). |
 | C2, C3 | LLM ajanlarıyla hâlâ 422: forum İP6'da. |
 | Post-mortem | Bir pozisyon kapanınca (`postmortem-v1`) ders yazılır, sayısal tutarlılık denetiminden geçerse `MemoryStore.add` ile kaydedilir. Ders, kapanış gününün tarihini taşır. |
 | Look-ahead | Karar günü `t` için yalnızca `day < t` dersler döner (SQL'de). Bu gün yazılan ders yarın görünür, bugün görünmez; koşucu düzeyinde testle kanıtlıdır. |
@@ -242,11 +242,11 @@ Koşucuyla kısa C0/C1/C1′ koşusu (2025-10-01 → 2025-12-15, 75 gün, BTC/ET
 |---|--:|--:|--:|--:|--:|--:|--:|--:|
 | C0 | −%33,2 | −3,70 | %37,7 | 98 | 1 | 0 | 0 | 4,43 / 4,92 sn |
 | C1 | −%36,3 | −3,25 | %41,1 | 111 | 2 | 5 | 21 / 75 | 6,67 / 7,30 sn |
-| C1′ | −%35,4 | −3,28 | %39,8 | 97 | 2 | 3 | 21 / 75 | 6,67 / 7,15 sn |
+| C1′ | −%34,1 | −2,94 | %39,3 | 96 | 4 | 0 | 0 / 75 | 6,65 / 7,80 sn |
 
-BTC al-ve-tut aynı dönemde −%27,2 (MDD %32,0). Bu koşu hattın uçtan uca çalıştığını gösterir; **koşullar arasında sonuç çıkarmak için yetersizdir** (tek seed, tek ajan, 75 gün, 3–5 ders). C0 → C1 karşılaştırması P6'daki çok seed'li koşulara kalır.
+BTC al-ve-tut aynı dönemde −%27,2 (MDD %32,0). C1′ satırı, gözden geçirme sonrası düzeltilmiş koda (rejimsiz sorgu) göre yeniden koşuldu; bu koşuda hiçbir pozisyon tamamen kapanmadığı için ders yazılmadı (44 satış, hepsi kısmi), yani C1′ prompt'a boş `lessons` listesiyle koştu. `decision-v2` ile pozisyonlar nadiren tamamen kapandığından, dersler seyrek birikir: 75 günde 0–5. Bu, hafızanın etkisini ölçmek için uzun dönem ve çok seed gerektiğini gösterir. Bu koşu hattın uçtan uca çalıştığını gösterir; **koşullar arasında sonuç çıkarmak için yetersizdir** (tek seed, tek ajan, 75 gün, 0–5 ders). C0 → C1 karşılaştırması P6'daki çok seed'li koşulara kalır.
 
-Post-mortem tutarlılığı (`consistency_rate`, hedef ≥ %90): düzeltmeden sonraki koşuda 8/8 (%100), ilk koşuda 31/38 (%81,6). Toplam 39/46 = %84,8. Örnek sayısı küçüktür; hedefin sağlandığı söylenemez. Denetim yalnızca sayıların tabloyla uyumunu ve yönü kontrol eder, dersin anlamlı olduğunu değil (ilk koşuda birkaç ders sayıları doğru ama yorumu zayıftı).
+Post-mortem tutarlılığı (`consistency_rate`, hedef ≥ %90): düzeltmeden sonraki C0/C1 koşusunda C1'de 5/5, ilk üç koşuda (düzeltme öncesi) 31/38 (%81,6). Toplam 36/43 = %83,7. Örnek sayısı küçüktür; hedefin sağlandığı söylenemez. Denetim yalnızca sayıların tabloyla uyumunu ve yönü kontrol eder, dersin anlamlı olduğunu değil (ilk koşuda birkaç ders sayıları doğru ama yorumu zayıftı).
 
 ### HMM rejim etiketleri üzerine not
 

@@ -313,10 +313,10 @@ class PostmortemResult:
 
     @property
     def llm_unavailable(self) -> bool:
-        """The server answered no attempt at all: the lesson is missing, not rejected."""
-        return self.draft is None and all(
-            (a.reason or "").startswith(LLM_UNAVAILABLE) for a in self.attempts
-        )
+        """The server missed at least one attempt. The outcome then depends on the outage (a
+        healthy server would have answered the attempt that timed out), so a run that must be
+        reproducible cannot keep it, whether the lesson was accepted, rejected or never written."""
+        return any((a.reason or "").startswith(LLM_UNAVAILABLE) for a in self.attempts)
 
 
 def write_lesson(

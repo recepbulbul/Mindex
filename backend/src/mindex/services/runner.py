@@ -603,8 +603,9 @@ class ExperimentRunner:
                 consistent_attempts=sum(a.consistent for a in valid),
             )
             if result.llm_unavailable:
-                # A missing lesson would make a resumed run differ from an uninterrupted one:
-                # stop like an unreachable decision call, the day is rolled back and replayed.
+                # An attempt lost to an outage would make a resumed run differ from an
+                # uninterrupted one: stop like an unreachable decision call, the day is rolled
+                # back and replayed.
                 raise LLMUnavailableError(result.reason or "LLM erişilemedi")
 
     @staticmethod

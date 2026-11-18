@@ -19,11 +19,12 @@ from mindex.sim.engine import Observation
 log = structlog.get_logger(__name__)
 
 
-def recall_query(obs: Observation, regime: Regime) -> str:
+def recall_query(obs: Observation, regime: Regime | None) -> str:
     """Deterministic text describing today's situation, in the words lessons are written in:
-    the regime and, per anonymised asset, the 7-day direction and whether it is held."""
+    the regime (None in C1', which keeps it out of the ranking entirely, query included) and,
+    per anonymised asset, the 7-day direction and whether it is held."""
     codes = anonymise(obs.view.assets)
-    parts = [regime.value]
+    parts = [] if regime is None else [regime.value]
     for asset in obs.view.assets:
         closes = obs.view.closes(asset, 8)
         trend = "yükseliş" if len(closes) >= 8 and closes[-1] > closes[0] else "düşüş"
@@ -48,7 +49,7 @@ def make_recall(
         regime = regimes[obs.view.t]
         hits = store.search(
             experiment_agent_id,
-            recall_query(obs, regime),
+            recall_query(obs, regime if use_regime else None),
             as_of_day=obs.view.day,
             regime=regime,
             k=k,

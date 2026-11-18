@@ -525,3 +525,19 @@ def test_turkish_sol_is_not_a_ticker(word: str) -> None:
     text = f"ASSET_B {word} kanatta %10 kaybettirdi; girmemek en iyisiydi."
     out = write_lesson(FakeClient(reply(text)), CF, assets=ASSETS, max_retries=0)
     assert out.accepted, out.reason
+
+
+def test_one_lost_attempt_marks_the_result_as_outage_dependent() -> None:
+    """A healthy server would have answered the attempt that timed out, so the outcome (a
+    rejected lesson, or an accepted one) is not reproducible: the runner must stop the run."""
+    timeout = LLMUnavailableError("timeout")
+    bad = reply("ASSET_B %99,99 kazandırdı; devam.", outcome="gain")
+    partial = write_lesson(FakeClient(bad, timeout, timeout), CF, assets=ASSETS, max_retries=2)
+    assert not partial.accepted
+    assert partial.llm_unavailable
+    late = write_lesson(FakeClient(timeout, reply()), CF, assets=ASSETS, max_retries=2)
+    assert late.accepted
+    assert late.llm_unavailable
+    healthy = write_lesson(FakeClient(bad, reply()), CF, assets=ASSETS, max_retries=2)
+    assert healthy.accepted
+    assert not healthy.llm_unavailable

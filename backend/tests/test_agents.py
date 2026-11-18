@@ -1,3 +1,4 @@
+import hashlib
 import json
 import uuid
 from collections.abc import Mapping
@@ -221,6 +222,13 @@ def test_decision_v1_prompt_is_unchanged(market: MarketData) -> None:
         )
         == messages
     )
+    # Golden value computed from the `decision-v1` prompt as it was on origin/main before
+    # decision-v2: any edit to the system prompt, personas, features or weight rounding on
+    # the v1 path changes it (then bump the version instead of editing v1).
+    digest = hashlib.sha256(
+        json.dumps(messages, sort_keys=True, ensure_ascii=False).encode()
+    ).hexdigest()
+    assert digest == "c4cb8a42172cb42570a6d3a5eb0144ad99a299785b7460a3a55c8e2ac9fb8436"
 
 
 def test_decision_v2_adds_hold_option_cost_and_days_since_trade(market: MarketData) -> None:
