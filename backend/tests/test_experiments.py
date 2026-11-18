@@ -4,10 +4,12 @@ import json
 import uuid
 from collections.abc import Iterator
 from datetime import date
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
 import yaml
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from sqlalchemy import select
@@ -16,7 +18,12 @@ from sqlalchemy.orm import Session
 from mindex.agents.llm import PROMPT_VERSION
 from mindex.api import security
 from mindex.api.app import create_app
-from mindex.api.routers.experiments import SEALED, config_from_yaml, overlaps_test_window
+from mindex.api.routers.experiments import (
+    PPO_UNAVAILABLE,
+    SEALED,
+    config_from_yaml,
+    overlaps_test_window,
+)
 from mindex.config import Settings, get_settings
 from mindex.db.models import Experiment, ExperimentAgent, ExperimentStatus, User, UserRole
 from mindex.db.session import get_session
@@ -169,7 +176,7 @@ def test_unknown_experiment_is_404(api: TestClient, viewer: Headers, bad_id: str
         ({"startDate": "2025-02-30"}, "startDate", "Tarih YYYY-AA-GG olmalı"),
         ({"assets": []}, "assets", "En az bir varlık seçin"),
         ({"assets": ["DOGE"]}, "assets.0", None),
-        ({"agentIds": ["ppo"]}, "agentIds", "En az iki ajan seçin"),
+        ({"agentIds": ["ma-cross"]}, "agentIds", "En az iki ajan seçin"),
         ({"seed": 1.5}, "seed", "Tam sayı olmalı"),
         ({"seed": "5"}, "seed", "Tam sayı olmalı"),
         ({"seed": -1}, "seed", None),
@@ -180,8 +187,9 @@ def test_unknown_experiment_is_404(api: TestClient, viewer: Headers, bad_id: str
         ({"slippageBps": -1}, "slippageBps", None),
         ({"endDate": None}, "endDate", "Replay modunda bitiş tarihi zorunlu"),
         ({"endDate": "2025-10-01"}, "endDate", "Bitiş, başlangıçtan sonra olmalı"),
-        ({"agentIds": ["ppo", "yok"]}, "agentIds", "Bilinmeyen ajan: yok"),
-        ({"agentIds": ["ppo", "ppo"]}, "agentIds", None),
+        ({"agentIds": ["ma-cross", "yok"]}, "agentIds", "Bilinmeyen ajan: yok"),
+        ({"agentIds": ["ma-cross", "ma-cross"]}, "agentIds", None),
+        ({"agentIds": ["ma-cross", "ppo"]}, "agentIds", PPO_UNAVAILABLE),
         ({"status": "completed"}, "status", None),  # unknown field, not a status override
     ],
 )
@@ -210,6 +218,37 @@ def test_costs_have_one_source(api: TestClient, researcher: Headers) -> None:
     assert (exp["commissionRate"], exp["slippageBps"]) == (0.00012, 1.24)
     text = api.get(f"/api/experiments/{exp['id']}/export.yaml", headers=researcher).text
     assert yaml.safe_load(text)["execution"] == {"commission_rate": 0.00012, "slippage_bps": 1.24}
+
+
+def test_ppo_needs_a_trained_model_on_every_write(
+    api: TestClient, researcher: Headers, db_session: Session
+) -> None:
+    exp = _create(api, researcher)
+    url = f"/api/experiments/{exp['id']}"
+    patched = api.patch(url, json={"agentIds": ["ppo", "ma-cross"]}, headers=researcher)
+    assert patched.json()["fields"] == {"agentIds": PPO_UNAVAILABLE}
+    text = yaml.safe_dump({**_yaml_doc(), "agents": ["ppo", "ma-cross"]})
+    imported = api.post("/api/experiments/import", content=text, headers=researcher)
+    assert imported.json()["fields"] == {"agentIds": PPO_UNAVAILABLE}
+    with_model = SETTINGS.model_copy(update={"ppo_model_dir": Path("models/seed-1")})
+    cast(FastAPI, api.app).dependency_overrides[get_settings] = lambda: with_model
+    assert (
+        api.patch(url, json={"agentIds": ["ppo", "ma-cross"]}, headers=researcher).status_code
+        == 200
+    )
+
+
+def _yaml_doc() -> dict[str, Any]:
+    return {
+        "name": "YAML deneyi",
+        "mode": "replay",
+        "condition": "C0",
+        "period": {"start": "2025-10-01", "end": "2026-03-31"},
+        "assets": ["BTC"],
+        "agents": ["buy-hold-btc", "ma-cross"],
+        "seed": 1,
+        "execution": {"commission_rate": 0.001, "slippage_bps": 5},
+    }
 
 
 def test_integral_float_seed_is_accepted_like_js(api: TestClient, researcher: Headers) -> None:
@@ -271,13 +310,15 @@ def test_patch_merges_and_revalidates(api: TestClient, researcher: Headers) -> N
     exp = _create(api, researcher)
     url = f"/api/experiments/{exp['id']}"
     res = api.patch(
-        url, json={"seed": 9, "agentIds": ["ma-cross", "ppo", "llm-sentiment"]}, headers=researcher
+        url,
+        json={"seed": 9, "agentIds": ["ma-cross", "equal-weight", "llm-sentiment"]},
+        headers=researcher,
     )
     assert res.status_code == 200, res.text
     assert _config(res.json()) == {
         **CONFIG,
         "seed": 9,
-        "agentIds": ["ma-cross", "ppo", "llm-sentiment"],
+        "agentIds": ["ma-cross", "equal-weight", "llm-sentiment"],
         "slippageBps": 5.0,
     }
     # The merged configuration is checked: this end date is now before the start.
@@ -356,7 +397,7 @@ def test_import_stamps_server_versions(api: TestClient, researcher: Headers) -> 
     text = (
         "name: Eski dosya\nmode: replay\ncondition: C0\n"
         "period: {start: 2025-10-01, end: 2026-03-31}\nassets: [BTC]\n"
-        "agents: [buy-hold-btc, ppo]\nseed: 1\n"
+        "agents: [buy-hold-btc, ma-cross]\nseed: 1\n"
         "execution: {commission_rate: 0.001, slippage_bps: 5}\n"
         "llm: {model: eski-model, prompt_version: decision-v0}\n"
     )
@@ -401,7 +442,7 @@ def test_import_validates_and_seals(api: TestClient, researcher: Headers) -> Non
             "condition": "C0",
             "period": {"start": "2026-04-01", "end": "2026-05-01"},
             "assets": ["BTC"],
-            "agents": ["buy-hold-btc", "ppo"],
+            "agents": ["buy-hold-btc", "ma-cross"],
             "seed": 1,
             "execution": {"commission_rate": 0.001, "slippage_bps": 5},
         }

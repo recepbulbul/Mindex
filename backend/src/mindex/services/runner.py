@@ -20,6 +20,7 @@ The queue lives in the API process (one worker thread): Redis Streams replace it
 behind the same `JobQueue` protocol.
 """
 
+import hashlib
 import json
 import queue
 import threading
@@ -170,6 +171,20 @@ def experiment_market(exp: Experiment, settings: Settings) -> tuple[MarketData, 
     if exp.end_date is None:
         raise DataUnavailableError("open-ended (live) experiments have no replay period")
     return load_market(settings.snapshot_dir, exp.start_date, exp.end_date, exp.assets)
+
+
+REGIME_SOURCE = "regime_source"  # `config` keys the runner adds (not part of the user's form)
+REGIME_SHA256 = "regime_sha256"
+
+
+def regime_provenance(settings: Settings) -> dict[str, str | None]:
+    """Where an experiment's regime labels come from, recorded in its `config` (NF5): the
+    HMM artefact's SHA-256 (as `RegimeModel.save` returns it), or the explicit placeholder."""
+    path = settings.regime_model_path
+    if path is None:
+        return {REGIME_SOURCE: "placeholder", REGIME_SHA256: None}
+    digest = hashlib.sha256(path.read_text(encoding="utf-8").encode()).hexdigest()
+    return {REGIME_SOURCE: "hmm", REGIME_SHA256: digest}
 
 
 def regime_labels(market: MarketData, settings: Settings) -> list[Regime]:
@@ -355,9 +370,11 @@ class ExperimentRunner:
                 costs=ExecutionCosts(float(exp.commission_rate), float(exp.slippage_bps)),
                 initial_cash=float(links[0].initial_cash),
             )
+            provenance = regime_provenance(self.settings)
             regimes = regime_labels(market, self.settings)
 
             if exp.checkpoint is None:
+                exp.config = {**exp.config, **provenance}
                 state = sim.initial_state()
                 for ea in links:
                     self._snapshot(session, ea, state, market.days[start])
@@ -366,6 +383,11 @@ class ExperimentRunner:
                 # The Simulator keeps the original `start` (agents see `t - start`); only
                 # `t` and the books come from the checkpoint.
                 state = SimState.from_json(json.dumps(exp.checkpoint))
+                recorded = {k: exp.config.get(k) for k in provenance}
+                if recorded != provenance:
+                    raise RuntimeError(
+                        f"regime model changed since the run started: {recorded} -> {provenance}"
+                    )
             exp.status = ExperimentStatus.RUNNING
             session.commit()
             log.info("experiment_running", experiment_id=str(exp.id), day=state.t)

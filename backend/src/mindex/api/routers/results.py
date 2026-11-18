@@ -4,12 +4,14 @@ Shapes follow `frontend/src/api/types.ts`. Equity, decisions and trades come fro
 runner commits each day; report metrics come from the simulator checkpoint (full float
 precision, the numbers `mindex baseline` reports). Until the forum exists (P6) its endpoint
 returns empty lists, and the report's `conditions` stays empty (the multi-seed condition
-comparison is P9). Without a regime model, `regimes` is the "sideways" placeholder.
+comparison is P9). Regimes are the labels the run stored; a run without a regime model is marked
+`regime_source: "placeholder"` in its `config` and shows "sideways" on every day.
 """
 
 import json
 import uuid
 from collections import defaultdict
+from datetime import date
 from typing import Annotated, cast
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -54,11 +56,11 @@ from mindex.evaluation.report import BENCHMARK_ID, differences, summarise
 from mindex.memory.store import MemoryStore
 from mindex.services.runner import (
     PLACEHOLDER_REGIME,
+    REGIME_SOURCE,
     DataUnavailableError,
     agent_rows,
     experiment_market,
     load_market,
-    regime_labels,
 )
 from mindex.sim.engine import AgentBook, ExecutionCosts, SimState, Simulator
 from mindex.sim.market import MarketData
@@ -137,7 +139,6 @@ def timeline(
         )
         return empty
     market = _market(exp, settings)
-    regimes = regime_labels(market, settings)
     index = [market.index_of(d) for d in days]
 
     runs = [
@@ -172,7 +173,7 @@ def timeline(
     return TimelineOut(
         experiment_id=str(exp.id),
         days=days,
-        regimes=[regimes[i] for i in index],
+        regimes=_regimes(session, exp, links[0].id, days),
         candles=candles,
         runs=runs,
         trades=[
@@ -189,6 +190,24 @@ def timeline(
             for t, ea_id in trades
         ],
     )
+
+
+def _regimes(
+    session: SessionDep, exp: Experiment, ea_id: uuid.UUID, days: list[date]
+) -> list[Regime]:
+    """The labels the run decided with (stored per decision day), never recomputed, so a
+    changed model cannot rewrite history. The last marked day has no decision yet and
+    carries the previous label. Placeholder runs (`regime_source`) are "sideways"."""
+    if exp.config.get(REGIME_SOURCE, "placeholder") == "placeholder":
+        return [PLACEHOLDER_REGIME] * len(days)
+    rows = session.execute(
+        select(DecisionRow.day, DecisionRow.regime).where(DecisionRow.experiment_agent_id == ea_id)
+    ).all()
+    stored = {day: regime for day, regime in rows}
+    out: list[Regime] = []
+    for d in days:
+        out.append(stored.get(d) or (out[-1] if out else PLACEHOLDER_REGIME))
+    return out
 
 
 def _decision_out(r: DecisionRow, agent_id: str, refs: list[MemoryRef]) -> DecisionOut:

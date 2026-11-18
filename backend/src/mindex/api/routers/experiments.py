@@ -5,7 +5,7 @@ window is refused here, on the server, whatever the client shows (look-ahead pro
 """
 
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from datetime import date
 from decimal import Decimal
 from typing import Annotated, Any, cast
@@ -19,8 +19,9 @@ from mindex.agents.llm import PROMPT_VERSION
 from mindex.api.deps import CurrentUser, JobQueueDep, Researcher, SessionDep, SettingsDep
 from mindex.api.errors import validation_fields
 from mindex.api.schemas import ExperimentCreate, ExperimentOut
+from mindex.config import Settings
 from mindex.data.splits import SPLITS, Split
-from mindex.db.models import AgentRow, Experiment, ExperimentAgent, ExperimentStatus
+from mindex.db.models import AgentKindDb, AgentRow, Experiment, ExperimentAgent, ExperimentStatus
 from mindex.services.runner import STARTABLE, agent_rows, runnable_errors
 
 router = APIRouter(prefix="/experiments", tags=["experiments"])
@@ -31,6 +32,7 @@ NOT_EDITABLE = "Yalnızca taslak deneyler düzenlenebilir."
 BAD_YAML = "YAML dosyası okunamadı."
 NOT_STARTABLE = '"{status}" durumundaki deney başlatılamaz.'
 NOT_RUNNABLE = "Deney bu koşucuda başlatılamaz."
+PPO_UNAVAILABLE = "PPO ajanı eğitilmiş model ister; bu sunucuda MINDEX_PPO_MODEL_DIR ayarlı değil."
 TEST_WINDOW = SPLITS[Split.TEST]
 SEALED = (
     f"Dönem test penceresiyle ({TEST_WINDOW.start} – {TEST_WINDOW.end}) çakışıyor; "  # noqa: RUF001
@@ -64,9 +66,10 @@ def parse_config(data: Mapping[str, Any]) -> ExperimentCreate:
         raise _invalid(validation_fields(errs)) from None
 
 
-def check_config(cfg: ExperimentCreate, known_agents: Sequence[str]) -> None:
+def check_config(cfg: ExperimentCreate, agents: Mapping[str, AgentRow], settings: Settings) -> None:
     """The rules that need the whole configuration: the form's two refinements, known and
-    distinct agents, and the sealed test window."""
+    distinct agents, agents this server can build, and the sealed test window."""
+    known_agents = list(agents)
     if cfg.mode == "replay" and cfg.end_date is None:
         raise _invalid({"endDate": "Replay modunda bitiş tarihi zorunlu"})
     if cfg.end_date is not None and cfg.end_date <= cfg.start_date:
@@ -76,6 +79,11 @@ def check_config(cfg: ExperimentCreate, known_agents: Sequence[str]) -> None:
         raise _invalid({"agentIds": f"Bilinmeyen ajan: {unknown}"})
     if len(set(cfg.agent_ids)) != len(cfg.agent_ids):
         raise _invalid({"agentIds": "Aynı ajan birden fazla seçilmiş."})
+    # Refused here, not half-way through a run: the PPO agent needs a trained artefact.
+    if settings.ppo_model_dir is None and any(
+        agents[a].kind is AgentKindDb.RL for a in cfg.agent_ids
+    ):
+        raise _invalid({"agentIds": PPO_UNAVAILABLE})
     if overlaps_test_window(cfg.start_date, cfg.end_date):
         field = (
             "endDate"
@@ -109,8 +117,16 @@ def _out(exp: Experiment) -> ExperimentOut:
     )
 
 
+CONFIG_FIELDS = {f.alias or name for name, f in ExperimentCreate.model_fields.items()}
+
+
+def user_config(exp: Experiment) -> dict[str, Any]:
+    """The configuration the user chose, without what the runner adds (`regime_source`...)."""
+    return {k: v for k, v in exp.config.items() if k in CONFIG_FIELDS}
+
+
 def config_of(exp: Experiment) -> ExperimentCreate:
-    return ExperimentCreate.model_validate(exp.config)
+    return ExperimentCreate.model_validate(user_config(exp))
 
 
 def _apply(exp: Experiment, cfg: ExperimentCreate, agents: Mapping[str, AgentRow]) -> None:
@@ -159,7 +175,7 @@ def _create(
     session: SessionDep, settings: SettingsDep, user: Researcher, cfg: ExperimentCreate
 ) -> ExperimentOut:
     agents = _agents_by_slug(session)
-    check_config(cfg, list(agents))
+    check_config(cfg, agents, settings)
     exp = Experiment(
         owner_id=user.id,
         status=ExperimentStatus.DRAFT,
@@ -225,19 +241,22 @@ def get_experiment(experiment_id: str, session: SessionDep, _: CurrentUser) -> E
     responses={status.HTTP_409_CONFLICT: {"description": NOT_EDITABLE}},
 )
 def update_experiment(
-    experiment_id: str, body: dict[str, Any], session: SessionDep, _: Researcher
+    experiment_id: str,
+    body: dict[str, Any],
+    session: SessionDep,
+    settings: SettingsDep,
+    _: Researcher,
 ) -> ExperimentOut:
     """Partial `ExperimentCreate`; the merged configuration is validated as a whole."""
     exp = get_experiment_row(session, experiment_id)
     if exp.status is not ExperimentStatus.DRAFT:
         raise HTTPException(status.HTTP_409_CONFLICT, NOT_EDITABLE)
-    allowed = {f.alias or name for name, f in ExperimentCreate.model_fields.items()}
-    unknown = sorted(k for k in body if k not in allowed)
+    unknown = sorted(k for k in body if k not in CONFIG_FIELDS)
     if unknown:
         raise _invalid(dict.fromkeys(unknown, "Bilinmeyen alan."))
-    cfg = parse_config({**exp.config, **body})
+    cfg = parse_config({**user_config(exp), **body})
     agents = _agents_by_slug(session)
-    check_config(cfg, list(agents))
+    check_config(cfg, agents, settings)
     _apply(exp, cfg, agents)
     session.commit()
     session.refresh(exp)

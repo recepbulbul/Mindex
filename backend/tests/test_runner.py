@@ -424,14 +424,54 @@ def test_load_market_checks_assets_and_period(settings: Settings) -> None:
         load_market(settings.snapshot_dir, date(2024, 1, 1), date(2024, 2, 1), ["BTC"])
 
 
-def test_regime_labels_use_the_hmm_when_configured(settings: Settings, tmp_path: Path) -> None:
+def test_placeholder_regimes_are_marked_in_config(
+    api: TestClient, viewer: dict[str, str], finished: uuid.UUID, db_session: Session
+) -> None:
+    exp = db_session.get(Experiment, finished)
+    assert exp is not None
+    assert exp.config["regime_source"] == "placeholder"
+    assert exp.config["regime_sha256"] is None
+    # The runner's keys do not leak into the user's configuration or its YAML.
+    got = api.get(f"/api/experiments/{finished}", headers=viewer).json()
+    assert got["agentIds"] == CONFIG["agentIds"]
+    text = api.get(f"/api/experiments/{finished}/export.yaml", headers=viewer).text
+    assert "regime" not in text
+
+
+def test_hmm_regimes_are_recorded_and_pinned(
+    api: TestClient,
+    researcher: dict[str, str],
+    db_session: Session,
+    sessions: Callable[[], Session],
+    settings: Settings,
+    tmp_path: Path,
+) -> None:
     market, _ = load_market(settings.snapshot_dir, START, END, ["BTC", "ETH"])
     assert set(regime_labels(market, settings)) == {Regime.SIDEWAYS}
     model = RegimeModel.fit(regime_features(market), seed=0, restarts=2)
     path = tmp_path / "regime.json"
-    model.save(path)
-    labelled = regime_labels(market, settings.model_copy(update={"regime_model_path": path}))
-    assert labelled == model.label(regime_features(market))
+    digest = model.save(path)
+    with_hmm = settings.model_copy(update={"regime_model_path": path})
+    labels = model.label(regime_features(market))
+    assert regime_labels(market, with_hmm) == labels
+
+    exp_id = _started(api, researcher)
+    ExperimentRunner(sessions, with_hmm, fake_clients()).run(exp_id, max_days=10)
+    db_session.expire_all()
+    exp = db_session.get(Experiment, exp_id)
+    assert exp is not None
+    assert (exp.config["regime_source"], exp.config["regime_sha256"]) == ("hmm", digest)
+    t = api.get(f"/api/experiments/{exp_id}/timeline", headers=researcher).json()
+    start = market.index_of(START)
+    assert t["regimes"][:10] == [str(r) for r in labels[start : start + 10]]
+    assert t["regimes"][10] == t["regimes"][9]  # the last marked day carries the label
+
+    # Resuming with a different model would mix two labelings in one run: refused.
+    other = tmp_path / "other.json"
+    RegimeModel.fit(regime_features(market), seed=1, restarts=2).save(other)
+    path.write_bytes(other.read_bytes())
+    ExperimentRunner(sessions, with_hmm, fake_clients())(exp_id)
+    assert _status(db_session, exp_id) is ExperimentStatus.FAILED
 
 
 # ---------------------------------------------------------------- queue
@@ -478,7 +518,6 @@ def test_start_rules(
 @pytest.mark.parametrize(
     ("over", "field"),
     [
-        ({"agentIds": ["ppo", "equal-weight"]}, "agentIds"),  # no trained PPO artefact here
         ({"agentIds": ["mcp-guest", "equal-weight"]}, "agentIds"),
         ({"agentIds": ["buy-hold-btc", "ma-cross"], "assets": ["ETH"]}, "agentIds"),
         ({"condition": "C3"}, "condition"),  # LLM agents run only as the C0 baseline for now
