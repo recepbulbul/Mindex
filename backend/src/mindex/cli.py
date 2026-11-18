@@ -1,6 +1,7 @@
-"""Command line entry point: `uv run mindex <command>` (see `main` for the commands)."""
+"""Command line entry point: `uv run mindex <command>` (see `mindex --help`)."""
 
 import argparse
+import getpass
 import json
 import sys
 import time
@@ -168,6 +169,45 @@ def serve_api(host: str, port: int, *, reload: bool) -> None:
     uvicorn.run("mindex.api.app:create_app", factory=True, host=host, port=port, reload=reload)
 
 
+def _read_password() -> str:
+    if sys.stdin.isatty():
+        return getpass.getpass("Parola: ")
+    return sys.stdin.readline().rstrip("\r\n")  # spaces are valid password characters
+
+
+def create_user(email: str, role: str, *, password: str | None = None) -> None:
+    """Create a user; the only way to make a researcher (self sign-up creates viewers)."""
+    from pydantic import ValidationError
+    from sqlalchemy.exc import IntegrityError
+
+    from mindex.api.schemas import RegisterRequest
+    from mindex.api.security import hash_password
+    from mindex.db.models import User, UserRole
+    from mindex.db.session import get_sessionmaker
+
+    if password is None:
+        # Never a CLI argument: it would end up in shell history and the process list.
+        password = _read_password()
+    try:
+        body = RegisterRequest(email=email, password=password)  # same rules as /auth/register
+    except ValidationError as exc:
+        # include_input=False: never echo the rejected password to the terminal or logs.
+        problems = "; ".join(
+            f"{'.'.join(map(str, e['loc']))}: {e['msg']}"
+            for e in exc.errors(include_input=False, include_url=False)
+        )
+        raise SystemExit(f"Geçersiz kullanıcı: {problems}") from None
+    with get_sessionmaker()() as session:
+        session.add(
+            User(email=body.email, password_hash=hash_password(body.password), role=UserRole(role))
+        )
+        try:
+            session.commit()
+        except IntegrityError:
+            raise SystemExit(f"{body.email} zaten kayıtlı") from None
+    print(f"{body.email} ({role}) oluşturuldu")
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="mindex", description="Mindex P3 araçları")
     parser.add_argument("--snapshot", type=Path, default=DEFAULT_SNAPSHOT)
@@ -187,6 +227,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     ppo.add_argument("--timesteps", type=int, default=defaults.total_timesteps)
     ppo.add_argument("--eval-every", type=int, default=defaults.eval_every)
     ppo.add_argument("--turnover-penalty", type=float, default=defaults.turnover_penalty)
+    user = sub.add_parser("create-user", help="Kullanıcı oluştur (parola istemle/stdin'den)")
+    user.add_argument("--email", required=True)
+    user.add_argument("--role", choices=["researcher", "viewer"], default="viewer")
     serve = sub.add_parser("serve", help="FastAPI sunucusunu başlat (geliştirme)")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
@@ -209,6 +252,8 @@ def main(argv: Sequence[str] | None = None) -> None:
                 turnover_penalty=args.turnover_penalty,
             )
             train_ppo(args.snapshot, args.out, args.seed, hp)
+        elif args.command == "create-user":
+            create_user(args.email, args.role)
         elif args.command == "serve":
             serve_api(args.host, args.port, reload=args.reload)
         else:

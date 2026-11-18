@@ -10,8 +10,10 @@ import {
   type Health,
   type LoginRequest,
   type LoginResponse,
+  type RegisterRequest,
   type Report,
   type Timeline,
+  type User,
   type UserRole,
 } from '@/api/types'
 import { dailyReturns, herdCorrelation, maxDrawdown, sharpeRatio } from '@/lib/metrics'
@@ -23,8 +25,28 @@ import { getSimulation, type Simulation } from './simulation'
 const API = '*/api'
 
 let experiments = seedExperiments()
+// Self sign-ups (always viewers), on top of the fixed demo accounts.
+let registered: Record<string, { password: string; role: UserRole }> = {}
 export const resetMockDb = () => {
   experiments = seedExperiments()
+  registered = {}
+}
+
+const findUser = (email: string) => DEMO_USERS[email] ?? registered[email]
+
+// The e-mail rides in the mock token so GET /auth/me still works after a reload resets MSW.
+const session = (user: User): LoginResponse => ({
+  token: `mock.${user.role}.${btoa(user.email)}.${crypto.randomUUID()}`,
+  user,
+})
+
+// Like roleOf, the mock trusts its own token instead of keeping server-side sessions.
+function userOf(request: Request): User | null {
+  const m = /^Bearer mock\.(researcher|viewer)\.([A-Za-z0-9+/=]+)\.[0-9a-f-]{36}$/.exec(
+    request.headers.get('Authorization') ?? '',
+  )
+  if (!m?.[1] || !m[2]) return null
+  return { email: atob(m[2]), role: m[1] as UserRole }
 }
 
 const error = (status: number, detail: string, fields?: Record<string, string>) =>
@@ -111,18 +133,33 @@ export const handlers = [
   http.post(`${API}/auth/login`, async ({ request }) => {
     await delay()
     const body = (await request.json()) as LoginRequest
-    const user = DEMO_USERS[body.email.toLowerCase()]
+    const email = body.email.toLowerCase()
+    const user = findUser(email)
     if (!user || user.password !== body.password) return error(401, 'E-posta veya parola hatalı.')
-    return HttpResponse.json({
-      token: `mock.${user.role}.${crypto.randomUUID()}`,
-      user: { email: body.email.toLowerCase(), role: user.role },
-    } satisfies LoginResponse)
+    return HttpResponse.json(session({ email, role: user.role }))
+  }),
+
+  http.post(`${API}/auth/register`, async ({ request }) => {
+    await delay()
+    const body = (await request.json()) as RegisterRequest
+    const email = body.email.toLowerCase()
+    if (findUser(email)) {
+      const taken = 'Bu e-posta ile kayıtlı bir hesap var.'
+      return error(409, taken, { email: taken })
+    }
+    registered[email] = { password: body.password, role: 'viewer' }
+    return HttpResponse.json(session({ email, role: 'viewer' }), { status: 201 })
   }),
 
   // Every route below requires a bearer token (F1).
   http.all(`${API}/*`, ({ request }) => {
     if (!roleOf(request)) return error(401, 'Oturum gerekli.')
     return undefined
+  }),
+
+  http.get(`${API}/auth/me`, ({ request }) => {
+    const user = userOf(request)
+    return user ? HttpResponse.json(user satisfies User) : error(401, 'Oturum gerekli.')
   }),
 
   http.get(`${API}/agents`, () => HttpResponse.json(AGENTS)),

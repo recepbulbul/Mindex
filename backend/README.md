@@ -26,7 +26,11 @@ uv run mindex serve --reload        # API: http://127.0.0.1:8000/api/docs
 - Şema Alembic migration'larıyla yönetilir (`alembic/versions/`); referans DDL [`docs/db/schema.sql`](../docs/db/schema.sql). Model değişince: `uv run alembic revision --autogenerate -m "..."`, ardından üretilen dosyayı gözden geçirin.
 - `@pytest.mark.db` testleri ayrı bir `mindex_test` veritabanında koşar (otomatik oluşturulur, her test kendi işleminde geri alınır). Veritabanı yoksa bu testler **atlanır**; CI'da `MINDEX_REQUIRE_DB=1` ile atlanmaz, başarısız olur.
 - `tests/test_ppo_sb3.py` stable-baselines3 ister; `rl` grubu kurulu değilse (yerelde) **atlanır**, CI `--group rl` ile koşar.
-- `@pytest.mark.model` testleri gerçek model ister (llama-server, embedding, eğitilmiş PPO); varsayılan koşuda yoktur, GPU'lu makinede `uv run pytest -m model` ile çalıştırılır.
+- `@pytest.mark.model` testleri gerçek model ister (llama-server, embedding, eğitilmiş PPO); varsayılan koşuda yoktur, GPU'lu makinede `uv run pytest -m model --no-cov` ile çalıştırılır (kapsam eşiği yalnızca tam koşuda anlamlı).
+
+### Kalıcı hafıza
+
+`MemoryStore.search` ajanın kendi derslerini pgvector kosinüs benzerliği ve `lesson_tsv` tam metin eşleşmesiyle (`websearch_to_tsquery('simple', ...)`, kelimeler `or` ile) puanlar. İki sıralama RRF ile birleşir ve kosinüs benzerliğiyle çarpılır (ilgisiz ders bonuslarla tepeye çıkamasın diye); önem (`importance`) ve rejim eşleşmesi çarpan olarak eklenir. Rejim bonusu C1′ (`C1_NO_REGIME`) koşulunda `use_regime=False` ile kapanır. **Look-ahead:** yalnızca `day < as_of_day` olan dersler döner, yani aynı günün dersi dönmez. Ayrıntı ve formül: [docs/04-ai-pipeline.md](../docs/04-ai-pipeline.md#kalıcı-hafıza). Gerçek embedding sunucusu `MINDEX_EMBEDDING_BASE_URL` (llama-server `--embedding`); sözleşme testi `uv run pytest -m model --no-cov`.
 
 ## Modüller
 
@@ -43,6 +47,7 @@ uv run mindex serve --reload        # API: http://127.0.0.1:8000/api/docs
 | `mindex.rl` | Günlük Gymnasium ortamı (simülatörle aynı yürütme ve maliyet, look-ahead yok), PPO eğitimi, SHA-256 manifest (P4) |
 | `mindex.evaluation` | Koşu özeti, nicel hedef karşılaştırması, LLM gecikmesi ve hesap bütçesi (P3) |
 | `mindex.db` | SQLAlchemy 2 modelleri ve oturum fabrikası (P4) |
+| `mindex.memory` | Kalıcı hafıza: `Embedder` (llama-server `/v1/embeddings`, testte `HashEmbedder`), pgvector + tam metin hibrit arama (P5) |
 | `mindex.api` | FastAPI uygulaması, `{detail, fields}` hata zarfı, `/api/health` (P4) |
 | `mindex.cli` | `mindex fetch-data | baseline | bench-llm | train-ppo | serve` |
 
