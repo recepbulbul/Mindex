@@ -114,9 +114,11 @@ def _parse_embeddings(payload: object, expected: int) -> list[list[float]]:
         rows = [cast(dict[str, Any], item) for item in items if isinstance(item, dict)]
         if len(rows) != expected:
             raise TypeError("embedding item is not an object")
-        rows.sort(key=lambda d: int(d["index"]))
-        vectors = [[float(x) for x in cast(list[Any], row["embedding"])] for row in rows]
-    except (KeyError, TypeError, ValueError) as exc:
+        if sorted(_strict_index(row["index"]) for row in rows) != list(range(expected)):
+            raise ValueError("indices must be 0..n-1 without repeats")
+        rows.sort(key=lambda d: cast(int, d["index"]))
+        vectors = [_strict_vector(row["embedding"]) for row in rows]
+    except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
         raise EmbeddingUnavailableError(f"malformed embeddings response: {exc}") from exc
     for vec in vectors:
         if len(vec) != EMBEDDING_DIM:
@@ -126,3 +128,21 @@ def _parse_embeddings(payload: object, expected: int) -> list[list[float]]:
         if not any(vec):
             raise EmbeddingUnavailableError("embedding is the zero vector")
     return vectors
+
+
+def _strict_index(value: object) -> int:
+    # bool is an int subclass; numeric strings and floats are not indices either.
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"index must be an integer, got {value!r}")
+    return value
+
+
+def _strict_vector(value: object) -> list[float]:
+    if not isinstance(value, list):
+        raise TypeError("embedding must be a list")
+    vec: list[float] = []
+    for x in cast(list[object], value):
+        if isinstance(x, bool) or not isinstance(x, int | float):
+            raise TypeError(f"embedding values must be numbers, got {x!r}")
+        vec.append(float(x))  # OverflowError for huge integers -> ArithmeticError
+    return vec
