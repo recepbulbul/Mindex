@@ -1002,3 +1002,24 @@ def test_weights_come_from_cash_and_holdings_not_rounded_equity(settings: Settin
     assert w[Asset.BTC] == 1.0
     assert w[Asset.ETH] == 0.0
     assert sum(w.values()) <= 1.0
+
+
+def test_weights_with_cash_use_cash_plus_holdings_as_the_denominator(settings: Settings) -> None:
+    """With cash on hand nothing reaches 100 %, so the clamp cannot hide a wrong denominator:
+    the weight must be value / (cash + holdings), not value / rounded `equity`."""
+    from mindex.api.routers.results import _weights  # pyright: ignore[reportPrivateUsage]
+
+    market, start = load_market(settings.snapshot_dir, START, END, ["BTC", "ETH"])
+    close = market.bars[Asset.BTC][start].close
+    qty, cash = 2.0, 500.0
+    value = qty * close
+    snap = PortfolioSnapshot(
+        day=START,
+        equity=Decimal(str(round(cash + value, 2))) - Decimal("0.37"),  # stale / rounded off
+        cash=Decimal(str(cash)),
+        holdings={"BTC": qty},
+    )
+    w = _weights(snap, market, start)
+    assert w[Asset.BTC] == value / (cash + value)
+    assert w[Asset.BTC] != value / float(snap.equity)
+    assert w[Asset.BTC] < 1.0
