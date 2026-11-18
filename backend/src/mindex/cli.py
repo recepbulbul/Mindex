@@ -144,6 +144,12 @@ def serve_api(host: str, port: int, *, reload: bool) -> None:
     uvicorn.run("mindex.api.app:create_app", factory=True, host=host, port=port, reload=reload)
 
 
+def _read_password() -> str:
+    if sys.stdin.isatty():
+        return getpass.getpass("Parola: ")
+    return sys.stdin.readline().strip()
+
+
 def create_user(email: str, role: str, *, password: str | None = None) -> None:
     """Create a user; the only way to make a researcher (self sign-up creates viewers)."""
     from sqlalchemy.exc import IntegrityError
@@ -155,8 +161,7 @@ def create_user(email: str, role: str, *, password: str | None = None) -> None:
 
     if password is None:
         # Never a CLI argument: it would end up in shell history and the process list.
-        interactive = sys.stdin.isatty()
-        password = getpass.getpass("Parola: ") if interactive else sys.stdin.readline().strip()
+        password = _read_password()
     try:
         body = RegisterRequest(email=email, password=password)  # same rules as /auth/register
     except ValueError as exc:  # pydantic.ValidationError

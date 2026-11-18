@@ -4,7 +4,6 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
-from typing import Any, cast
 
 import jwt
 from argon2 import PasswordHasher
@@ -71,15 +70,12 @@ def issue_token(settings: Settings, user_id: uuid.UUID, role: UserRole) -> str:
 
 def decode_token(settings: Settings, token: str) -> TokenClaims:
     try:
-        payload = cast(
-            dict[str, Any],
-            jwt.decode(
-                token,
-                settings.jwt_secret.get_secret_value(),
-                algorithms=[ALGORITHM],  # pinned: never accept "none" or an attacker's choice
-                issuer=ISSUER,
-                options={"require": ["sub", "role", "exp", "iat", "iss"]},
-            ),
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret.get_secret_value(),
+            algorithms=[ALGORITHM],  # pinned: never accept "none" or an attacker's choice
+            issuer=ISSUER,
+            options={"require": ["sub", "role", "exp", "iat", "iss"]},
         )
         return TokenClaims(uuid.UUID(str(payload["sub"])), UserRole(str(payload["role"])))
     except (jwt.PyJWTError, ValueError) as exc:

@@ -20,9 +20,8 @@ from mindex.config import Settings, get_settings
 from mindex.db.models import User, UserRole
 from mindex.db.session import get_session
 
-SETTINGS = Settings(  # pyright: ignore[reportCallIssue]
-    _env_file=None, jwt_secret=SecretStr("x" * 40), jwt_ttl_minutes=5
-)
+# `_env_file` is a pydantic-settings init kwarg pyright cannot see (same as test_config.py).
+SETTINGS = Settings(_env_file=None, jwt_secret=SecretStr("x" * 40), jwt_ttl_minutes=5)  # pyright: ignore[reportCallIssue]
 PASSWORD = "dogru-parola-123"
 
 
@@ -194,8 +193,12 @@ def test_login_rehashes_outdated_hash(
 ) -> None:
     user = _add_user(db_session, "eski@mindex.dev", UserRole.VIEWER)
     old_hash = user.password_hash
-    monkeypatch.setattr(security, "needs_rehash", lambda _: True)
-    monkeypatch.setattr("mindex.api.routers.auth.needs_rehash", lambda _: True)
+
+    def outdated(_: str) -> bool:
+        return True
+
+    monkeypatch.setattr(security, "needs_rehash", outdated)
+    monkeypatch.setattr("mindex.api.routers.auth.needs_rehash", outdated)
     _token(api, "eski@mindex.dev")
     db_session.refresh(user)
     assert user.password_hash != old_hash
