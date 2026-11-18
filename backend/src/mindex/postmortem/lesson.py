@@ -25,8 +25,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mindex.agents.llm import ChatClient, LLMUnavailableError, anonymise
 from mindex.config import get_settings
-from mindex.db.models import MemoryRow, Regime
+from mindex.db.models import MemoryRow
 from mindex.domain.decision import Asset
+from mindex.domain.regime import Regime
 from mindex.memory.store import MemoryStore
 from mindex.postmortem.counterfactual import Counterfactual
 
@@ -48,11 +49,16 @@ Turkish (1-3 sentences) for the agent's future decisions. Rules:
 - `importance` in [0, 1]: how much this lesson should matter later.
 - `regime`: the market regime the lesson applies to (bull, bear or sideways)."""
 
-# Tickers case-sensitively (the Turkish word "sol" is not SOL), coin names in any case.
+# Real names in any case, also with Turkish suffixes or as a pair ("bitcoinde", "BTC'ye",
+# "BTCUSDT", "eth/usdt", "Ether"). Exception: the ticker SOL only in capitals, because "sol"
+# (left) is a common Turkish word; "Solana" is caught in any case.
+_QUOTES = r"(?i:usdt|usdc|busd|usd|try|eur)?"
 REAL_SYMBOLS = re.compile(
-    r"\b(" + "|".join(a.value for a in Asset) + r"|(?i:bitcoin|ethereum|solana|ripple))\b"
+    rf"\b(?:(?i:btc|eth|bnb|xrp){_QUOTES}|SOL(?i:{_QUOTES})"
+    r"|(?i:bitcoin|ether|solana|ripple|binance)\w*)\b"
 )
-# Direction words right after a percentage ("%10 kazandırdı"); "zarar-kes" is not a loss word.
+# Direction words around a percentage ("%10 kazandırdı", "kazancı %10 oldu");
+# "zarar-kes" is not a loss word.
 GAIN_STEMS = ("kazan", "kâr", "yüksel")
 LOSS_STEMS = ("kayb", "kayıp", "zarar", "düş", "geriled")
 CLAUSE_END = re.compile(r"[.;,:]")
@@ -109,6 +115,12 @@ def lesson_schema() -> dict[str, Any]:
     }
 
 
+def shown_table(cf: Counterfactual) -> dict[str, float]:
+    """Scenario returns in percent as the prompt shows them (2 decimals). The check compares
+    against these same values, so a number read correctly off the prompt is never rejected."""
+    return {k: round(v * 100, 2) for k, v in cf.table().items()}
+
+
 def build_messages(
     cf: Counterfactual, code: str, regime_hint: Regime | None
 ) -> list[dict[str, str]]:
@@ -117,7 +129,7 @@ def build_messages(
         "holding_days": cf.holding_days,
         "stop_loss_threshold_pct": round(cf.stop_pct * 100, 2),
         "stop_loss_triggered": cf.stop_day is not None,
-        "returns_pct": {k: round(v * 100, 2) for k, v in cf.table().items()},
+        "returns_pct": shown_table(cf),
         "regime_label": None if regime_hint is None else regime_hint.value,
     }
     return [
@@ -131,7 +143,8 @@ class PercentClaim:
     value: float  # in percent, as written (magnitude when `signed` is False)
     decimals: int
     signed: bool  # an explicit sign (+ or -) was written
-    end: int  # offset just after the match in the text
+    start: int  # offset of the match in the text
+    end: int  # offset just after the match
 
 
 def percent_claims(text: str) -> list[PercentClaim]:
@@ -145,7 +158,9 @@ def percent_claims(text: str) -> list[PercentClaim]:
         decimals = len(parts[1]) if len(parts) > 1 else 0
         magnitude = float(number.replace(",", "."))
         claims.append(
-            PercentClaim(-magnitude if negative else magnitude, decimals, bool(signs), m.end())
+            PercentClaim(
+                -magnitude if negative else magnitude, decimals, bool(signs), m.start(), m.end()
+            )
         )
     return claims
 
@@ -177,27 +192,35 @@ def check_consistency(draft: LessonDraft, cf: Counterfactual) -> str | None:
 
     Every %-marked number in the lesson text must be a table value, the stop-loss threshold or
     the difference of two table values, rounded to the precision it was written with; an
-    explicit sign (+ or -) must match a table value's sign. A lesson with no percentage fails:
-    an unfalsifiable lesson would inflate the consistency rate. `outcome` and `best_scenario`
-    must match the realised direction and the best scenario. A percentage that can only be the
-    realised return must not be followed, in its clause, by a word of the opposite direction
-    ("%10 kazandırdı" for a loss); other wording is checked only through signs and `outcome`.
+    explicit sign (+ or -) must match a table value's sign (the threshold may be written
+    as -%5). Values are compared as the prompt shows them (`shown_table`, 2 decimals).
+    A lesson with no percentage fails: an unfalsifiable lesson would inflate the consistency
+    rate. `outcome` and `best_scenario`
+    must match the realised direction and the best scenario.
+
+    Direction in the text: an unsigned percentage that can only be the realised return must not
+    have a word of the opposite direction in its clause, just before or after it ("%10
+    kazandırdı" or "kazancı %10 oldu" for a loss). Limit: this is a stem match, not parsing;
+    negation ("kazandırmadı") or a direction word for a number that is also another scenario's
+    value is not judged, and such wording is checked only through signs and `outcome`.
     """
     if REAL_SYMBOLS.search(draft.lesson):
         return "ders gerçek bir varlık adı içeriyor; yalnızca verilen kodu kullan"
-    pct = {k: v * 100 for k, v in cf.table().items()}
-    differences = [a - b for a, b in combinations(pct.values(), 2)]
+    pct = shown_table(cf)
+    threshold = round(cf.stop_pct * 100, 2)
+    differences = [round(a - b, 2) for a, b in combinations(pct.values(), 2)]
     claims = percent_claims(draft.lesson)
     if not claims:
         return "derste tablodan hiçbir yüzde değeri yok"
     for claim in claims:
         if not (
             any(_matches(claim, v, signed_allowed=True) for v in pct.values())
-            or _matches(claim, cf.stop_pct * 100, signed_allowed=False)
+            or _matches(claim, threshold, signed_allowed=False)
+            or _matches(claim, -threshold, signed_allowed=True)  # "-%5'te zarar-kes"
             or any(_matches(claim, d, signed_allowed=False) for d in differences)
         ):
             return f"%{claim.value:g} değeri tabloyla uyuşmuyor"
-        if _contradicts_direction(draft.lesson, claim, cf, pct, differences):
+        if _contradicts_direction(draft.lesson, claim, cf, pct, [threshold, *differences]):
             return f"%{claim.value:g} gerçekleşen getirinin yönüyle çelişiyor"
     expected = outcome_of(cf)
     if draft.outcome is not expected:
@@ -213,22 +236,26 @@ def _contradicts_direction(
     claim: PercentClaim,
     cf: Counterfactual,
     pct: dict[str, float],
-    differences: list[float],
+    extras: list[float],
 ) -> bool:
-    """An unsigned percentage that can only be the realised return, followed in its clause by
-    a gain word when the position lost (or a loss word when it gained)."""
-    if claim.signed or cf.actual == 0 or not _matches(claim, pct["actual"], signed_allowed=True):
+    """See `check_consistency`: a direction word against the realised return's sign."""
+    actual = pct["actual"]
+    if claim.signed or actual == 0 or not _matches(claim, actual, signed_allowed=True):
         return False
-    # actual - skip is the actual return itself (skip = 0), not another reading of the number
-    diffs = [d for d in differences if not math.isclose(abs(d), abs(pct["actual"]))]
-    others = [v for k, v in pct.items() if k != "actual"] + [cf.stop_pct * 100, *diffs]
-    if any(_matches(claim, v, signed_allowed=False) for v in others):
-        return False  # ambiguous: the number may describe another scenario
-    clause = CLAUSE_END.split(text[claim.end : claim.end + DIRECTION_WINDOW], maxsplit=1)[0]
-    clause = clause.lower().replace("zarar-kes", "")
+    # Values equal to the actual return (stop-loss not triggered, actual - skip) are the same
+    # number, not another reading of it; anything else the claim could be is ambiguous.
+    others = [v for k, v in pct.items() if k != "actual"] + extras
+    if any(
+        _matches(claim, v, signed_allowed=False) and not math.isclose(abs(v), abs(actual))
+        for v in others
+    ):
+        return False
+    before = CLAUSE_END.split(text[max(0, claim.start - DIRECTION_WINDOW) : claim.start])[-1]
+    after = CLAUSE_END.split(text[claim.end : claim.end + DIRECTION_WINDOW], maxsplit=1)[0]
+    clause = (before + " " + after).lower().replace("zarar-kes", "")
     gain = any(stem in clause for stem in GAIN_STEMS)
     loss = any(stem in clause for stem in LOSS_STEMS)
-    return (gain and not loss) if cf.actual < 0 else (loss and not gain)
+    return (gain and not loss) if actual < 0 else (loss and not gain)
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,6 +269,7 @@ class Attempt:
 class PostmortemResult:
     draft: LessonDraft | None
     attempts: tuple[Attempt, ...]
+    prompt_version: str = POSTMORTEM_PROMPT_VERSION  # to be recorded with the run
 
     @property
     def accepted(self) -> bool:

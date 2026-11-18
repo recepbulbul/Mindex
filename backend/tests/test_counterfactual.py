@@ -176,3 +176,17 @@ def test_window_before_entry_is_ignored() -> None:
     a = counterfactual(trip, make_market(LOSS_BARS), costs=NO_COSTS)
     b = counterfactual(trip, make_market(crash_before), costs=NO_COSTS)
     assert a == b
+
+
+def test_no_look_ahead_with_float_residue_close() -> None:
+    """0.1 + 0.2 - 0.3 leaves a residual holding after the close; a crash after the exit day
+    must still not trigger the stop (reading bars past the exit would)."""
+    fills = [buy(1, 0.1, 100), buy(2, 0.2, 100), sell(3, 0.3, 100)]
+    head = [bar(100, 99), bar(100, 99), bar(100, 99), bar(100, 99)]
+    trip = round_trips(fills)[0]
+    full = make_market([*head, bar(100, 99), bar(100, 99)])
+    prefix = make_market(head)
+    crash = make_market([*head, bar(1.0, 0.5), bar(1.0, 0.5)])
+    results = [counterfactual(trip, m, costs=NO_COSTS) for m in (full, prefix, crash)]
+    assert results[0] == results[1] == results[2]
+    assert results[0].stop_day is None

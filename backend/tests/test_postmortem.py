@@ -13,8 +13,9 @@ from sqlalchemy.orm import Session
 
 from mindex.agents.llm import LlamaCppClient, LLMUnavailableError
 from mindex.config import get_settings
-from mindex.db.models import MemoryRow, Regime
+from mindex.db.models import MemoryRow
 from mindex.domain.decision import Asset
+from mindex.domain.regime import Regime
 from mindex.memory.embedder import HashEmbedder
 from mindex.memory.store import MemoryStore
 from mindex.postmortem.counterfactual import Counterfactual
@@ -333,3 +334,98 @@ def test_real_model_writes_a_checked_lesson() -> None:
     if result.draft is not None:
         assert check_consistency(result.draft, CF) is None
     print(result.draft, [a.reason for a in result.attempts])
+
+
+def _cf(**changes: Any) -> Counterfactual:
+    return Counterfactual(**{**_gain_kwargs(), **changes})
+
+
+# Stop-loss not triggered, so stop_loss == actual: the direction check must still apply.
+UNTRIGGERED_LOSS = {"actual": -0.03, "half": -0.015, "stop_loss": -0.03, "stop_day": None}
+
+
+@pytest.mark.parametrize(
+    ("changes", "text", "outcome", "best"),
+    [
+        ({}, "ASSET_A pozisyonu %4 kaybettirdi; tutmak doğruydu.", "gain", "actual"),
+        (
+            UNTRIGGERED_LOSS,
+            "ASSET_A pozisyonu %3 kazandırdı; girmemek en iyisiydi.",
+            "loss",
+            "skip",
+        ),
+        (UNTRIGGERED_LOSS, "ASSET_A için kazanç %3 oldu; girmemek en iyisiydi.", "loss", "skip"),
+        ({}, "ASSET_A pozisyonunun zararı %4 oldu; tutmak doğruydu.", "gain", "actual"),
+    ],
+)
+def test_direction_word_against_untriggered_stop(
+    changes: dict[str, Any], text: str, outcome: str, best: str
+) -> None:
+    cf = _cf(**changes)
+    assert cf.stop_day is None
+    assert cf.stop_loss == cf.actual
+    out = write_lesson(
+        FakeClient(reply(text, outcome=outcome, best=best)), cf, assets=ASSETS, max_retries=0
+    )
+    assert not out.accepted
+    assert out.reason is not None
+    assert "yön" in out.reason
+
+
+def test_right_direction_with_untriggered_stop_is_accepted() -> None:
+    text = "ASSET_A pozisyonu %3 kaybettirdi; girmemek en iyisiydi."
+    out = write_lesson(
+        FakeClient(reply(text, outcome="loss", best="skip")),
+        _cf(**UNTRIGGERED_LOSS),
+        assets=ASSETS,
+        max_retries=0,
+    )
+    assert out.accepted, out.reason
+
+
+def test_values_are_checked_as_the_prompt_shows_them() -> None:
+    # Raw 3.2549 / 1.1151 are shown as 3.25 / 1.12; "%3,2" and the shown difference "%2,13"
+    # are correct readings of the prompt (raw values would reject both).
+    cf = _cf(actual=0.032549, half=0.011151, stop_loss=0.032549)
+    client = FakeClient(
+        reply(
+            "ASSET_A %3,2 kazandırdı; yarım boyut %2,13 daha az getirirdi.",
+            outcome="gain",
+            best="actual",
+        )
+    )
+    out = write_lesson(client, cf, assets=ASSETS, max_retries=0)
+    payload = json.loads(client.messages[0][1]["content"])
+    assert payload["returns_pct"]["actual"] == 3.25
+    assert payload["returns_pct"]["half"] == 1.12
+    assert out.accepted, out.reason
+
+
+@pytest.mark.parametrize(
+    ("text", "accepted"),
+    [
+        ("ASSET_A %4 kazandırdı; -%5 zarar-kes eşiği hiç çalışmadı.", True),
+        ("ASSET_A %4 kazandırdı; +%5 zarar-kes eşiği hiç çalışmadı.", False),
+    ],
+)
+def test_threshold_may_be_written_negative_only(text: str, *, accepted: bool) -> None:
+    out = write_lesson(
+        FakeClient(reply(text, outcome="gain", best="actual")), _cf(), assets=ASSETS, max_retries=0
+    )
+    assert out.accepted is accepted, out.reason
+
+
+@pytest.mark.parametrize(
+    "name", ["btc", "BTCUSDT", "bitcoinde", "Ether", "eth/usdt", "SOL", "Solana'da", "XRP'ye"]
+)
+def test_real_names_in_any_form_are_rejected(name: str) -> None:
+    text = f"{name} gibi ASSET_B pozisyonu %10 kaybettirdi; girmemek en iyisiydi."
+    out = write_lesson(FakeClient(reply(text)), CF, assets=ASSETS, max_retries=0)
+    assert out.reason is not None
+    assert "gerçek" in out.reason
+
+
+def test_accepted_result_carries_prompt_version() -> None:
+    out = write_lesson(FakeClient(reply()), CF, assets=ASSETS, max_retries=0)
+    assert out.accepted
+    assert out.prompt_version == "postmortem-v1"
