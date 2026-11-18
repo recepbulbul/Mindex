@@ -41,9 +41,9 @@ flowchart LR
         dec --> sim[Simülatör t+1<br/>komisyon + kayma]
         sim --> close{Pozisyon<br/>kapandı mı?}
         close -- evet --> cf[Karşı-olgusal PnL tablosu<br/>gerçek / girmemek / yarım / zarar-kes]:::novel
-        cf --> pm[LLM ders yazar<br/>düşünme açık]
+        cf --> pm[LLM ders yazar<br/>JSON şeması]
         pm --> chk{Sayısal iddialar<br/>tabloyla tutarlı?}:::novel
-        chk -- hayır --> rej[Ders reddedilir]
+        chk -- hayır, en çok 2 yeniden deneme --> rej[Ders reddedilir]
         chk -- evet --> emb[Qwen3-Embedding] --> pg[(pgvector<br/>rejim etiketli)]
         pg --> mem
         sim --> trust[Tavsiye doğrulandı mı?<br/>a / b sayaçları]:::novel --> forum
@@ -66,7 +66,7 @@ flowchart LR
 1. **Veri:** Binance'ten 5 varlığın günlük fiyatları (OHLCV), Fear & Greed endeksi ve funding rate çekilip Parquet dosyalarına yazılır, sonra zamana göre eğitim / doğrulama / test olarak üçe bölünür. 🔒 işareti test verisinin mühürlü olduğunu, yalnızca nihai değerlendirmede açıldığını gösterir.
 2. **Eğitilen modeller:** Eğitim verisiyle piyasa rejimini bulan HMM (gizli Markov modeli, `hmmlearn`) ve pekiştirmeli öğrenme ajanı PPO (Stable-Baselines3 = SB3, Gymnasium ortamında) eğitilir; doğrulama verisiyle prompt ve parametreler ayarlanır.
 3. **LLM karar döngüsü:** Her gün ajan gözlem yapar, rejim etiketini alır, hafızasından ilgili dersleri çağırır (anlam benzerliği + PostgreSQL tam metin araması; ayrıntı: [Kalıcı hafıza](#kalıcı-hafıza)), forumu okur ve LLM'den hedef portföy ağırlıklarını ister. İlk deneme ve 2 yeniden deneme (toplam 3) geçerli karar üretmezse pozisyon korunur ([Akış 2](03-flows.md#akış-2--llm-ajan-karar-döngüsü-nf2-nf3)).
-4. **Öğrenme:** Karar simülatörde ertesi gün komisyon ve kayma ile yürütülür. Pozisyon kapanınca karşı-olgusal kâr/zarar (PnL) tablosu hesaplanır, LLM bundan bir ders yazar. Dersteki sayısal iddialar tabloyla çelişiyorsa ders reddedilir; tutarlıysa vektöre çevrilip (Qwen3-Embedding) rejim etiketiyle hafızaya (pgvector) yazılır. Aynı zamanda forumdaki tavsiyelerin tutup tutmadığı sayılır (`a` / `b`) ve güven skorları güncellenir.
+4. **Öğrenme:** Karar simülatörde ertesi gün komisyon ve kayma ile yürütülür. Pozisyon kapanınca karşı-olgusal kâr/zarar (PnL) tablosu hesaplanır, LLM bundan bir ders yazar (ayrıntı: [Karşı-olgusal post-mortem](#karşı-olgusal-post-mortem)). Dersteki sayısal iddialar tabloyla çelişiyorsa LLM gerekçeyle yeniden denenir, yine çelişiyorsa ders reddedilir; tutarlıysa vektöre çevrilip (Qwen3-Embedding) rejim etiketiyle hafızaya (pgvector) yazılır. Aynı zamanda forumdaki tavsiyelerin tutup tutmadığı sayılır (`a` / `b`) ve güven skorları güncellenir.
 5. **Değerlendirme:** Test döneminde her koşul (C0–C3) 5 farklı seed ile koşulur; Sharpe, MDD (maksimum düşüş), getiri, sürü korelasyonu ve ders tutarlılık oranı hesaplanır. Koşullar arası farkların tesadüf olup olmadığı blok bootstrap ile %95 güven aralığında (GA) sınanır.
 
 Bölümler arasındaki oklar verinin aktığı yönü gösterir; hafızadan (`pgvector`) karar döngüsüne ve güven sayaçlarından foruma geri dönen oklar, ajanın zamanla öğrenmesini sağlayan **geri besleme döngüleridir**. Kesikli ok (`iz` → Langfuse) her LLM çağrısının izleme kaydıdır. **Yeşil kutular** projenin özgün katkılarıdır. Bu diyagramda kırmızı hata kutusu yoktur; "pozisyonu koru" ve "ders reddedilir" dalları buradaki hata/ret yollarıdır, ayrıntıları [akış diyagramlarındadır](03-flows.md).
@@ -85,6 +85,29 @@ Kod: `backend/src/mindex/memory/` (`embedder.py`, `store.py`). Her ders `memorie
 - **Look-ahead kuralı:** Yalnızca `day < as_of_day` olan dersler döner. Bugün öğrenilen ders bugünkü kararda kullanılamaz. Filtre SQL'in `WHERE` koşulundadır, sonradan elenmez; DB testi aynı günün ve sonraki günün derslerini sorguyla birebir aynı yazıp dönmediklerini kanıtlar.
 - **Sahiplik:** Yalnızca o ajanın (`experiment_agent_id`) kendi dersleri döner (C1). Paylaşım forumun işidir (İP6).
 - Aday adımında `ORDER BY embedding <=> q LIMIT n` kullanılmaz. HNSW taraması süzmeyi indeks yürüyüşünden sonra yapar ve az anısı olan bir ajan için `k`'den az satır döndürebilir. Bir ajanın bir koşudaki dersi birkaç yüzü geçmez, tam tarama ucuzdur.
+
+## Karşı-olgusal post-mortem
+
+Kod: `backend/src/mindex/postmortem/` (`counterfactual.py`, `lesson.py`). Deney koşucusuna bağlanması sonraki adımdır; modül şimdilik saf fonksiyonlar ve `postmortem(...)` giriş noktasından oluşur.
+
+- **Tetikleme:** Bir *gidiş-dönüş* (round trip), bir ajanın bir varlıktaki dolumlarının sıfırdan sıfıra koşusudur: elde hiç yokken alımla açılır, eldeki miktarı (sayısal toleransla) sıfıra indiren satışla kapanır. Aradaki ekleme ve kısmi satışlar aynı gidiş-dönüşe aittir; kısmi satış post-mortem tetiklemez. `closed_on(fills, day)` o gün kapanan gidiş-dönüşleri verir.
+- **Tablo:** Dört senaryo, karşılaştırılabilir olsun diye hepsi gerçek gidiş-dönüşün giriş maliyetine (alım tutarı + komisyon) oranla verilir. Veritabanında `memories.counterfactual = {actual, skip, half, stop_loss}`, API'de `Counterfactual {actual, skip, half, stopLoss}` olarak tutulur.
+  - `actual`: gerçekleşen dolumların PnL'i. Dolumlarda kayma ve komisyon zaten vardır.
+  - `skip`: hiç girmemek, her zaman 0.
+  - `half`: bütün dolumlar yarım miktarla. Kayma ve komisyon orantılı olduğu için tam olarak `actual / 2` çıkar.
+  - `stop_loss`: aynı dolumlar, ama gün içi düşük, o ana kadarki alımların ortalama giriş fiyatının (kayma dahil) `(1 − stop_pct)` katına inince elde ne varsa satılır. Varsayılan `stop_pct` %5'tir ve parametreyle değişir. Tetiklenmeden sonraki dolumlar yapılmamış sayılır. Çıkış simülatörün `rebalance` fonksiyonuyla yapılır, yani aynı kayma ve komisyonu öder. Gün eşiğin altında açılırsa (boşluk) satış eşik fiyatından değil, açılıştan yapılır.
+- **Look-ahead:** Hesap yalnızca giriş gününden kapanış gününe kadarki barları okur; post-mortem kapanış gününün kapanışında yapılır. Gün içi sıra varsayımı: dolumlar `Fill.day` açılışında gerçekleşir (simülatördeki gibi), düşük açılıştan sonra gelir. Bu yüzden giriş gününün düşüğü zarar-kesi tetikleyebilir, kapanış gününün düşüğü tetikleyemez (pozisyon o açılışta satılmıştır). Test, piyasayı kapanış gününde kesince ya da sonraki barları bozunca sonucun birebir aynı kaldığını kanıtlar.
+- **Ders (`postmortem-v1`):** Prompt'ta yalnızca yüzdeler, anonim varlık kodu (`ASSET_x`, `anonymise`) ve elde tutma süresi (gün sayısı) bulunur; fiyat düzeyi ya da takvim tarihi yoktur. Çıktı JSON şemasıyla sınırlıdır: `lesson` (20–2000 karakter), `importance` (0–1), `regime`, `outcome` (kazanç / kayıp / yatay) ve `best_scenario`. Sınırlar `memories` CHECK kısıtlarıyla aynıdır; ihlal veritabanı hatası olarak değil, ret olarak döner. LLM'e erişilemezse ya da JSON bozuksa bu da başarısız deneme sayılır.
+- **Sayısal tutarlılık denetimi (`check_consistency`):** Denetim, saklanacak ders metninin kendisine uygulanır.
+  - Metindeki her yüzde (`%5,2`, `5.2%`, `-%3`, `+%2`, `yüzde 5`) tablodaki bir değer, zarar-kes eşiği ya da iki tablo değerinin farkı olmalıdır. Karşılaştırma, sayının yazıldığı hassasiyete yuvarlanarak yapılır.
+  - Açık işaret (`+` / `-`) yazılmışsa tablodaki değerin işaretiyle uyuşmalıdır; işaretsiz sayının büyüklüğü karşılaştırılır.
+  - Hiç yüzde içermeyen ders reddedilir. Doğrulanamayan ders tutarlılık oranını şişirirdi.
+  - `outcome` gerçekleşen getirinin yönüyle, `best_scenario` tablodaki en yüksek senaryoyla (eşitlikte herhangi biriyle) uyuşmalıdır.
+  - Gerçek bir varlık adı (BTC, Bitcoin…) geçen ders reddedilir. Dersler `ASSET_x` koduyla saklanır, ad sonraki anonim karar prompt'larına sızamaz.
+- **Yeniden deneme ve ret:** Tutarsız ders, ret gerekçesi konuşmaya eklenerek en çok `MINDEX_LLM_MAX_RETRIES` (≤ 2) kez yeniden istenir. Hâlâ tutarsızsa hafızaya yazılmaz; `PostmortemResult.reason` nedeni verir.
+- **Yazma:** Kabul edilen ders `MemoryStore.add(...)` ile `day` = kapanış günü olarak yazılır. Bu yüzden ders, hafıza aramasının `day < as_of_day` kuralıyla ancak ertesi günden itibaren kullanılabilir.
+- **Tutarlılık oranı (`consistency_rate`):** Filtrelemeden önce, şemaya uyan bütün üretilmiş derslerin (her deneme) denetimi geçme oranıdır. Hedef ≥ %90'dır. Reddedilenler elendikten sonra saklanan derslerin oranı tanım gereği %100 olacağından, oran ret öncesinde ölçülür.
+- **Düşünme modu:** `LlamaCppClient` düşünmeyi kapatır (`enable_thinking: false`), ders adımı da şimdilik böyle çalışır. Düşünme açık bir ders adımı ayrı bir istemci ayarı gerektirir.
 
 ## Look-ahead bias protokolü
 

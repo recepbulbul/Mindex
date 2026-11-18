@@ -122,7 +122,7 @@ Tabloları oluşturan SQL komutları (DDL): [`db/schema.sql`](db/schema.sql). T�
 | source_trade_id | uuid | E | FK, SET NULL | Post-mortemi tetikleyen kapanış işlemi |
 | day | date | H | | Dersin öğrenildiği gün; karar günü geri çağırma yalnızca daha önceki dersleri döner (look-ahead yok) |
 | lesson | text | H | 20–2000 karakter | Kabul edilmiş ders metni |
-| counterfactual | jsonb | H | | `{"actual": -3.2, "skip": 0, "half": -1.6, "stop_loss": -1.1}` (% PnL) |
+| counterfactual | jsonb | H | | `{"actual": -0.032, "skip": 0, "half": -0.016, "stop_loss": -0.011}`: giriş maliyetine oranla PnL (API: `Counterfactual`, `stopLoss`) |
 | regime | market_regime | H | | Dersin öğrenildiği rejim |
 | importance | numeric(3,2) | H | 0–1 | Geri çağırma ağırlığı |
 | embedding | vector(1024) | H | HNSW cosine | Qwen3-Embedding-0.6B vektörü |
