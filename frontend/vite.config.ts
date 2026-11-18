@@ -8,6 +8,10 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   base: process.env.VITE_BASE ?? '/',
   plugins: [react(), tailwindcss()],
+  // Real API in development (VITE_USE_MOCKS=false): same origin, so no CORS is needed.
+  server: {
+    proxy: { '/api': { target: process.env.VITE_API_PROXY ?? 'http://127.0.0.1:8000' } },
+  },
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },
@@ -21,6 +25,8 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    // Tests run against the MSW mock API, like `npm run dev`.
+    env: { VITE_USE_MOCKS: 'true' },
     setupFiles: ['./src/test/setup.tsx'],
     css: false,
     coverage: {

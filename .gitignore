@@ -10,6 +10,8 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+# Vite mode defaults (no secrets): VITE_USE_MOCKS=true for `npm run dev`.
+!frontend/.env.development
 
 # Python
 __pycache__/

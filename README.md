@@ -45,6 +45,16 @@ cd frontend
 npm ci
 npm run dev        # http://localhost:5173
 
+# Frontend gerçek API ile: frontend/.env.development.local içine VITE_USE_MOCKS=false (bkz. .env.example)
+docker compose up -d db
+cd backend && uv run alembic upgrade head
+uv run mindex create-user --email siz@ornek.dev --role researcher
+uv run mindex serve                # :8000; Vite /api isteklerini buraya yönlendirir
+cd ../frontend && npm run dev
+
+# Sözleşme: backend OpenAPI → frontend/src/api/generated.ts (CI kaymayı yakalar)
+cd frontend && npm run gen:api
+
 # Git kancaları
 cd backend && uv run pre-commit install
 ```

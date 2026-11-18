@@ -4,6 +4,7 @@ import { useAuth } from '@/auth/AuthContext'
 import { PageTitle, UserAvatar } from '@/components/common'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/primitives'
+import { USING_MOCKS } from '@/lib/env'
 
 /** One labelled row of the account sheet: label on the left, value and action on the right. */
 function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
@@ -63,7 +64,8 @@ export default function AccountPage() {
       )}
       <Row label="Veri" hint="Prototip">
         <span className="text-muted-foreground">
-          Tüm veriler sahte (MSW). Gerçek para ya da borsa hesabı kullanılmaz.
+          {USING_MOCKS ? 'Tüm veriler sahte (MSW).' : 'Deneyler geçmiş fiyat verisiyle koşar.'}{' '}
+          Gerçek para ya da borsa hesabı kullanılmaz.
         </span>
       </Row>
 

@@ -127,7 +127,7 @@ export interface EquityPoint {
 export interface AgentRun {
   agent: Agent
   equity: EquityPoint[]
-  weights: Record<Asset, number>[] // target weights per day
+  weights: Partial<Record<Asset, number>>[] // held weights per day (experiment assets)
 }
 
 // POST /experiments/:id/start (researcher): draft or paused → `queued` for the in-process runner,
@@ -146,7 +146,7 @@ export interface Timeline {
   experimentId: string
   days: string[]
   regimes: Regime[]
-  candles: Record<Asset, Candle[]>
+  candles: Partial<Record<Asset, Candle[]>> // one key per experiment asset
   runs: AgentRun[]
   trades: Trade[]
 }

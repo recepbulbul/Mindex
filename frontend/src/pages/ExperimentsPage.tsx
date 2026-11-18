@@ -242,11 +242,13 @@ function FeaturedExperiment({ experiment }: { experiment: Experiment }) {
     const r = report.data
     if (!r || !agents.data) return null
     const llmIds = new Set(agents.data.filter((a) => a.kind === 'llm').map((a) => a.id))
-    const llm = r.agents.filter((a) => llmIds.has(a.agentId)).sort((a, b) => b.sharpe - a.sharpe)
-    const best = llm[0]
+    const llm = r.agents.filter((a) => llmIds.has(a.agentId))
+    // A run without LLM agents (e.g. rule agents only) ranks all of its agents instead.
+    const pool = (llm.length ? llm : r.agents).toSorted((a, b) => b.sharpe - a.sharpe)
+    const best = pool[0]
     const mddCut =
       best && r.benchmark.maxDrawdown > 0 ? 1 - best.maxDrawdown / r.benchmark.maxDrawdown : null
-    return { best, mddCut, r, top: llm.slice(0, 3).map((a) => a.agentId) }
+    return { best, mddCut, r, hasLlm: llm.length > 0, top: pool.slice(0, 3).map((a) => a.agentId) }
   }, [report.data, agents.data])
 
   const lines = useMemo(() => {
@@ -329,7 +331,9 @@ function FeaturedExperiment({ experiment }: { experiment: Experiment }) {
       <div className="stage min-w-0">
         <div className="mb-3 flex items-baseline justify-between">
           <p className="text-sm font-medium">Portföy yarışı</p>
-          <p className="text-xs text-muted-foreground">ilk 3 LLM ajanı ve BTC al-tut</p>
+          <p className="text-xs text-muted-foreground">
+            ilk 3 {summary && !summary.hasLlm ? 'ajan' : 'LLM ajanı'} ve BTC al-tut
+          </p>
         </div>
         {lines.length ? (
           <Suspense fallback={<Skeleton className="h-[340px]" />}>

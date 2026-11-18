@@ -5,6 +5,7 @@ import type { Experiment } from '@/api/types'
 import { useAuth } from '@/auth/AuthContext'
 import { BrandMark, UserAvatar } from '@/components/common'
 import { Button } from '@/components/ui/button'
+import { DATA_NOTE, USING_MOCKS } from '@/lib/env'
 import { cn } from '@/lib/utils'
 
 const navClass = ({ isActive }: { isActive: boolean }) =>
@@ -109,7 +110,7 @@ export function Layout() {
         <div className="space-y-2 border-t p-3">
           <div className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[11px] text-muted-foreground">
             <span className="size-1.5 rounded-full bg-warn" aria-hidden />
-            Sahte API (MSW) · gerçek para yok
+            {USING_MOCKS ? 'Sahte API (MSW)' : 'Paper-trading'} · gerçek para yok
           </div>
           {/* The account is a row like any other link; signing out is always one click away. */}
           <div className="flex items-center gap-1">
@@ -173,7 +174,8 @@ export function Layout() {
         </main>
         <footer className="mx-auto max-w-[1440px] px-4 pb-8 text-xs text-muted-foreground sm:px-6 lg:px-8">
           {/* Printed too: the report PDF carries the charts, so it carries their attribution. */}
-          Prototip · tüm veriler sahte (MSW) · gerçek para kullanılmaz · Grafikler{' '}
+          Prototip · {USING_MOCKS ? 'tüm veriler sahte (MSW)' : DATA_NOTE} · gerçek para kullanılmaz
+          · Grafikler{' '}
           <a
             href="https://www.tradingview.com/"
             target="_blank"

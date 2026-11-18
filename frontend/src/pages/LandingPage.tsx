@@ -14,6 +14,7 @@ import { BrandMark } from '@/components/common'
 import { ArenaPreview } from '@/components/arena-preview'
 import { Orbit } from '@/components/orbit'
 import { buttonVariants } from '@/components/ui/button-variants'
+import { DATA_NOTE } from '@/lib/env'
 import { cn } from '@/lib/utils'
 
 /** Public front page: what Mindex is, how an experiment works, and a way into the demo. */
@@ -71,7 +72,9 @@ export function LandingPage() {
             <BrandMark className="size-5" /> Mindex
           </span>
           <span>Bitirme projesi · araştırma prototipi</span>
-          <span className="sm:ml-auto">Tüm veriler sahte · gerçek para kullanılmaz</span>
+          <span className="first-letter:uppercase sm:ml-auto">
+            {DATA_NOTE} · gerçek para kullanılmaz
+          </span>
         </div>
       </footer>
     </div>
