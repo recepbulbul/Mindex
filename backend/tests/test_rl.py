@@ -125,14 +125,62 @@ def test_env_equity_matches_simulator(market: MarketData) -> None:
     env = TradingEnv(market, start=start)
     env.reset(seed=0)
     equity = [env.initial_cash]
+    rewards: list[float] = []
     truncated = False
     for action in actions:
         assert not truncated
-        _, _, _, truncated, info = env.step(action)
+        _, reward, _, truncated, info = env.step(action)
         equity.append(info["equity"])
+        rewards.append(float(reward))
     assert truncated
     assert equity == pytest.approx(book.equity, rel=1e-12)
+    # Reward = close-to-close log return of equity, on every step (not only the first).
+    expected = [math.log(b / a) for a, b in zip(book.equity, book.equity[1:], strict=False)]
+    assert rewards == pytest.approx(expected, rel=1e-9, abs=1e-15)
     assert env.portfolio.holdings == pytest.approx(dict(book.portfolio.holdings), rel=1e-12)
+
+
+class LinearPolicy:
+    """Torch-free stand-in whose action depends on the observation; records what it saw."""
+
+    def __init__(self, n_obs: int, n_act: int) -> None:
+        self.w = np.random.default_rng(11).normal(0, 1, (n_act, n_obs))
+        self.seen: list[list[float]] = []
+
+    def predict(self, observation: NDArray[np.float32], *, deterministic: bool = False) -> Any:
+        self.seen.append(observation.tolist())
+        return np.tanh(self.w @ observation).astype(np.float32), None
+
+
+def test_ppo_agent_in_simulator_matches_env(market: MarketData) -> None:
+    """Env and Simulator+PPOAgent: bit-identical observations (weights included) and equity."""
+    start = 31
+    n_obs, n_act = observation_size(len(market.assets)), len(market.assets) + 1
+    in_env, in_sim = LinearPolicy(n_obs, n_act), LinearPolicy(n_obs, n_act)
+
+    env = TradingEnv(market, start=start)
+    obs, _ = env.reset(seed=0)
+    equity = [env.initial_cash]
+    truncated = False
+    while not truncated:
+        action, _ = in_env.predict(obs, deterministic=True)
+        obs, _, _, truncated, info = env.step(action)
+        equity.append(info["equity"])
+
+    book = Simulator(market, [PPOAgent(in_sim, market.assets)], start=start).run().books["ppo"]
+    assert in_sim.seen == in_env.seen
+    assert book.equity == equity
+    assert any(0.0 < w < 1.0 for row in in_env.seen for w in row[-3:-1])  # weights are live
+
+
+def test_observation_and_action_are_clipped(market: MarketData) -> None:
+    wild = replace(market, funding={a: (0.5,) * len(market) for a in market.assets})
+    obs = build_observation(MarketView(wild, 40), {})
+    assert obs.max() == 5.0
+    assert TradingEnv(wild).observation_space.contains(obs)
+    assets = market.assets
+    big = action_to_weights(np.array([7.0, -3.0, 0.5]), assets)
+    assert big == action_to_weights(np.array([1.0, -1.0, 0.5]), assets)
 
 
 def test_turnover_penalty_lowers_reward(market: MarketData) -> None:

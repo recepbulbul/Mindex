@@ -18,7 +18,7 @@ from mindex.rl.policy import Policy, load_policy
 from mindex.rl.train import MANIFEST_FILE, MODEL_FILE, sha256_file
 from mindex.sim.engine import Observation
 
-MIN_WEIGHT = 1e-4  # smaller softmax weights are dropped from the decision (cash instead)
+SHOWN_WEIGHT = 1e-3  # weights below this are left out of the rationale text (not the decision)
 
 
 class ArtifactError(ValueError):
@@ -56,11 +56,13 @@ class PPOAgent(BaseAgent):
         x = build_observation(obs.view, obs.weights)
         action, _ = self.policy.predict(x, deterministic=True)
         weights = action_to_weights(np.asarray(action), self.assets)
-        allocations = [Allocation(asset=a, weight=w) for a, w in weights.items() if w > MIN_WEIGHT]
-        cash = 1.0 - sum(a.weight for a in allocations)
+        # Every softmax weight goes into the decision, exactly what TradingEnv executes in training.
+        allocations = [Allocation(asset=a, weight=w) for a, w in weights.items()]
+        cash = 1.0 - sum(weights.values())
+        shown = ", ".join(f"{a} %{100 * w:.1f}" for a, w in weights.items() if w >= SHOWN_WEIGHT)
         return Decision(
             allocations=allocations,
             confidence=1.0,
-            rationale=f"PPO politikası (deterministik): nakit %{100 * cash:.1f}, "
-            + ", ".join(f"{a.asset} %{100 * a.weight:.1f}" for a in allocations),
+            rationale=f"PPO politikası (deterministik): nakit %{100 * cash:.1f}"
+            + (f", {shown}" if shown else ""),
         )

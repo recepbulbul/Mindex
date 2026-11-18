@@ -37,6 +37,7 @@ def test_smoke_training_writes_verified_artifact(market: MarketData, tmp_path: P
     model = tmp_path / "run" / MODEL_FILE
     assert manifest["files"] == {MODEL_FILE: sha256_file(model)}
     assert [h["timesteps"] for h in manifest["history"]] == [128, 256]
+    assert manifest["best"] == max(manifest["history"], key=lambda h: h["log_return"])
     assert manifest["assets"] == ["BTC", "ETH"]
 
 
