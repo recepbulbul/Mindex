@@ -317,6 +317,51 @@ def test_finished_experiments_are_not_rerun(
     assert resume_interrupted(sessions, ListQueue()) == []
 
 
+def test_failed_run_reads_cleanly(
+    api: TestClient,
+    researcher: dict[str, str],
+    db_session: Session,
+    sessions: Callable[[], Session],
+    settings: Settings,
+) -> None:
+    exp_id = _started(api, researcher)
+    broken = settings.model_copy(update={"snapshot_dir": settings.snapshot_dir / "yok"})
+    ExperimentRunner(sessions, broken, fake_clients())(exp_id)
+    base = f"/api/experiments/{exp_id}"
+    timeline = api.get(f"{base}/timeline", headers=researcher)
+    assert timeline.status_code == 200
+    assert timeline.json()["days"] == []
+    assert api.get(f"{base}/report", headers=researcher).status_code == 409
+
+
+def test_missing_snapshot_is_503_not_500(
+    api: TestClient,
+    researcher: dict[str, str],
+    sessions: Callable[[], Session],
+    settings: Settings,
+) -> None:
+    exp_id = _started(api, researcher, assets=["ETH"], agentIds=["equal-weight", "ma-cross"])
+    ExperimentRunner(sessions, settings, fake_clients()).run(exp_id, max_days=3)
+    for f in settings.snapshot_dir.glob("*.parquet"):
+        f.unlink()
+    base = f"/api/experiments/{exp_id}"
+    assert api.get(f"{base}/timeline", headers=researcher).status_code == 503
+    assert api.get(f"{base}/report", headers=researcher).status_code == 503
+
+
+def test_report_right_after_start_has_a_zero_benchmark(
+    api: TestClient,
+    researcher: dict[str, str],
+    sessions: Callable[[], Session],
+    settings: Settings,
+) -> None:
+    exp_id = _started(api, researcher, assets=["ETH"], agentIds=["equal-weight", "ma-cross"])
+    ExperimentRunner(sessions, settings, fake_clients()).run(exp_id, max_days=0)
+    r = api.get(f"/api/experiments/{exp_id}/report", headers=researcher)
+    assert r.status_code == 200
+    assert r.json()["benchmark"]["totalReturn"] == 0
+
+
 def test_error_marks_failed(
     api: TestClient,
     researcher: dict[str, str],

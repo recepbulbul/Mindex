@@ -35,6 +35,7 @@ from mindex.api.schemas import (
     TradeOut,
 )
 from mindex.config import Settings
+from mindex.data.snapshot import DataQualityError
 from mindex.db.models import (
     AgentKindDb,
     AgentRow,
@@ -98,10 +99,15 @@ def _snapshots(
     return out
 
 
+# A missing or corrupt snapshot is a server problem (503); a sealed period is not caught
+# here (SealedTestSetError), it cannot reach a started experiment through the API.
+SNAPSHOT_ERRORS = (DataUnavailableError, DataQualityError, FileNotFoundError)
+
+
 def _market(exp: Experiment, settings: Settings) -> MarketData:
     try:
         return experiment_market(exp, settings)[0]
-    except DataUnavailableError:
+    except SNAPSHOT_ERRORS:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, NO_PRICES) from None
 
 
@@ -125,6 +131,11 @@ def timeline(
     links = agent_rows(exp)
     snaps = _snapshots(session, [ea.id for ea in links])
     days = [s.day for s in snaps[links[0].id]]
+    if not days:  # queued, or failed before its first day: nothing to show yet
+        empty = TimelineOut(
+            experiment_id=str(exp.id), days=[], regimes=[], candles={}, runs=[], trades=[]
+        )
+        return empty
     market = _market(exp, settings)
     regimes = regime_labels(market, settings)
     index = [market.index_of(d) for d in days]
@@ -248,10 +259,14 @@ def _benchmark(exp: Experiment, settings: Settings, state: SimState) -> AgentMet
     """BTC buy-and-hold over the same days and costs; simulated when not in the experiment."""
     if BENCHMARK_ID in state.books:
         return _metrics(BENCHMARK_ID, "rule", state.books[BENCHMARK_ID])
+    if all(len(b.equity) < 2 for b in state.books.values()):  # no day has been marked yet
+        return AgentMetrics(
+            agent_id=BENCHMARK_ID, total_return=0.0, sharpe=0.0, max_drawdown=0.0, trades=0
+        )
     last_day = _market(exp, settings).days[state.t]
     try:
         btc, start = load_market(settings.snapshot_dir, exp.start_date, last_day, ["BTC"])
-    except DataUnavailableError:
+    except SNAPSHOT_ERRORS:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, NO_PRICES) from None
     sim = Simulator(
         btc,

@@ -64,4 +64,5 @@ Ayrıntılar: [docs/08-data-pipeline-baseline.md](../docs/08-data-pipeline-basel
 - Fiyatlar `MINDEX_SNAPSHOT_DIR` (varsayılan `data/snapshots`) Parquet anlık görüntüsünden okunur; dokunulan her bölme `ensure_readable`'dan geçer, test bölmesi okunmaz.
 - LLM ajanları `MINDEX_LLM_BASE_URL` llama-server'ına deneyin `model_version` ve `seed` değeriyle bağlanır; testlerde sahte `ChatClient`.
 - Henüz koşturulmayanlar (başlatmada 422): canlı mod, MCP misafir ajanı, eğitilmiş model yoksa PPO (`MINDEX_PPO_MODEL_DIR`), C0 dışı koşullarda LLM ajanları.
+- Kuyruk süreç içidir: API'yi **tek süreçle** çalıştırın (birden fazla worker aynı deneyi sürdürmeye çalışır); çok süreçli kuyruk İP6–7'de Redis Streams ile gelir.
 - Rejim: `MINDEX_REGIME_MODEL_PATH` (`mindex train-hmm` çıktısı) yoksa her gün `sideways` yer tutucusudur.
