@@ -1,5 +1,6 @@
 """Experiment management API (F2): CRUD, validation, the sealed test window, YAML round trip."""
 
+import json
 import uuid
 from collections.abc import Iterator
 from datetime import date
@@ -195,6 +196,22 @@ def test_create_validates_like_the_form(
         assert fields[field] == message
 
 
+def test_nan_is_not_a_number(api: TestClient, researcher: Headers) -> None:
+    body = json.dumps({**CONFIG, "commissionRate": float("nan")})  # literal NaN
+    res = api.post(
+        "/api/experiments", content=body, headers={**researcher, "Content-Type": "application/json"}
+    )
+    assert res.status_code == 422
+    assert res.json()["fields"] == {"commissionRate": "Sayı olmalı"}
+
+
+def test_costs_have_one_source(api: TestClient, researcher: Headers) -> None:
+    exp = _create(api, researcher, commissionRate=0.000123456, slippageBps=1.239)
+    assert (exp["commissionRate"], exp["slippageBps"]) == (0.00012, 1.24)
+    text = api.get(f"/api/experiments/{exp['id']}/export.yaml", headers=researcher).text
+    assert yaml.safe_load(text)["execution"] == {"commission_rate": 0.00012, "slippage_bps": 1.24}
+
+
 def test_integral_float_seed_is_accepted_like_js(api: TestClient, researcher: Headers) -> None:
     assert _create(api, researcher, seed=5.0)["seed"] == 5
 
@@ -359,6 +376,7 @@ def test_import_stamps_server_versions(api: TestClient, researcher: Headers) -> 
         ("name: x\nsurprise: 1\n", "surprise"),
         ("period: {start: 2025-10-01, stop: 2026-01-01}\n", "period.stop"),
         ("period: 5\n", "period"),
+        ("execution: {commission_rate: .nan, slippage_bps: 5}\n", "commissionRate"),
         ("!!python/object:os.system {}\n", "body"),  # safe_load refuses arbitrary tags
     ],
 )

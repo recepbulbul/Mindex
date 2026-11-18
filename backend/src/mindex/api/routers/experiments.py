@@ -8,10 +8,10 @@ import uuid
 from collections.abc import Mapping, Sequence
 from datetime import date
 from decimal import Decimal
-from typing import Any, cast
+from typing import Annotated, Any, cast
 
 import yaml
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import ValidationError
 from sqlalchemy import select
 
@@ -35,6 +35,8 @@ SEALED = (
 )
 DELETABLE = {ExperimentStatus.DRAFT, ExperimentStatus.COMPLETED, ExperimentStatus.FAILED}
 MAX_YAML_BYTES = 64 * 1024
+COMMISSION_SCALE = 5  # Numeric(6, 5)
+SLIPPAGE_SCALE = 2  # Numeric(6, 2)
 YAML_HEADER = "# Mindex deney yapılandırması (F2)\n"
 YAML_KEYS = {"name", "mode", "condition", "period", "assets", "agents", "seed", "execution", "llm"}
 
@@ -109,7 +111,17 @@ def config_of(exp: Experiment) -> ExperimentCreate:
 
 
 def _apply(exp: Experiment, cfg: ExperimentCreate, agents: Mapping[str, AgentRow]) -> None:
-    """Write a validated configuration onto the row and its agent links."""
+    """Write a validated configuration onto the row and its agent links.
+
+    Costs are rounded to the columns' scale first, so the row, `config`, the API response
+    and the YAML export all carry the same values.
+    """
+    cfg = cfg.model_copy(
+        update={
+            "commission_rate": round(cfg.commission_rate, COMMISSION_SCALE),
+            "slippage_bps": round(cfg.slippage_bps, SLIPPAGE_SCALE),
+        }
+    )
     exp.name = cfg.name
     exp.mode = cfg.mode
     exp.condition = cfg.condition
@@ -171,6 +183,14 @@ def create_experiment(
     return _create(session, settings, user, body)
 
 
+async def _yaml_body(request: Request) -> bytes:
+    # Read here so the endpoint stays a sync `def` (its database calls run in the threadpool).
+    raw = await request.body()
+    if len(raw) > MAX_YAML_BYTES:
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE)
+    return raw
+
+
 @router.post(
     "/import",
     status_code=status.HTTP_201_CREATED,
@@ -181,14 +201,14 @@ def create_experiment(
         }
     },
 )
-async def import_experiment(
-    request: Request, session: SessionDep, settings: SettingsDep, user: Researcher
+def import_experiment(
+    raw: Annotated[bytes, Depends(_yaml_body)],
+    session: SessionDep,
+    settings: SettingsDep,
+    user: Researcher,
 ) -> ExperimentOut:
     """A configuration exported by `export.yaml` becomes a new draft. `llm.*` is ignored:
     the draft is stamped with the model and prompt this server will run."""
-    raw = await request.body()
-    if len(raw) > MAX_YAML_BYTES:
-        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE)
     return _create(session, settings, user, parse_config(config_from_yaml(raw)))
 
 

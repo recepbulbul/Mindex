@@ -60,6 +60,8 @@ describe('mock experiment contract (F2)', () => {
     expect(patched).toMatchObject({ ...CONFIG, seed: 9, status: 'draft' })
     const err = await failure(api.patch(`/experiments/${exp.id}`, { endDate: '2025-09-01' }))
     expect(err).toMatchObject({ status: 422, fields: { endDate: expect.any(String) } })
+    const unknown = await failure(api.patch(`/experiments/${exp.id}`, { status: 'completed' }))
+    expect(unknown).toMatchObject({ status: 422, fields: { status: 'Bilinmeyen alan.' } })
     const done = await failure(api.patch('/experiments/exp-test-c3', { seed: 2 }))
     expect(done).toMatchObject({ status: 409 })
   })

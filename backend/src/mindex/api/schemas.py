@@ -1,5 +1,6 @@
 """Base for API schemas: camelCase on the wire (frontend/src/api/types.ts), snake_case in Python."""
 
+import math
 import re
 from datetime import date, datetime
 from typing import Annotated, Literal
@@ -90,7 +91,7 @@ def _iso_date(value: object) -> object:
 
 def _number(value: object) -> object:
     # Like `z.number()`: no strings or booleans coerced into numbers.
-    if isinstance(value, bool) or not isinstance(value, int | float):
+    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
         raise ValueError("Sayı olmalı")
     return value
 

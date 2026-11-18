@@ -292,6 +292,14 @@ export const handlers = [
     if (!exp) return error(404, 'Deney bulunamadı.')
     if (exp.status !== 'draft') return error(409, 'Yalnızca taslak deneyler düzenlenebilir.')
     const patch = (await request.json()) as ExperimentUpdate
+    // zod would strip unknown keys; the backend refuses them, and so does the mock.
+    const unknownKeys = Object.keys(patch).filter((k) => !(k in configOf(exp)))
+    if (unknownKeys.length)
+      return error(
+        422,
+        INVALID_CONFIG,
+        Object.fromEntries(unknownKeys.map((k) => [k, 'Bilinmeyen alan.'])),
+      )
     const checked = checkConfig({ ...configOf(exp), ...patch })
     if ('fields' in checked) return error(422, INVALID_CONFIG, checked.fields)
     Object.assign(exp, checked.data)
