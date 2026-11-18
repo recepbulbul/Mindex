@@ -6,7 +6,8 @@ export const API_BASE =
 
 const TOKEN_KEY = 'mindex.token'
 
-// Prototype keeps the JWT in sessionStorage; the real API (P4) moves it to an httpOnly cookie.
+// Bearer token in sessionStorage is a deliberate choice until P8: once Caddy serves the UI and
+// API from one origin, it can move to an httpOnly cookie (docs/02-architecture.md).
 export const tokenStore = {
   get: () => sessionStorage.getItem(TOKEN_KEY),
   set: (t: string) => sessionStorage.setItem(TOKEN_KEY, t),
