@@ -7,6 +7,7 @@ import {
   type ConditionSummary,
   type Experiment,
   type ExperimentCreate,
+  type Health,
   type LoginRequest,
   type LoginResponse,
   type Report,
@@ -102,6 +103,11 @@ function conditionSummaries(exp: Experiment): ConditionSummary[] {
 }
 
 export const handlers = [
+  // Public, like the backend: the mock API has no database to lose.
+  http.get(`${API}/health`, () =>
+    HttpResponse.json({ status: 'ok', database: true } satisfies Health),
+  ),
+
   http.post(`${API}/auth/login`, async ({ request }) => {
     await delay()
     const body = (await request.json()) as LoginRequest

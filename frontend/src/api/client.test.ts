@@ -2,6 +2,7 @@ import { http, HttpResponse } from 'msw'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { server } from '@/test/setup'
 import { API_BASE, api, ApiError, setApiRecovery } from './client'
+import type { Health } from './types'
 
 // What the dev server answers when the mock worker is not intercepting: an empty 404 for POST.
 const devServer404 = () => new HttpResponse(null, { status: 404 })
@@ -72,5 +73,9 @@ describe('api client', () => {
     const err = await api.get('/experiments').catch((e: unknown) => e)
     expect(err).toBeInstanceOf(ApiError)
     expect((err as ApiError).message).toMatch(/Sunucuya ulaşılamadı/)
+  })
+
+  it('reads the public health endpoint without a token', async () => {
+    await expect(api.get<Health>('/health')).resolves.toEqual({ status: 'ok', database: true })
   })
 })
