@@ -13,14 +13,15 @@ from typing import Annotated, Any, cast
 import yaml
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import CursorResult, select, update
 
 from mindex.agents.llm import PROMPT_VERSION
-from mindex.api.deps import CurrentUser, Researcher, SessionDep, SettingsDep
+from mindex.api.deps import CurrentUser, JobQueueDep, Researcher, SessionDep, SettingsDep
 from mindex.api.errors import validation_fields
 from mindex.api.schemas import ExperimentCreate, ExperimentOut
 from mindex.data.splits import SPLITS, Split
 from mindex.db.models import AgentRow, Experiment, ExperimentAgent, ExperimentStatus
+from mindex.services.runner import STARTABLE, agent_rows, runnable_errors
 
 router = APIRouter(prefix="/experiments", tags=["experiments"])
 
@@ -28,6 +29,8 @@ NOT_FOUND = "Deney bulunamadı."
 INVALID_CONFIG = "Geçersiz deney yapılandırması."
 NOT_EDITABLE = "Yalnızca taslak deneyler düzenlenebilir."
 BAD_YAML = "YAML dosyası okunamadı."
+NOT_STARTABLE = '"{status}" durumundaki deney başlatılamaz.'
+NOT_RUNNABLE = "Deney bu koşucuda başlatılamaz."
 TEST_WINDOW = SPLITS[Split.TEST]
 SEALED = (
     f"Dönem test penceresiyle ({TEST_WINDOW.start} – {TEST_WINDOW.end}) çakışıyor; "  # noqa: RUF001
@@ -141,7 +144,7 @@ def _apply(exp: Experiment, cfg: ExperimentCreate, agents: Mapping[str, AgentRow
     ]
 
 
-def _get(session: SessionDep, experiment_id: str) -> Experiment:
+def get_experiment_row(session: SessionDep, experiment_id: str) -> Experiment:
     try:
         key = uuid.UUID(experiment_id)
     except ValueError:
@@ -214,7 +217,7 @@ def import_experiment(
 
 @router.get("/{experiment_id}")
 def get_experiment(experiment_id: str, session: SessionDep, _: CurrentUser) -> ExperimentOut:
-    return _out(_get(session, experiment_id))
+    return _out(get_experiment_row(session, experiment_id))
 
 
 @router.patch(
@@ -225,7 +228,7 @@ def update_experiment(
     experiment_id: str, body: dict[str, Any], session: SessionDep, _: Researcher
 ) -> ExperimentOut:
     """Partial `ExperimentCreate`; the merged configuration is validated as a whole."""
-    exp = _get(session, experiment_id)
+    exp = get_experiment_row(session, experiment_id)
     if exp.status is not ExperimentStatus.DRAFT:
         raise HTTPException(status.HTTP_409_CONFLICT, NOT_EDITABLE)
     allowed = {f.alias or name for name, f in ExperimentCreate.model_fields.items()}
@@ -247,7 +250,7 @@ def update_experiment(
     responses={status.HTTP_409_CONFLICT: {"description": "Koşan deney silinemez"}},
 )
 def delete_experiment(experiment_id: str, session: SessionDep, _: Researcher) -> Response:
-    exp = _get(session, experiment_id)
+    exp = get_experiment_row(session, experiment_id)
     if exp.status not in DELETABLE:
         raise HTTPException(
             status.HTTP_409_CONFLICT, f'"{exp.status}" durumundaki deney silinemez.'
@@ -257,13 +260,49 @@ def delete_experiment(experiment_id: str, session: SessionDep, _: Researcher) ->
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.post(
+    "/{experiment_id}/start",
+    responses={
+        status.HTTP_409_CONFLICT: {"description": "Deney bu durumda başlatılamaz"},
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {"description": "Koşucu bu deneyi çalıştıramaz"},
+    },
+)
+def start_experiment(
+    experiment_id: str,
+    session: SessionDep,
+    settings: SettingsDep,
+    jobs: JobQueueDep,
+    _: Researcher,
+) -> ExperimentOut:
+    """Queue a draft (or paused) experiment for the in-process runner; answers `queued`."""
+    exp = get_experiment_row(session, experiment_id)
+    if exp.status not in STARTABLE:
+        raise HTTPException(status.HTTP_409_CONFLICT, NOT_STARTABLE.format(status=exp.status))
+    errors = runnable_errors(exp, [ea.agent for ea in agent_rows(exp)], settings)
+    if errors:
+        raise _invalid(errors, NOT_RUNNABLE)
+    # Claimed in SQL, so two concurrent starts cannot both queue the same experiment.
+    claimed: CursorResult[Any] = session.execute(  # pyright: ignore[reportAssignmentType]
+        update(Experiment)
+        .where(Experiment.id == exp.id, Experiment.status.in_(STARTABLE))
+        .values(status=ExperimentStatus.QUEUED)
+    )
+    if not claimed.rowcount:
+        session.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, NOT_STARTABLE.format(status=exp.status))
+    session.commit()
+    session.refresh(exp)
+    jobs.submit(exp.id)
+    return _out(exp)
+
+
 @router.get(
     "/{experiment_id}/export.yaml",
     response_class=Response,
     responses={200: {"content": {"application/yaml": {"schema": {"type": "string"}}}}},
 )
 def export_experiment(experiment_id: str, session: SessionDep, _: CurrentUser) -> Response:
-    exp = _get(session, experiment_id)
+    exp = get_experiment_row(session, experiment_id)
     return Response(experiment_to_yaml(exp), media_type="application/yaml")
 
 

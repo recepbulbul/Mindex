@@ -17,8 +17,17 @@ from pydantic import (
 )
 from pydantic.alias_generators import to_camel
 
-from mindex.db.models import AgentKindDb, Condition, ExperimentMode, ExperimentStatus, UserRole
+from mindex.db.models import (
+    AgentKindDb,
+    Condition,
+    ExperimentMode,
+    ExperimentStatus,
+    Stance,
+    TradeSide,
+    UserRole,
+)
 from mindex.domain.decision import Asset
+from mindex.domain.regime import Regime
 
 
 class ApiModel(BaseModel):
@@ -194,3 +203,149 @@ class AgentOut(ApiModel):
     name: str
     kind: AgentKindDb
     persona: str | None
+
+
+# ---------------------------------------------------------------- results (F2-F6 read endpoints)
+
+
+class CandleOut(ApiModel):
+    time: date
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+
+
+class TradeOut(ApiModel):
+    id: str
+    agent_id: str
+    day: date
+    asset: Asset
+    side: TradeSide
+    quantity: float
+    price: float
+    fee: float
+
+
+class EquityPoint(ApiModel):
+    day: date
+    equity: float
+
+
+class AgentRun(ApiModel):
+    agent: AgentOut
+    equity: list[EquityPoint]
+    weights: list[dict[Asset, float]]
+
+
+class TimelineOut(ApiModel):
+    experiment_id: str
+    days: list[date]
+    regimes: list[Regime]
+    candles: dict[Asset, list[CandleOut]]
+    runs: list[AgentRun]
+    trades: list[TradeOut]
+
+
+class MemoryRef(ApiModel):
+    id: str
+    score: float
+
+
+class DecisionOut(ApiModel):
+    id: str
+    agent_id: str
+    day: date
+    target_weights: dict[Asset, float]
+    confidence: float
+    rationale: str
+    regime: Regime
+    attempts: int
+    held_position: bool
+    latency_ms: int
+    memories: list[MemoryRef]
+    forum_message_ids: list[str]
+
+
+class TrustScoreOut(ApiModel):
+    truster_id: str
+    trustee_id: str
+    confirmed: int
+    refuted: int
+    score: float
+
+
+class TrustHistoryPoint(ApiModel):
+    day: date
+    trustee_id: str
+    score: float
+
+
+class AgentDetailOut(ApiModel):
+    agent: AgentOut
+    equity: list[EquityPoint]
+    decisions: list[DecisionOut]
+    trust_given: list[TrustScoreOut]
+    trust_received: list[TrustScoreOut]
+
+
+class AgentMetrics(ApiModel):
+    agent_id: str
+    total_return: float
+    sharpe: float
+    max_drawdown: float
+    trades: int
+
+
+class ConditionSummary(ApiModel):
+    condition: Condition
+    sharpe_mean: float
+    sharpe_ci_low: float
+    sharpe_ci_high: float
+    max_drawdown: float
+    total_return: float
+    herd_correlation: float
+    lesson_consistency: float | None
+
+
+class ReportOut(ApiModel):
+    experiment_id: str
+    agents: list[AgentMetrics]
+    benchmark: AgentMetrics
+    herd_correlation: float
+    conditions: list[ConditionSummary]
+
+
+class CounterfactualOut(ApiModel):
+    actual: float
+    skip: float
+    half: float
+    stop_loss: float
+
+
+class MemoryOut(ApiModel):
+    id: str
+    agent_id: str
+    day: date
+    lesson: str
+    counterfactual: CounterfactualOut
+    regime: Regime
+    importance: float
+
+
+class ForumMessageOut(ApiModel):
+    id: str
+    sender_id: str
+    day: date
+    content: str
+    asset: Asset
+    stance: Stance
+    flagged: bool
+    verified: bool | None
+
+
+class ForumOut(ApiModel):
+    messages: list[ForumMessageOut]
+    trust: list[TrustScoreOut]
+    trust_history: list[TrustHistoryPoint]

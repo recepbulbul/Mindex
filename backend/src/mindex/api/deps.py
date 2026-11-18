@@ -1,9 +1,9 @@
 """Request dependencies: settings, the current user and role checks (F1)."""
 
 from collections.abc import Callable
-from typing import Annotated
+from typing import Annotated, cast
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
@@ -11,6 +11,7 @@ from mindex.api.security import InvalidTokenError, decode_token
 from mindex.config import Settings, get_settings
 from mindex.db.models import User, UserRole
 from mindex.db.session import get_session
+from mindex.services.runner import JobQueue
 
 SessionDep = Annotated[Session, Depends(get_session)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -62,3 +63,17 @@ def require_role(*roles: UserRole) -> Callable[[User], User]:
 
 
 Researcher = Annotated[User, Depends(require_role(UserRole.RESEARCHER))]
+
+
+RUNNER_DOWN = "Deney koşucusu bu süreçte çalışmıyor."
+
+
+def get_job_queue(request: Request) -> JobQueue:
+    """The queue `create_server_app` starts; plain `create_app()` (tests, tools) has none."""
+    jobs = cast(JobQueue | None, getattr(request.app.state, "job_queue", None))
+    if jobs is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, RUNNER_DOWN)
+    return jobs
+
+
+JobQueueDep = Annotated[JobQueue, Depends(get_job_queue)]

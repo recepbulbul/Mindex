@@ -181,7 +181,9 @@ def train_hmm(snapshot: Path, out: Path, seed: int) -> None:
 def serve_api(host: str, port: int, *, reload: bool) -> None:
     import uvicorn  # imported lazily: the data and baseline commands do not need a server
 
-    uvicorn.run("mindex.api.app:create_app", factory=True, host=host, port=port, reload=reload)
+    uvicorn.run(
+        "mindex.api.app:create_server_app", factory=True, host=host, port=port, reload=reload
+    )
 
 
 def _read_password() -> str:

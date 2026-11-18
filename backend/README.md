@@ -19,7 +19,7 @@ uv run mindex train-ppo --seed 0    # train'de eğit, validation'da seç → ../
 
 docker compose up -d db             # (kök dizinde) PostgreSQL 17 + pgvector, 127.0.0.1:5432
 uv run alembic upgrade head         # şemayı kur / güncelle
-uv run mindex serve --reload        # API: http://127.0.0.1:8000/api/docs
+uv run mindex serve --reload        # API + deney koşucusu: http://127.0.0.1:8000/api/docs
 ```
 
 ### Veritabanı ve testler
@@ -51,7 +51,17 @@ uv run mindex serve --reload        # API: http://127.0.0.1:8000/api/docs
 | `mindex.db` | SQLAlchemy 2 modelleri ve oturum fabrikası (P4) |
 | `mindex.memory` | Kalıcı hafıza: `Embedder` (llama-server `/v1/embeddings`, testte `HashEmbedder`), pgvector + tam metin hibrit arama (P5) |
 | `mindex.postmortem` | Kapanan pozisyon için karşı-olgusal PnL tablosu (gerçek / girmemek / yarım / zarar-kes) ve sayısal tutarlılık denetimli ders yazımı (`postmortem-v1`, P5) |
-| `mindex.api` | FastAPI uygulaması, `{detail, fields}` hata zarfı, `/api/health` (P4) |
+| `mindex.api` | FastAPI uygulaması, `{detail, fields}` hata zarfı, `/api/health` (P4); `/agents`, `/experiments` CRUD + YAML, sonuç uçları (P5) |
+| `mindex.services.runner` | Süreç içi deney koşucusu: `JobQueue` + `InProcessQueue`, gün sonu checkpoint, yeniden başlatmada sürdürme (NF2) |
 | `mindex.cli` | `mindex fetch-data | baseline | bench-llm | train-hmm | train-ppo | create-user | serve` |
 
 Ayrıntılar: [docs/08-data-pipeline-baseline.md](../docs/08-data-pipeline-baseline.md). Sonraki haftalarda: `mindex.mcp`.
+
+## Deney koşucusu
+
+`POST /api/experiments/:id/start` deneyi `queued` yapar; `mindex serve` içindeki tek iş parçacıklı kuyruk onu `Simulator.step` ile gün gün koşar. Her günün kararları, işlemleri, portföy anlık görüntüsü ve `experiments.checkpoint` tek işlemde yazılır; süreç yeniden başlarsa yarım kalan deneyler checkpoint'ten sürer ve sonuç kesintisiz koşuyla bit bit aynıdır (`tests/test_runner.py`). Hata olursa durum `failed` olur.
+
+- Fiyatlar `MINDEX_SNAPSHOT_DIR` (varsayılan `data/snapshots`) Parquet anlık görüntüsünden okunur; dokunulan her bölme `ensure_readable`'dan geçer, test bölmesi okunmaz.
+- LLM ajanları `MINDEX_LLM_BASE_URL` llama-server'ına deneyin `model_version` ve `seed` değeriyle bağlanır; testlerde sahte `ChatClient`.
+- Henüz koşturulmayanlar (başlatmada 422): canlı mod, MCP misafir ajanı, eğitilmiş model yoksa PPO (`MINDEX_PPO_MODEL_DIR`), C0 dışı koşullarda LLM ajanları.
+- Rejim: `MINDEX_REGIME_MODEL_PATH` (`mindex train-hmm` çıktısı) yoksa her gün `sideways` yer tutucusudur.

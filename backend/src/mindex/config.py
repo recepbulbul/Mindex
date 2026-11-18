@@ -1,11 +1,13 @@
 """Typed application settings loaded from environment / `.env` (NF3: secrets live in .env)."""
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal, Self
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+REPO_ROOT = Path(__file__).resolve().parents[3]
 DEV_JWT_SECRET = "change-me"  # noqa: S105 (development placeholder, refused in production)
 
 
@@ -33,6 +35,12 @@ class Settings(BaseSettings):
 
     embedding_base_url: str = "http://localhost:8081/v1"  # second llama-server (--embedding)
     embedding_model: str = "Qwen/Qwen3-Embedding-0.6B"
+
+    # Experiment runner (F2): prices come from the Parquet snapshot, never the exchange (NF5).
+    snapshot_dir: Path = REPO_ROOT / "data" / "snapshots"
+    # Trained artefacts; unset means "not available on this machine" (see services/runner.py).
+    ppo_model_dir: Path | None = None  # `mindex train-ppo` output (model.zip + manifest)
+    regime_model_path: Path | None = None  # `mindex train-hmm` output; unset: "sideways"
 
     @model_validator(mode="after")
     def _strong_secret_outside_development(self) -> Self:

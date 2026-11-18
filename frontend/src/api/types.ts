@@ -128,6 +128,18 @@ export interface AgentRun {
   weights: Record<Asset, number>[] // target weights per day
 }
 
+// POST /experiments/:id/start (researcher): draft or paused → `queued` for the in-process runner,
+//   which commits each day's decisions, trades and snapshots with a checkpoint and resumes from it
+//   after a restart. 409 in other states; 422 + fields when the runner cannot run it yet: `mode`
+//   (live, P7), `agentIds` (PPO without a trained model, external MCP agents, buy-hold-btc without
+//   BTC), `condition` (LLM agents run only as the C0 baseline until memory/forum are wired in).
+// Results of a started experiment (drafts: timeline 409, the others 404):
+// GET /experiments/:id/timeline: days up to the last checkpoint; `candles` has a key per
+//   experiment asset (not all five). `regimes` is the HMM label per day, or the placeholder
+//   'sideways' on every day when the server has no regime model configured.
+// GET /experiments/:id/report: 409 before the first checkpoint; `conditions` is [] until the
+//   multi-seed comparison (P9). GET /experiments/:id/forum: empty lists until the forum (P6).
+// GET /experiments/:id/memories?regime=&agent=&q=: most important first.
 export interface Timeline {
   experimentId: string
   days: string[]
