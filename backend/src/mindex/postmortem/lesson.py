@@ -49,19 +49,24 @@ Turkish (1-3 sentences) for the agent's future decisions. Rules:
 - `importance` in [0, 1]: how much this lesson should matter later.
 - `regime`: the market regime the lesson applies to (bull, bear or sideways)."""
 
-# Real names in any case, also with Turkish suffixes or as a pair ("bitcoinde", "BTC'ye",
-# "BTCUSDT", "eth/usdt", "Ether"). Exception: the ticker SOL only in capitals, because "sol"
-# (left) is a common Turkish word; "Solana" is caught in any case.
-_QUOTES = r"(?i:usdt|usdc|busd|usd|try|eur)?"
+# Real names in any case, with or without an apostrophe suffix or as a pair ("bitcoinde",
+# "BTC'ye", "btcde", "xrpnin", "BTCUSDT", "btc_usdt", "eth/usdt", "Ether"). Tickers come
+# from `Asset`. Exception: SOL in lower case only as a pair ("solusdt", "sol/usdt"), because
+# "sol" (left) is a common Turkish word ("solda"); "SOL..." and "Solana" in any form.
+_QUOTES = "usdt|usdc|busd|usd|try|eur|btc|eth"
+_TICKERS = "|".join(a.value.lower() for a in Asset if a is not Asset.SOL)
 REAL_SYMBOLS = re.compile(
-    rf"\b(?:(?i:btc|eth|bnb|xrp){_QUOTES}|SOL(?i:{_QUOTES})"
-    r"|(?i:bitcoin|ether|solana|ripple|binance)\w*)\b"
+    rf"\b(?:(?i:{_TICKERS})\w*"
+    rf"|SOL\w*|(?i:sol)[/_-]?(?i:{_QUOTES})\b"
+    r"|(?i:bitcoin|ether|solana|ripple|binance)\w*)"
 )
-# Direction words around a percentage ("%10 kazandırdı", "kazancı %10 oldu");
-# "zarar-kes" is not a loss word.
+# Direction words around a percentage ("%10 kazandırdı", "kazancı %10 oldu"). The window
+# stops at a clause boundary: punctuation or a conjunction that starts a new clause.
 GAIN_STEMS = ("kazan", "kâr", "yüksel")
 LOSS_STEMS = ("kayb", "kayıp", "zarar", "düş", "geriled")
-CLAUSE_END = re.compile(r"[.;,:]")
+CLAUSE_END = re.compile(r"[.;,:]|\b(?:ama|fakat|ancak|çünkü|oysa|halbuki|ise)\b")
+STOP_LOSS_WORDS = re.compile(r"zarar[-\s]?kes\w*|stop\w*")  # "zarar-kes", "zarar kes"
+THRESHOLD_WORDS = re.compile(r"zarar[-\s]?kes|stop|eşi[kğ]")
 DIRECTION_WINDOW = 40
 # `%5,2`, `% 5`, `-%3`, `%-3`, `+%2`, `5.2%`, `4 %`, `yüzde 5`; Turkish and English decimals.
 # The minus may also be the Unicode minus sign (U+2212).
@@ -192,17 +197,20 @@ def check_consistency(draft: LessonDraft, cf: Counterfactual) -> str | None:
 
     Every %-marked number in the lesson text must be a table value, the stop-loss threshold or
     the difference of two table values, rounded to the precision it was written with; an
-    explicit sign (+ or -) must match a table value's sign (the threshold may be written
-    as -%5). Values are compared as the prompt shows them (`shown_table`, 2 decimals).
-    A lesson with no percentage fails: an unfalsifiable lesson would inflate the consistency
-    rate. `outcome` and `best_scenario`
-    must match the realised direction and the best scenario.
+    explicit sign (+ or -) must match a table value's sign; the threshold may be written as
+    -%5 only in a clause about the stop-loss ("-%5'te zarar-kes", not "-%5 ile kapandı").
+    Values are compared as the prompt shows them (`shown_table`, 2 decimals). A lesson with
+    no percentage fails: an unfalsifiable lesson would inflate the consistency rate.
+    `outcome` and `best_scenario` must match the realised direction and the best scenario.
 
     Direction in the text: an unsigned percentage that can only be the realised return must not
-    have a word of the opposite direction in its clause, just before or after it ("%10
-    kazandırdı" or "kazancı %10 oldu" for a loss). Limit: this is a stem match, not parsing;
-    negation ("kazandırmadı") or a direction word for a number that is also another scenario's
-    value is not judged, and such wording is checked only through signs and `outcome`.
+    have a word of the opposite direction in its own clause, just before or after it ("%10
+    kazandırdı" or "kazancı %10 oldu" for a loss). The clause ends at punctuation or a
+    conjunction ("ama", "çünkü"...); "zarar-kes" / "zarar kes" is not a loss word; case
+    follows Turkish rules ("KAYIP"). Limit: this is a stem match, not parsing; negation
+    ("kazandırmadı") or a direction word for a number that is also the threshold or another
+    scenario's value (opposite sign included) is not judged, and such wording is checked
+    only through signs and `outcome`.
     """
     if REAL_SYMBOLS.search(draft.lesson):
         return "ders gerçek bir varlık adı içeriyor; yalnızca verilen kodu kullan"
@@ -213,14 +221,18 @@ def check_consistency(draft: LessonDraft, cf: Counterfactual) -> str | None:
     if not claims:
         return "derste tablodan hiçbir yüzde değeri yok"
     for claim in claims:
+        clause = _clause(draft.lesson, claim)
+        negative_threshold = _matches(claim, -threshold, signed_allowed=True) and bool(
+            THRESHOLD_WORDS.search(clause)  # "-%5'te zarar-kes", not "-%5 ile kapandı"
+        )
         if not (
             any(_matches(claim, v, signed_allowed=True) for v in pct.values())
             or _matches(claim, threshold, signed_allowed=False)
-            or _matches(claim, -threshold, signed_allowed=True)  # "-%5'te zarar-kes"
+            or negative_threshold
             or any(_matches(claim, d, signed_allowed=False) for d in differences)
         ):
             return f"%{claim.value:g} değeri tabloyla uyuşmuyor"
-        if _contradicts_direction(draft.lesson, claim, cf, pct, [threshold, *differences]):
+        if _contradicts_direction(clause, claim, pct, threshold):
             return f"%{claim.value:g} gerçekleşen getirinin yönüyle çelişiyor"
     expected = outcome_of(cf)
     if draft.outcome is not expected:
@@ -231,28 +243,46 @@ def check_consistency(draft: LessonDraft, cf: Counterfactual) -> str | None:
     return None
 
 
+def tr_lower(text: str) -> str:
+    """Turkish lower case: "I" -> "ı" and "İ" -> "i" (so "KAYIP" -> "kayıp"); same length."""
+    return text.replace("I", "ı").replace("İ", "i").lower()
+
+
+def _clause(text: str, claim: PercentClaim) -> str:
+    """The lower-cased words of the claim's own clause, up to `DIRECTION_WINDOW` each side."""
+    before = tr_lower(text[max(0, claim.start - DIRECTION_WINDOW) : claim.start])
+    after = tr_lower(text[claim.end : claim.end + DIRECTION_WINDOW])
+    return CLAUSE_END.split(before)[-1] + " " + CLAUSE_END.split(after, maxsplit=1)[0]
+
+
 def _contradicts_direction(
-    text: str,
+    clause: str,
     claim: PercentClaim,
-    cf: Counterfactual,
     pct: dict[str, float],
-    extras: list[float],
+    threshold: float,
 ) -> bool:
     """See `check_consistency`: a direction word against the realised return's sign."""
     actual = pct["actual"]
     if claim.signed or actual == 0 or not _matches(claim, actual, signed_allowed=True):
         return False
-    # Values equal to the actual return (stop-loss not triggered, actual - skip) are the same
-    # number, not another reading of it; anything else the claim could be is ambiguous.
-    others = [v for k, v in pct.items() if k != "actual"] + extras
+    if _matches(claim, threshold, signed_allowed=False):
+        return False  # may be the stop-loss threshold, which has no direction of its own
+    # Another scenario equal to the actual return, sign included (stop-loss not triggered),
+    # is the same number. A scenario of equal size but opposite sign is another reading.
     if any(
-        _matches(claim, v, signed_allowed=False) and not math.isclose(abs(v), abs(actual))
-        for v in others
+        _matches(claim, v, signed_allowed=False) and not math.isclose(v, actual)
+        for k, v in pct.items()
+        if k != "actual"
     ):
         return False
-    before = CLAUSE_END.split(text[max(0, claim.start - DIRECTION_WINDOW) : claim.start])[-1]
-    after = CLAUSE_END.split(text[claim.end : claim.end + DIRECTION_WINDOW], maxsplit=1)[0]
-    clause = (before + " " + after).lower().replace("zarar-kes", "")
+    # Differences are written as sizes. `x - skip` is just `x` (skip = 0), already handled
+    # above, so only differences of two non-skip scenarios are other readings.
+    scenarios = [v for k, v in pct.items() if k != "skip"]
+    if any(
+        _matches(claim, abs(a - b), signed_allowed=False) for a, b in combinations(scenarios, 2)
+    ):
+        return False
+    clause = STOP_LOSS_WORDS.sub(" ", clause)
     gain = any(stem in clause for stem in GAIN_STEMS)
     loss = any(stem in clause for stem in LOSS_STEMS)
     return (gain and not loss) if actual < 0 else (loss and not gain)
