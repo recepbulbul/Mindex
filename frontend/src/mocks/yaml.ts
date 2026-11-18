@@ -48,7 +48,10 @@ function scalar(raw: string): Value {
       .map((x) => x.trim())
       .filter(Boolean)
       .map(scalar)
-  if (/^-?\d+(\.\d+)?(e-?\d+)?$/i.test(s)) return Number(s)
+  // YAML 1.1 as PyYAML resolves it: an integer, or a float only with a dot (so `1e5` is text).
+  if (/^[-+]?(0|[1-9][0-9_]*)$/.test(s)) return Number(s.replaceAll('_', ''))
+  if (/^[-+]?([0-9][0-9_]*)?\.[0-9_]*([eE][-+][0-9]+)?$/.test(s) && /\d/.test(s))
+    return Number(s.replaceAll('_', ''))
   return s
 }
 

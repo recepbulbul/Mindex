@@ -319,11 +319,36 @@ def _section(doc: Mapping[str, Any], key: str, keys: set[str]) -> Mapping[str, A
     return section
 
 
+class _ConfigLoader(yaml.SafeLoader):
+    """`SafeLoader` that leaves dates as text and keeps impossible integers as text, so
+    `2025-02-30` or a 5000-digit seed become field errors of the API's own validation
+    (`startDate`, `seed`) instead of a constructor crash."""
+
+
+_TIMESTAMP = "tag:yaml.org,2002:timestamp"
+_ConfigLoader.yaml_implicit_resolvers = {
+    first: [(tag, regexp) for tag, regexp in resolvers if tag != _TIMESTAMP]
+    for first, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
+}
+
+
+def _int_or_text(loader: yaml.SafeLoader, node: yaml.Node) -> object:
+    try:
+        return loader.construct_yaml_int(node)  # pyright: ignore[reportArgumentType]
+    except ValueError:  # longer than Python's int-from-text limit (4300 digits)
+        return loader.construct_scalar(node)  # pyright: ignore[reportArgumentType]
+
+
+_ConfigLoader.add_constructor("tag:yaml.org,2002:int", _int_or_text)
+
+
 def config_from_yaml(raw: bytes) -> dict[str, Any]:
     """Map the export layout back to `ExperimentCreate` fields (values are validated later)."""
     try:
-        loaded = yaml.safe_load(raw)
-    except (yaml.YAMLError, RecursionError):  # RecursionError: absurdly deep nesting
+        loaded = yaml.load(raw, Loader=_ConfigLoader)  # noqa: S506 (a SafeLoader subclass)
+    # RecursionError: absurdly deep nesting; ValueError: a constructor refused a value
+    # (e.g. an explicit `!!timestamp` that is not a date).
+    except (yaml.YAMLError, RecursionError, ValueError):
         raise _invalid({"body": "Geçerli bir YAML belgesi olmalı."}, BAD_YAML) from None
     if not isinstance(loaded, dict):
         raise _invalid({"body": "Deney yapılandırması bir eşleme olmalı."}, BAD_YAML)

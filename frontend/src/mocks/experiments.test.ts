@@ -160,6 +160,10 @@ describe('mock contract alignment with the backend', () => {
     signIn('researcher')
     const exp = await create({ ...CONFIG, commissionRate: 0.000123456, slippageBps: 1.239 })
     expect([exp.commissionRate, exp.slippageBps]).toEqual([0.00012, 1.24])
+    // Python's round(): ties go to the even digit (0.125 -> 0.12, 0.375 -> 0.38).
+    const tie = await create({ ...CONFIG, slippageBps: 0.125 })
+    expect(tie.slippageBps).toBe(0.12)
+    expect((await create({ ...CONFIG, slippageBps: 0.375 })).slippageBps).toBe(0.38)
   })
 
   it('imports the YAML the backend exports', async () => {
@@ -171,6 +175,30 @@ describe('mock contract alignment with the backend', () => {
       agentIds: ['llm-momentum', 'buy-hold-btc'],
       commissionRate: 0.00001,
     })
+  })
+
+  it('reads number-like names as text, like PyYAML', async () => {
+    signIn('researcher')
+    // PyYAML writes these unquoted; YAML 1.1 reads them back as text, so must the mock.
+    for (const name of ['1e5', '1e-5x', '12a']) {
+      const yaml = BACKEND_YAML.replace(/^name: .*$/m, `name: ${name}`)
+      const imported = await api.postYaml<Experiment>('/experiments/import', yaml)
+      expect(imported.name).toBe(name)
+    }
+    // ... and the mock's own export round-trips them.
+    const exp = await create({ ...CONFIG, name: '1e5' })
+    const again = await api.postYaml<Experiment>(
+      '/experiments/import',
+      await api.text(`/experiments/${exp.id}/export.yaml`),
+    )
+    expect(again.name).toBe('1e5')
+  })
+
+  it('refuses an extra nested key in an otherwise valid document', async () => {
+    signIn('researcher')
+    await expect(api.postYaml('/experiments/import', BACKEND_YAML)).resolves.toBeTruthy()
+    const extra = BACKEND_YAML.replace('  slippage_bps: 5.0', '  slippage_bps: 5.0\n  leverage: 2')
+    await expect(api.postYaml('/experiments/import', extra)).rejects.toMatchObject({ status: 422 })
   })
 
   it('checks nested keys and the size of an import', async () => {

@@ -1,6 +1,7 @@
 """Experiment management API (F2): CRUD, validation, the sealed test window, YAML round trip."""
 
 import json
+import re
 import uuid
 from collections.abc import Iterator
 from datetime import date
@@ -393,8 +394,9 @@ def test_import_validates_and_seals(api: TestClient, researcher: Headers) -> Non
     missing = api.post("/api/experiments/import", content="name: Ad\n", headers=researcher)
     assert missing.status_code == 422
     assert missing.json()["fields"]["mode"] == "Zorunlu alan."
+    # Dates stay text, so they go through the API's own date validation.
     sealed = config_from_yaml(b"period: {start: 2026-04-01, end: 2026-05-01}\n")
-    assert sealed["startDate"] == date(2026, 4, 1)
+    assert sealed["startDate"] == "2026-04-01"
     text = yaml.safe_dump(
         {
             "name": "Test sızıntısı",
@@ -426,6 +428,76 @@ def test_hostile_values_are_422_not_500(
     res = api.post("/api/experiments", json={**CONFIG, **over}, headers=researcher)
     assert res.status_code == 422, res.text
     assert field in res.json()["fields"]
+
+
+def _valid_yaml(**replace: str) -> str:
+    """A complete, valid import document; `replace` swaps whole lines by their key."""
+    lines = {
+        "name": "name: Geçerli belge",
+        "mode": "mode: replay",
+        "condition": "condition: C0",
+        "period": "period: {start: 2025-10-01, end: 2026-03-31}",
+        "assets": "assets: [BTC]",
+        "agents": "agents: [buy-hold-btc, ma-cross]",
+        "seed": "seed: 1",
+        "execution": "execution: {commission_rate: 0.001, slippage_bps: 5}",
+        "llm": "llm: {model: m, prompt_version: p}",
+    }
+    return "\n".join({**lines, **replace}.values()) + "\n"
+
+
+@pytest.mark.parametrize(
+    ("replace", "field"),
+    [
+        ({"period": "period: {start: 2025-02-30, end: 2026-03-31}"}, "startDate"),
+        ({"period": "period: {start: 2025-13-01, end: 2026-03-31}"}, "startDate"),
+        ({"seed": "seed: " + "7" * 5000}, "seed"),
+    ],
+)
+def test_impossible_yaml_values_are_field_errors(
+    api: TestClient, researcher: Headers, replace: dict[str, str], field: str
+) -> None:
+    res = api.post("/api/experiments/import", content=_valid_yaml(**replace), headers=researcher)
+    assert res.status_code == 422, res.text
+    assert field in res.json()["fields"]
+
+
+@pytest.mark.parametrize(
+    ("replace", "field"),
+    [
+        ({"period": "period: {start: 2025-10-01, end: 2026-03-31, stop: 2026-01-01}"},
+         "period.stop"),
+        ({"execution": "execution: {commission_rate: 0.001, slippage_bps: 5, leverage: 2}"},
+         "execution.leverage"),
+        ({"llm": "llm: {model: m, prompt_version: p, temperature: 0.7}"}, "llm.temperature"),
+    ],
+)  # fmt: skip
+def test_extra_nested_keys_in_a_valid_document(
+    api: TestClient, researcher: Headers, replace: dict[str, str], field: str
+) -> None:
+    assert (
+        api.post("/api/experiments/import", content=_valid_yaml(), headers=researcher).status_code
+        == 201
+    )
+    res = api.post("/api/experiments/import", content=_valid_yaml(**replace), headers=researcher)
+    assert res.status_code == 422
+    assert res.json()["fields"] == {field: "Bilinmeyen alan."}
+
+
+@pytest.mark.parametrize("name", ["1e5", "123", "0.5", "null", "true", "2025-10-01"])
+def test_number_like_names_round_trip(api: TestClient, researcher: Headers, name: str) -> None:
+    exp = _create(api, researcher, name=name)
+    text = api.get(f"/api/experiments/{exp['id']}/export.yaml", headers=researcher).text
+    back = api.post("/api/experiments/import", content=text, headers=researcher)
+    assert back.status_code == 201, back.text
+    assert back.json()["name"] == exp["name"]
+
+
+def test_mock_quoted_number_like_name_imports(api: TestClient, researcher: Headers) -> None:
+    text = re.sub(r"^name: .*$", 'name: "1e5"', MOCK_YAML, flags=re.MULTILINE)
+    res = api.post("/api/experiments/import", content=text.encode(), headers=researcher)
+    assert res.status_code == 201, res.text
+    assert res.json()["name"] == "1e5"
 
 
 def test_deeply_nested_yaml_is_422_not_500(api: TestClient, researcher: Headers) -> None:

@@ -109,8 +109,15 @@ const CONFIG_KEYS = new Set([
   'commissionRate',
   'slippageBps',
 ])
-// Like the backend's Numeric(6, 5) / Numeric(6, 2) columns.
-const round = (x: number, digits: number) => Number(x.toFixed(digits))
+// Like the backend's Numeric(6, 5) / Numeric(6, 2) columns, rounded as Python's round() does:
+// ties go to the even digit (0.125 -> 0.12), where toFixed would round them up.
+function round(x: number, digits: number) {
+  const scaled = x * 10 ** digits
+  const floor = Math.floor(scaled)
+  const diff = scaled - floor
+  const n = diff === 0.5 ? (floor % 2 === 0 ? floor : floor + 1) : Math.round(scaled)
+  return n / 10 ** digits
+}
 
 const isOwner = (request: Request, exp: Experiment) =>
   userOf(request)?.email === (owners.get(exp.id) ?? SEED_OWNER)
