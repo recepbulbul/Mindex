@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from mindex import __version__
 from mindex.api import errors
+from mindex.api.routers import auth
 from mindex.api.schemas import Health
 from mindex.db.session import get_session
 
@@ -40,4 +41,5 @@ def create_app() -> FastAPI:
     )
     errors.install(app)
     app.include_router(health_router, prefix=API_PREFIX)
+    app.include_router(auth.router, prefix=API_PREFIX)
     return app

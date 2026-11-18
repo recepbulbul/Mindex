@@ -29,7 +29,7 @@ QUERY = "funding yüksekken long açmak riskli"
 
 
 def make_agents(session: Session, n: int) -> list[uuid.UUID]:
-    user = User(email=f"{uuid.uuid4().hex}@test.local", password_hash="not-a-real-hash")  # noqa: S106
+    user = User(email=f"{uuid.uuid4().hex}@test.local", password_hash="not-a-real-hash")
     session.add(user)
     session.flush()
     exp = Experiment(
