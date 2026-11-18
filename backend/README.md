@@ -14,7 +14,17 @@ uv run mindex baseline [--llm]      # doğrulama döneminde baseline → ../repo
 uv run mindex bench-llm --calls 30  # llama-server karar çağrısı gecikmesi
 uv run mindex train-hmm             # rejim HMM'i, yalnızca eğitim dönemi → ../models/regime-hmm.json
 uv sync --group eda                 # EDA notebook'u için jupyter, matplotlib, duckdb
+
+docker compose up -d db             # (kök dizinde) PostgreSQL 17 + pgvector, 127.0.0.1:5432
+uv run alembic upgrade head         # şemayı kur / güncelle
+uv run mindex serve --reload        # API: http://127.0.0.1:8000/api/docs
 ```
+
+### Veritabanı ve testler
+
+- Şema Alembic migration'larıyla yönetilir (`alembic/versions/`); referans DDL [`docs/db/schema.sql`](../docs/db/schema.sql). Model değişince: `uv run alembic revision --autogenerate -m "..."`, ardından üretilen dosyayı gözden geçirin.
+- `@pytest.mark.db` testleri ayrı bir `mindex_test` veritabanında koşar (otomatik oluşturulur, her test kendi işleminde geri alınır). Veritabanı yoksa bu testler **atlanır**; CI'da `MINDEX_REQUIRE_DB=1` ile atlanmaz, başarısız olur.
+- `@pytest.mark.model` testleri gerçek model ister (llama-server, embedding, eğitilmiş PPO); varsayılan koşuda yoktur, GPU'lu makinede `uv run pytest -m model` ile çalıştırılır.
 
 ## Modüller
 
@@ -30,6 +40,8 @@ uv sync --group eda                 # EDA notebook'u için jupyter, matplotlib, 
 | `mindex.agents` | `BaseAgent`, kural tabanlı ajanlar, llama.cpp ile ilk LLM ajanı (P3) |
 | `mindex.regime` | Gauss HMM rejim modeli (boğa/ayı/yatay); filtrelenmiş olasılık, look-ahead yok (P4) |
 | `mindex.evaluation` | Koşu özeti, nicel hedef karşılaştırması, LLM gecikmesi ve hesap bütçesi (P3) |
-| `mindex.cli` | `mindex fetch-data | baseline | bench-llm` |
+| `mindex.db` | SQLAlchemy 2 modelleri ve oturum fabrikası (P4) |
+| `mindex.api` | FastAPI uygulaması, `{detail, fields}` hata zarfı, `/api/health` (P4) |
+| `mindex.cli` | `mindex fetch-data | baseline | bench-llm | serve` |
 
-Ayrıntılar: [docs/08-data-pipeline-baseline.md](../docs/08-data-pipeline-baseline.md). Sonraki haftalarda: `mindex.api` (FastAPI), `mindex.mcp`.
+Ayrıntılar: [docs/08-data-pipeline-baseline.md](../docs/08-data-pipeline-baseline.md). Sonraki haftalarda: `mindex.mcp`.

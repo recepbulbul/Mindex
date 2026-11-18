@@ -1,4 +1,4 @@
-"""Command line entry point: `uv run mindex fetch-data | baseline | bench-llm | train-hmm`."""
+"""Command line entry point: `uv run mindex fetch-data | baseline | bench-llm | train-hmm | serve`."""
 
 import argparse
 import json
@@ -153,6 +153,12 @@ def train_hmm(snapshot: Path, out: Path, seed: int) -> None:
     )
 
 
+def serve_api(host: str, port: int, *, reload: bool) -> None:
+    import uvicorn  # imported lazily: the data and baseline commands do not need a server
+
+    uvicorn.run("mindex.api.app:create_app", factory=True, host=host, port=port, reload=reload)
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="mindex", description="Mindex P3 araçları")
     parser.add_argument("--snapshot", type=Path, default=DEFAULT_SNAPSHOT)
@@ -168,6 +174,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     hmm = sub.add_parser("train-hmm", help="Rejim HMM'ini yalnızca eğitim döneminde eğit")
     hmm.add_argument("--out", type=Path, default=DEFAULT_MODELS / "regime-hmm.json")
     hmm.add_argument("--seed", type=int, default=0)
+    serve = sub.add_parser("serve", help="FastAPI sunucusunu başlat (geliştirme)")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8000)
+    serve.add_argument("--reload", action="store_true")
     args = parser.parse_args(argv)
 
     reconfigure = getattr(sys.stdout, "reconfigure", None)
@@ -181,6 +191,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             train_hmm(args.snapshot, args.out, args.seed)
         elif args.command == "baseline":
             baseline(args.snapshot, args.reports, args.split, with_llm=args.llm, unseal=args.unseal)
+        elif args.command == "serve":
+            serve_api(args.host, args.port, reload=args.reload)
         else:
             bench_llm(args.snapshot, args.reports, args.calls)
     except SealedTestSetError as exc:

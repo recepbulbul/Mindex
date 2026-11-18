@@ -1,9 +1,15 @@
 -- Mindex veritabanı şeması (PostgreSQL 17 + pgvector >= 0.7)
--- P4'te Alembic migration'larına dönüştürülecek referans DDL.
+-- Okunabilir referans DDL. Çalıştırılan şema Alembic migration'larıdır:
+-- backend/alembic/versions/ (modeller: backend/src/mindex/db/models.py).
 --
 -- Bu dosya ne anlatır: Mindex veritabanının tablolarını, kısıtlarını ve indekslerini
--- oluşturan SQL komutları (DDL, Data Definition Language). Henüz uygulama tarafından
--- çalıştırılmaz; İP4'te (P4) Alembic migration'larına dönüştürülecek referanstır.
+-- oluşturan SQL komutları (DDL, Data Definition Language). Uygulama bu dosyayı çalıştırmaz;
+-- İP4'te Alembic'e aktarıldı. Aktarımdaki bilinçli farklar:
+--   * agents.slug             : API'nin ve BaseAgent.agent_id'nin kullandığı sabit kimlik
+--   * experiments.checkpoint  : simülatör durumu (SimState JSON), koşu kaldığı yerden sürer
+--   * memories.day            : dersin öğrenildiği gün; geri çağırma yalnızca öncekileri döner
+--   * prices tablosu henüz yok: fiyatlar Parquet anlık görüntülerinde kalıyor
+--   * kısıt adları adlandırma kuralına uyar (ck_<tablo>_<ad>, fk_..., pk_<tablo>)
 --
 -- Görsel karşılığı : docs/05-er-diagram.md (tablolar arası ilişkiler)
 -- Alan açıklamaları: docs/06-data-dictionary.md (her alanın tipi, kısıtı ve anlamı)
@@ -72,6 +78,7 @@ CREATE TABLE experiments (
     model_version       text NOT NULL,
     prompt_version      text NOT NULL,
     last_checkpoint_day date,
+    checkpoint          jsonb,                               -- SimState (NF2)
     created_at          timestamptz NOT NULL DEFAULT now(),
     CHECK (end_date IS NULL OR end_date > start_date)
 );
@@ -80,6 +87,7 @@ CREATE INDEX experiments_status_idx ON experiments (status);
 
 CREATE TABLE agents (
     id      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    slug    text NOT NULL UNIQUE,                            -- API kimliği (buy-hold-btc)
     name    text NOT NULL UNIQUE,
     kind    agent_kind NOT NULL,
     persona text,                                            -- yalnızca LLM ajanları
@@ -136,6 +144,7 @@ CREATE TABLE memories (
     id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     experiment_agent_id uuid NOT NULL REFERENCES experiment_agents (id) ON DELETE CASCADE,
     source_trade_id     uuid REFERENCES trades (id) ON DELETE SET NULL,
+    day                 date NOT NULL,                       -- dersin öğrenildiği gün (look-ahead)
     lesson              text NOT NULL CHECK (length(lesson) BETWEEN 20 AND 2000),
     counterfactual      jsonb NOT NULL,                      -- gerçek / girmemek / yarım / zarar-kes PnL
     regime              market_regime NOT NULL,
