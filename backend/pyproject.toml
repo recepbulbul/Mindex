@@ -15,9 +15,10 @@ dependencies = [
     "ccxt>=4.5.91",
     "email-validator>=2.2",
     "fastapi>=0.115",
+    "gymnasium>=1.2",
     "hmmlearn>=0.3.3",
     "httpx2>=2.16.2",
-    "numpy>=2.0",
+    "numpy>=2.2",
     "pgvector>=0.3",
     "polars>=2.1.0",
     "psycopg[binary]>=3.2",
@@ -40,12 +41,27 @@ dev = [
     "pytest-cov>=6.0",
     "ruff>=0.8",
 ]
+# PPO training (P4). Heavy: never synced by default; CI and the GPU machine use `--group rl`.
+rl = [
+    "stable-baselines3>=2.9",
+    "torch>=2.8",
+]
 eda = [
     "duckdb>=2.0.0",
     "ipykernel>=7.4.0",
     "matplotlib>=3.11.2",
     "nbconvert>=7.17.2",
 ]
+
+# CPU-only torch wheels: CI must not download multi-GB CUDA builds, and the MLP policy
+# trains fast enough on CPU.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
 
 [build-system]
 requires = ["hatchling"]
