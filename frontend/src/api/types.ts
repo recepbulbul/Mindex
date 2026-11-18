@@ -22,6 +22,7 @@ export type AgentKind = 'rule' | 'rl' | 'llm' | 'external'
 export type Regime = 'bull' | 'bear' | 'sideways'
 export type Stance = 'bullish' | 'bearish' | 'neutral'
 
+// GET /auth/me returns the signed-in user.
 export interface User {
   email: string
   role: UserRole
@@ -32,6 +33,14 @@ export interface LoginRequest {
   password: string
 }
 
+// POST /auth/register (201): self sign-up always creates a viewer; 409 + fields.email when taken.
+// Password is 8–128 characters; researchers are created only with `mindex create-user`.
+export interface RegisterRequest {
+  email: string
+  password: string
+}
+
+// Returned by both POST /auth/login and POST /auth/register.
 export interface LoginResponse {
   token: string
   user: User

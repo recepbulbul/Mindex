@@ -98,6 +98,7 @@ ADR (*Architecture Decision Record*, mimari karar kaydı), her önemli tasarım 
 | ADR-4 | Karar adımında düşünme modu kapalı + JSON şeması ile kısıtlı üretim | p95 < 10 sn hedefi, bozuk JSON riskini azaltır | Serbest metin + regex — kırılgan |
 | ADR-5 | Prototip MSW ile sahte API'ye bağlı | Aynı frontend kodu gerçek API'ye geçer; sözleşme önce tanımlanır | Statik HTML mock — atılır |
 | ADR-6 | Forum mesajları güvenilmeyen veri | OWASP LLM01 prompt injection | — |
+| ADR-7 | Kimlik: Argon2id parola özeti + kısa ömürlü JWT (HS256, algoritma sabit); İP8'e kadar `Authorization: Bearer` başlığı ve `sessionStorage` | Geliştirmede arayüz ile API ayrı origin'de; cookie için CORS + CSRF önlemi gerekirdi. `sessionStorage` sekme kapanınca silinir. İP8'de Caddy ikisini aynı origin'den sunduğunda httpOnly + `SameSite=Strict` cookie'ye geçilir | Şimdiden httpOnly cookie — CSRF ve CORS yükü; `localStorage` — XSS'te kalıcı token |
 
 ---
 
