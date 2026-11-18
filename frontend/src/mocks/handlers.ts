@@ -114,14 +114,26 @@ const CONFIG_KEYS = new Set([
 // so they differ only on exact binary ties (0.125 -> 0.12 in Python). 2.675 is not a tie: its
 // binary value is just below, and both give 2.67.
 function round(x: number, digits: number) {
-  const exact = x.toFixed(100) // the exact decimal expansion of the binary value
-  const dot = exact.indexOf('.')
-  const tail = exact.slice(dot + 1 + digits)
-  const tie = tail[0] === '5' && /^0*$/.test(tail.slice(1))
-  const kept = exact.slice(0, dot + 1 + digits)
-  const lastDigit = Number(kept.at(-1))
-  if (tie && lastDigit % 2 === 0) return Number(kept) // half-even: stay on the even digit
-  return Number(x.toFixed(digits))
+  const up = Number(x.toFixed(digits))
+  if (!isExactTie(x, digits)) return up
+  const down = Number((up - 10 ** -digits).toFixed(digits))
+  // half-even: of the two neighbours, keep the one whose last digit is even
+  return Math.round(down * 10 ** digits) % 2 === 0 ? down : up
+}
+
+/** Whether x·10^digits is exactly k + ½ (x = mantissa · 2^exponent, checked in integers). */
+function isExactTie(x: number, digits: number) {
+  const view = new DataView(new ArrayBuffer(8))
+  view.setFloat64(0, Math.abs(x))
+  const bits = view.getBigUint64(0)
+  const biased = Number((bits >> 52n) & 0x7ffn)
+  if (biased === 0 || biased === 0x7ff) return false // zero, subnormal, inf, NaN
+  const mantissa = (bits & ((1n << 52n) - 1n)) | (1n << 52n)
+  const twice = mantissa * 10n ** BigInt(digits) // 2·x·10^d = twice · 2^(exponent + 1)
+  const shift = biased - 1075 + 1
+  if (shift >= 0) return ((twice << BigInt(shift)) & 1n) === 1n
+  const divisor = 1n << BigInt(-shift)
+  return twice % divisor === 0n && (twice / divisor) % 2n === 1n
 }
 
 const isOwner = (request: Request, exp: Experiment) =>
