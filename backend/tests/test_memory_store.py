@@ -1,5 +1,6 @@
 """MemoryStore against PostgreSQL + pgvector: hybrid search, look-ahead and ownership."""
 
+import math
 import uuid
 from collections.abc import Sequence
 from datetime import date
@@ -98,7 +99,8 @@ def test_add_and_search(store: MemoryStore, agent: uuid.UUID) -> None:
     hits = store.search(agent, QUERY, TODAY, Regime.BULL, 5, True)
     assert hits[0].memory.id == relevant
     assert hits[0].memory.lesson.startswith("Funding")
-    assert all(0 < h.score <= 1 for h in hits)
+    assert hits[0].score > 0
+    assert all(0 <= h.score <= 1 for h in hits)
     assert hits[0].memory.lesson_tsv  # generated column is populated
 
 
@@ -146,6 +148,13 @@ def unit(i: int) -> list[float]:
     return vec
 
 
+def tilted(cos: float) -> list[float]:
+    """A unit vector whose cosine similarity to `unit(0)` is `cos`."""
+    vec = unit(0)
+    vec[0], vec[1] = cos, math.sqrt(1 - cos * cos)
+    return vec
+
+
 def test_full_text_match_changes_order(db_session: Session, agent: uuid.UUID) -> None:
     """The vector side prefers `plain`; only `keyword` contains a query word ("funding"),
     and the OR-ed tsquery matches it although the other query words are absent."""
@@ -154,7 +163,7 @@ def test_full_text_match_changes_order(db_session: Session, agent: uuid.UUID) ->
     keyword_text = "Funding oranı negatifken açığa satış baskısı arttı."
     no_match = "sinyal nasıl okunur"
     embedder = PinnedEmbedder(
-        {query: unit(0), no_match: unit(0), plain_text: unit(0), keyword_text: unit(1)}
+        {query: unit(0), no_match: unit(0), plain_text: unit(0), keyword_text: tilted(0.8)}
     )
     store = MemoryStore(db_session, embedder)
     plain = add(store, agent, plain_text)
@@ -177,7 +186,7 @@ def test_turkish_capital_i_matches_full_text(db_session: Session, agent: uuid.UU
     lesson_a = "Komisyon yüksekken sık al-sat portföyü eritti."
     lesson_b = "İşlem kapandıktan sonra zarar-kes seviyesi gözden geçirilmeli."
     embedder = PinnedEmbedder(
-        {query: unit(0), no_match: unit(0), lesson_a: unit(0), lesson_b: unit(1)}
+        {query: unit(0), no_match: unit(0), lesson_a: unit(0), lesson_b: tilted(0.8)}
     )
     store = MemoryStore(db_session, embedder)
     a, b = add(store, agent, lesson_a), add(store, agent, lesson_b)

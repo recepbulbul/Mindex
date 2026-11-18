@@ -68,17 +68,26 @@ def fuse_scores(
     Reciprocal rank fusion (RRF) instead of a weighted min-max blend: cosine distance and
     `ts_rank` live on unrelated scales, `ts_rank` has no fixed maximum, and min-max breaks
     down when there is one candidate or all scores are equal (division by zero, or one
-    lesson forced to 0 and another to 1 for a negligible difference). RRF only uses ranks,
-    needs no per-query normalisation and is robust to either signal being uninformative.
+    lesson forced to 0 and another to 1 for a negligible difference). RRF fuses the two
+    orderings without per-query normalisation.
 
-    relevance  = [1/(k + rank_vec) + 1/(k + rank_text)] / (2/(k + 1))   in (0, 1]
+    RRF alone discards how far a lesson is: the last of two lessons is only a little behind
+    the first however unrelated it is, so the bonuses could lift a lesson at cosine distance
+    0.99 over one at 0.01. The fused value is therefore multiplied by the absolute cosine
+    similarity, a continuous relevance floor (a fixed distance cut-off would depend on the
+    real model's similarity range, which is tuned on the validation period only):
+
+    rrf        = [1/(k + rank_vec) + 1/(k + rank_text)] / (2/(k + 1))   in (0, 1]
                  (a lesson matching no query term gets no text term, not the last rank)
+    relevance  = rrf * clamp(1 - cosine_distance, 0, 1)
     score      = relevance * (1 - w + w * importance) * (1 + bonus * match) / (1 + bonus)
 
-    The factors are multiplicative so importance and the regime bonus reorder relevant
-    lessons but cannot lift an irrelevant one to the top. Dividing by `1 + bonus` always
-    (also when `use_regime` is false) keeps the score in [0, 1] without changing the order.
-    Ties break on the newer lesson, then on id, so the order is deterministic.
+    Bound: importance and the regime bonus multiply a score by at most
+    (1 + bonus) / (1 - w) = 1.2 / 0.7 ~ 1.71, so a lesson overtakes another only if its
+    relevance is at least ~58 % of the other's. Cost: a text match with zero vector
+    similarity scores 0. Dividing by `1 + bonus` always (also when `use_regime` is false)
+    keeps the score in [0, 1] without changing the order. Ties break on the newer lesson,
+    then on id, so the order is deterministic.
     """
     if not candidates:
         return []
@@ -97,10 +106,11 @@ def fuse_scores(
         rrf = 1.0 / (rrf_k + vec_rank)
         if cand.memory_id in text_rank_of:
             rrf += 1.0 / (rrf_k + text_rank_of[cand.memory_id])
+        similarity = min(max(1.0 - cand.cosine_distance, 0.0), 1.0)
         importance = min(max(cand.importance, 0.0), 1.0)
         weight = 1.0 - importance_weight + importance_weight * importance
         bonus = 1.0 + regime_bonus if use_regime and cand.regime == regime else 1.0
-        scored.append((cand, (rrf / best) * weight * bonus / (1.0 + regime_bonus)))
+        scored.append((cand, (rrf / best) * similarity * weight * bonus / (1.0 + regime_bonus)))
     scored.sort(key=lambda cs: (-cs[1], -cs[0].day.toordinal(), str(cs[0].memory_id)))
     return scored
 
