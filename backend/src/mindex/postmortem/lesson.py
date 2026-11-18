@@ -48,12 +48,15 @@ Turkish (1-3 sentences) for the agent's future decisions. Rules:
 - `importance` in [0, 1]: how much this lesson should matter later.
 - `regime`: the market regime the lesson applies to (bull, bear or sideways)."""
 
+# Tickers case-sensitively (the Turkish word "sol" is not SOL), coin names in any case.
 REAL_SYMBOLS = re.compile(
-    r"\b("
-    + "|".join([*(a.value for a in Asset), "bitcoin", "ethereum", "solana", "ripple"])
-    + r")\b",
-    re.IGNORECASE,
+    r"\b(" + "|".join(a.value for a in Asset) + r"|(?i:bitcoin|ethereum|solana|ripple))\b"
 )
+# Direction words right after a percentage ("%10 kazandırdı"); "zarar-kes" is not a loss word.
+GAIN_STEMS = ("kazan", "kâr", "yüksel")
+LOSS_STEMS = ("kayb", "kayıp", "zarar", "düş", "geriled")
+CLAUSE_END = re.compile(r"[.;,:]")
+DIRECTION_WINDOW = 40
 # `%5,2`, `% 5`, `-%3`, `%-3`, `+%2`, `5.2%`, `4 %`, `yüzde 5`; Turkish and English decimals.
 # The minus may also be the Unicode minus sign (U+2212).
 MINUS = "-" + chr(0x2212)
@@ -128,6 +131,7 @@ class PercentClaim:
     value: float  # in percent, as written (magnitude when `signed` is False)
     decimals: int
     signed: bool  # an explicit sign (+ or -) was written
+    end: int  # offset just after the match in the text
 
 
 def percent_claims(text: str) -> list[PercentClaim]:
@@ -140,7 +144,9 @@ def percent_claims(text: str) -> list[PercentClaim]:
         parts = re.split(r"[.,]", number)
         decimals = len(parts[1]) if len(parts) > 1 else 0
         magnitude = float(number.replace(",", "."))
-        claims.append(PercentClaim(-magnitude if negative else magnitude, decimals, bool(signs)))
+        claims.append(
+            PercentClaim(-magnitude if negative else magnitude, decimals, bool(signs), m.end())
+        )
     return claims
 
 
@@ -173,7 +179,9 @@ def check_consistency(draft: LessonDraft, cf: Counterfactual) -> str | None:
     the difference of two table values, rounded to the precision it was written with; an
     explicit sign (+ or -) must match a table value's sign. A lesson with no percentage fails:
     an unfalsifiable lesson would inflate the consistency rate. `outcome` and `best_scenario`
-    must match the realised direction and the best scenario.
+    must match the realised direction and the best scenario. A percentage that can only be the
+    realised return must not be followed, in its clause, by a word of the opposite direction
+    ("%10 kazandırdı" for a loss); other wording is checked only through signs and `outcome`.
     """
     if REAL_SYMBOLS.search(draft.lesson):
         return "ders gerçek bir varlık adı içeriyor; yalnızca verilen kodu kullan"
@@ -189,6 +197,8 @@ def check_consistency(draft: LessonDraft, cf: Counterfactual) -> str | None:
             or any(_matches(claim, d, signed_allowed=False) for d in differences)
         ):
             return f"%{claim.value:g} değeri tabloyla uyuşmuyor"
+        if _contradicts_direction(draft.lesson, claim, cf, pct, differences):
+            return f"%{claim.value:g} gerçekleşen getirinin yönüyle çelişiyor"
     expected = outcome_of(cf)
     if draft.outcome is not expected:
         return f"sonuç yönü yanlış: gerçekleşen getiri {expected.value}"
@@ -196,6 +206,29 @@ def check_consistency(draft: LessonDraft, cf: Counterfactual) -> str | None:
     if draft.best_scenario not in best:
         return f"en iyi senaryo yanlış: {', '.join(sorted(s.value for s in best))}"
     return None
+
+
+def _contradicts_direction(
+    text: str,
+    claim: PercentClaim,
+    cf: Counterfactual,
+    pct: dict[str, float],
+    differences: list[float],
+) -> bool:
+    """An unsigned percentage that can only be the realised return, followed in its clause by
+    a gain word when the position lost (or a loss word when it gained)."""
+    if claim.signed or cf.actual == 0 or not _matches(claim, pct["actual"], signed_allowed=True):
+        return False
+    # actual - skip is the actual return itself (skip = 0), not another reading of the number
+    diffs = [d for d in differences if not math.isclose(abs(d), abs(pct["actual"]))]
+    others = [v for k, v in pct.items() if k != "actual"] + [cf.stop_pct * 100, *diffs]
+    if any(_matches(claim, v, signed_allowed=False) for v in others):
+        return False  # ambiguous: the number may describe another scenario
+    clause = CLAUSE_END.split(text[claim.end : claim.end + DIRECTION_WINDOW], maxsplit=1)[0]
+    clause = clause.lower().replace("zarar-kes", "")
+    gain = any(stem in clause for stem in GAIN_STEMS)
+    loss = any(stem in clause for stem in LOSS_STEMS)
+    return (gain and not loss) if cf.actual < 0 else (loss and not gain)
 
 
 @dataclass(frozen=True, slots=True)
@@ -298,6 +331,7 @@ def postmortem(
     assets: Sequence[Asset],
     regime_hint: Regime | None = None,
     max_retries: int | None = None,
+    source_trade_id: UUID | None = None,
 ) -> tuple[PostmortemResult, MemoryRow | None]:
     """Write a lesson and store it if it passes the check; a rejected lesson is not stored."""
     result = write_lesson(
@@ -309,7 +343,9 @@ def postmortem(
     )
     if result.draft is None:
         return result, None
-    return result, save_lesson(store, experiment_agent_id, cf, result.draft)
+    return result, save_lesson(
+        store, experiment_agent_id, cf, result.draft, source_trade_id=source_trade_id
+    )
 
 
 def consistency_rate(results: Sequence[PostmortemResult]) -> float | None:

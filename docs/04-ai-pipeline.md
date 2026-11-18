@@ -102,6 +102,7 @@ Kod: `backend/src/mindex/postmortem/` (`counterfactual.py`, `lesson.py`). Deney 
   - Metindeki her yüzde (`%5,2`, `5.2%`, `-%3`, `+%2`, `yüzde 5`) tablodaki bir değer, zarar-kes eşiği ya da iki tablo değerinin farkı olmalıdır. Karşılaştırma, sayının yazıldığı hassasiyete yuvarlanarak yapılır.
   - Açık işaret (`+` / `-`) yazılmışsa tablodaki değerin işaretiyle uyuşmalıdır; işaretsiz sayının büyüklüğü karşılaştırılır.
   - Hiç yüzde içermeyen ders reddedilir. Doğrulanamayan ders tutarlılık oranını şişirirdi.
+  - Yön: yalnızca gerçekleşen getiri olabilecek işaretsiz bir yüzdenin ardından, aynı yan cümlede ters yönde bir kelime gelirse ders reddedilir (kayıpta "%10 kazandırdı"). Bunun dışındaki ifadeler yalnızca açık işaretler ve `outcome` alanıyla denetlenir; kelime düzeyinde tam bir yön çözümlemesi yoktur.
   - `outcome` gerçekleşen getirinin yönüyle, `best_scenario` tablodaki en yüksek senaryoyla (eşitlikte herhangi biriyle) uyuşmalıdır.
   - Gerçek bir varlık adı (BTC, Bitcoin…) geçen ders reddedilir. Dersler `ASSET_x` koduyla saklanır, ad sonraki anonim karar prompt'larına sızamaz.
 - **Yeniden deneme ve ret:** Tutarsız ders, ret gerekçesi konuşmaya eklenerek en çok `MINDEX_LLM_MAX_RETRIES` (≤ 2) kez yeniden istenir. Hâlâ tutarsızsa hafızaya yazılmaz; `PostmortemResult.reason` nedeni verir.

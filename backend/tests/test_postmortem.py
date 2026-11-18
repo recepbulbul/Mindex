@@ -2,9 +2,10 @@
 a DB test for what gets stored, and one real-model test (`-m model`)."""
 
 import json
+import uuid
 from collections.abc import Mapping
 from datetime import date
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from sqlalchemy import func, select
@@ -146,6 +147,7 @@ def test_schema_bounds_reject_instead_of_db_error() -> None:
     [
         ("BTC pozisyonu %10 kaybettirdi; girmemek en iyisiydi.", {}, "gerçek"),
         ("Bitcoin gibi varlıklarda %10 kayıp yaşandı, girmemeliydi.", {}, "gerçek"),
+        ("ASSET_B pozisyonu %10 kazandırdı; girmemek en iyisiydi.", {}, "yön"),
         ("ASSET_B pozisyonu kayıp verdi; girmemek en iyisiydi.", {}, "yüzde"),
         ("ASSET_B pozisyonu %10 kaybettirdi; girmemek en iyisiydi.", {"outcome": "gain"}, "yön"),
         ("ASSET_B pozisyonu %10 kaybettirdi; yarım boyut iyiydi.", {"best": "half"}, "senaryo"),
@@ -167,6 +169,7 @@ def test_inconsistent_lessons(text: str, kwargs: dict[str, Any], reason: str) ->
         "ASSET_B -%10 getiri verdi; zarar-kes %5 eşiğiyle -%5 olurdu.",
         "ASSET_B 10.0% düştü, yüzde 5 kayıpla çıkmak daha iyiydi.",
         "ASSET_B %10,0 kaybettirdi; yarım boyut %5 daha az kaybettirirdi.",  # a difference
+        "ASSET_B sol tarafta kaldı: %10 zarar, zarar-kes %5 ile kaybı yarıya indirirdi.",
     ],
 )
 def test_consistent_lessons(text: str) -> None:
@@ -257,6 +260,32 @@ def test_check_consistency_direct() -> None:
     result: PostmortemResult = write_lesson(FakeClient(reply()), CF, assets=ASSETS, max_retries=0)
     assert result.draft is not None
     assert check_consistency(result.draft, CF) is None
+
+
+class RecordingStore:
+    def __init__(self) -> None:
+        self.calls: list[tuple[Any, ...]] = []
+
+    def add(self, *args: Any) -> MemoryRow:
+        self.calls.append(args)
+        return MemoryRow()
+
+
+def test_postmortem_passes_day_table_and_source_trade() -> None:
+    store = RecordingStore()
+    agent, trade = uuid.uuid4(), uuid.uuid4()
+    result, row = postmortem(
+        FakeClient(reply()),
+        cast(MemoryStore, store),
+        agent,
+        CF,
+        assets=ASSETS,
+        max_retries=0,
+        source_trade_id=trade,
+    )
+    assert result.accepted
+    assert row is not None
+    assert store.calls == [(agent, EXIT, GOOD_TEXT, CF.table(), Regime.BEAR, 0.7, trade)]
 
 
 @pytest.mark.db
