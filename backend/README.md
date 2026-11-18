@@ -42,6 +42,6 @@ uv run mindex serve --reload        # API: http://127.0.0.1:8000/api/docs
 | `mindex.evaluation` | Koşu özeti, nicel hedef karşılaştırması, LLM gecikmesi ve hesap bütçesi (P3) |
 | `mindex.db` | SQLAlchemy 2 modelleri ve oturum fabrikası (P4) |
 | `mindex.api` | FastAPI uygulaması, `{detail, fields}` hata zarfı, `/api/health` (P4) |
-| `mindex.cli` | `mindex fetch-data | baseline | bench-llm | serve` |
+| `mindex.cli` | `mindex fetch-data | baseline | bench-llm | train-hmm | serve` |
 
 Ayrıntılar: [docs/08-data-pipeline-baseline.md](../docs/08-data-pipeline-baseline.md). Sonraki haftalarda: `mindex.mcp`.

@@ -1,18 +1,21 @@
 import json
 from datetime import date, timedelta
 from pathlib import Path
+from typing import Any
 
+import numpy as np
 import pytest
 
 from conftest import synthetic_frame
 from mindex import cli
-from mindex.data.snapshot import write_snapshot
+from mindex.data.snapshot import load_split, write_snapshot
 from mindex.data.splits import SPLITS, Split
 from mindex.domain.regime import Regime
 from mindex.evaluation.budget import ComputeBudget, LatencySummary, percentile
 from mindex.evaluation.report import AgentSummary, check_targets, herd, to_markdown
-from mindex.regime.hmm import RegimeModel
+from mindex.regime.hmm import FloatArray, RegimeModel, regime_features
 from mindex.sim.engine import AgentBook, Portfolio
+from mindex.sim.market import MarketData
 
 
 def test_percentile_nearest_rank() -> None:
@@ -103,8 +106,22 @@ def test_cli_refuses_sealed_test_split(snapshot: Path, monkeypatch: pytest.Monke
         cli.main(["--snapshot", str(snapshot), "baseline", "--split", "test"])
 
 
-def test_cli_train_hmm_fits_on_train_only(snapshot: Path, tmp_path: Path) -> None:
+def test_cli_train_hmm_fits_on_train_only(
+    snapshot: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[FloatArray] = []
+    real_fit = RegimeModel.fit
+
+    def spy(features: FloatArray, **kwargs: Any) -> RegimeModel:
+        seen.append(features)
+        return real_fit(features, **kwargs)
+
+    monkeypatch.setattr(RegimeModel, "fit", spy)
     out = tmp_path / "models" / "regime-hmm.json"
     cli.main(["--snapshot", str(snapshot), "train-hmm", "--out", str(out)])
+    train = MarketData.from_frame(load_split(snapshot, Split.TRAIN))
+    assert len(seen) == 1
+    assert np.array_equal(seen[0], regime_features(train))
+    assert max(train.days) < SPLITS[Split.VALIDATION].start
     model = RegimeModel.load(out)
     assert sorted(model.labels) == sorted(Regime)

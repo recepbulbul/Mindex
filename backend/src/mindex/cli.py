@@ -1,4 +1,4 @@
-"""Command line entry point: `uv run mindex fetch-data | baseline | bench-llm | train-hmm | serve`."""
+"""Command line entry point: `mindex fetch-data | baseline | bench-llm | train-hmm | serve`."""
 
 import argparse
 import json
