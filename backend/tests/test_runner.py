@@ -926,3 +926,16 @@ def test_two_workers_never_run_the_same_experiment(
             s.execute(delete(Experiment).where(Experiment.id == exp_id))
             s.execute(delete(User).where(User.id == owner_id))
             s.commit()
+
+
+def test_only_the_owner_starts(
+    api: TestClient, researcher: dict[str, str], db_session: Session, jobs: ListQueue
+) -> None:
+    exp = api.post("/api/experiments", json=CONFIG, headers=researcher).json()
+    other = _login(api, db_session, "baska@mindex.dev", UserRole.RESEARCHER)
+    res = api.post(f"/api/experiments/{exp['id']}/start", headers=other)
+    assert res.status_code == 403
+    assert res.json() == {
+        "detail": "Bu deney başka bir araştırmacıya ait; yalnızca sahibi değiştirebilir."
+    }
+    assert jobs.jobs == []

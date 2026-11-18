@@ -33,6 +33,7 @@ NOT_EDITABLE = "Yalnızca taslak deneyler düzenlenebilir."
 BAD_YAML = "YAML dosyası okunamadı."
 NOT_STARTABLE = '"{status}" durumundaki deney başlatılamaz.'
 NOT_RUNNABLE = "Deney bu koşucuda başlatılamaz."
+NOT_OWNER = "Bu deney başka bir araştırmacıya ait; yalnızca sahibi değiştirebilir."
 PPO_UNAVAILABLE = "PPO ajanı eğitilmiş model ister; bu sunucuda MINDEX_PPO_MODEL_DIR ayarlı değil."
 TEST_WINDOW = SPLITS[Split.TEST]
 SEALED = (
@@ -297,12 +298,14 @@ def start_experiment(
     experiment_id: str,
     session: SessionDep,
     settings: SettingsDep,
-    _: Researcher,  # before the queue: no session is 401, not "runner down"
+    user: Researcher,  # before the queue: no session is 401, not "runner down"
     jobs: JobQueueDep,
 ) -> ExperimentOut:
     """Queue a draft, paused or failed experiment for the in-process runner (a failed one
-    resumes from its checkpoint); answers `queued`."""
+    resumes from its checkpoint); answers `queued`. Only the experiment's owner may start it."""
     exp = get_experiment_row(session, experiment_id)
+    if exp.owner_id != user.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, NOT_OWNER)
     if exp.status not in STARTABLE:
         raise HTTPException(status.HTTP_409_CONFLICT, NOT_STARTABLE.format(status=exp.status))
     errors = runnable_errors(exp, [ea.agent for ea in agent_rows(exp)], settings)
