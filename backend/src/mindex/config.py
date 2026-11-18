@@ -34,10 +34,14 @@ class Settings(BaseSettings):
     embedding_model: str = "Qwen/Qwen3-Embedding-0.6B"
 
     @model_validator(mode="after")
-    def _strong_secret_in_production(self) -> Self:
-        # NF3: the development default must never sign real tokens.
+    def _strong_secret_outside_development(self) -> Self:
+        # NF3: the public placeholder may only sign tokens on a developer's own machine
+        # (`development` is the default and what .env.example ships). A `test` deployment
+        # (CI, staging) must set its own key; production also needs 32+ characters.
         secret = self.jwt_secret.get_secret_value()
-        if self.env == "production" and (secret == DEV_JWT_SECRET or len(secret) < 32):
+        if self.env != "development" and secret == DEV_JWT_SECRET:
+            raise ValueError("MINDEX_JWT_SECRET must not be the development placeholder")
+        if self.env == "production" and len(secret) < 32:
             raise ValueError("MINDEX_JWT_SECRET must be set to a random value of 32+ characters")
         return self
 

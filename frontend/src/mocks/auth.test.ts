@@ -25,6 +25,11 @@ describe('mock auth contract', () => {
     expect(err).toMatchObject({ status: 409, fields: { email: expect.any(String) as string } })
   })
 
+  it('rejects an old-format token on /auth/me', async () => {
+    tokenStore.set(`mock.researcher.${crypto.randomUUID()}`)
+    await expect(api.get('/auth/me')).rejects.toMatchObject({ status: 401 })
+  })
+
   it('returns the demo researcher from /auth/me and needs a token', async () => {
     await expect(api.get('/auth/me')).rejects.toMatchObject({ status: 401 })
     const login = await api.post<LoginResponse>('/auth/login', {

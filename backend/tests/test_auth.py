@@ -21,7 +21,7 @@ from mindex.db.models import User, UserRole
 from mindex.db.session import get_session
 
 # `_env_file` is a pydantic-settings init kwarg pyright cannot see (same as test_config.py).
-SETTINGS = Settings(_env_file=None, jwt_secret=SecretStr("x" * 40), jwt_ttl_minutes=5)  # pyright: ignore[reportCallIssue]
+SETTINGS = Settings(_env_file=None, jwt_secret=SecretStr("x" * 64), jwt_ttl_minutes=5)  # pyright: ignore[reportCallIssue]
 PASSWORD = "dogru-parola-123"
 
 
@@ -43,7 +43,7 @@ def test_token_roundtrip() -> None:
     assert claims == security.TokenClaims(uid, UserRole.VIEWER)
 
 
-def _forge(payload: dict[str, Any], key: str = "x" * 40, alg: str = "HS256") -> str:
+def _forge(payload: dict[str, Any], key: str = "x" * 64, alg: str = "HS256") -> str:
     return jwt.encode(payload, key, algorithm=alg)
 
 
@@ -89,6 +89,16 @@ def test_production_refuses_weak_jwt_secret(secret: str) -> None:
         Settings(_env_file=None, env="production", jwt_secret=SecretStr(secret))  # pyright: ignore[reportCallIssue]
 
 
+@pytest.mark.parametrize("env", ["test", "production"])
+def test_placeholder_secret_refused_outside_development(env: str) -> None:
+    with pytest.raises(ValidationError, match="MINDEX_JWT_SECRET"):
+        Settings(_env_file=None, env=env, jwt_secret=SecretStr("change-me"))  # pyright: ignore[reportCallIssue]
+
+
+def test_placeholder_secret_allowed_in_development() -> None:
+    assert Settings(_env_file=None, env="development").env == "development"  # pyright: ignore[reportCallIssue]
+
+
 def test_production_accepts_strong_secret() -> None:
     s = Settings(_env_file=None, env="production", jwt_secret=SecretStr("z" * 48))  # pyright: ignore[reportCallIssue]
     assert s.env == "production"
@@ -130,7 +140,7 @@ def _token(client: TestClient, email: str) -> str:
 
 
 @pytest.mark.db
-def test_register_creates_a_viewer_and_logs_in(api: TestClient) -> None:
+def test_register_creates_a_viewer_and_logs_in(api: TestClient, db_session: Session) -> None:
     res = api.post("/api/auth/register", json={"email": "Yeni@Mindex.dev", "password": PASSWORD})
     assert res.status_code == 201
     body = res.json()
@@ -138,6 +148,12 @@ def test_register_creates_a_viewer_and_logs_in(api: TestClient) -> None:
     assert security.decode_token(SETTINGS, body["token"]).role is UserRole.VIEWER
     me = api.get("/api/auth/me", headers={"Authorization": f"Bearer {body['token']}"})
     assert me.json() == {"email": "yeni@mindex.dev", "role": "viewer"}
+    # The stored row holds an Argon2id hash, not the password, and the same credentials log in.
+    row = db_session.scalar(select(User).where(User.email == "yeni@mindex.dev"))
+    assert row is not None
+    assert row.password_hash.startswith("$argon2id$")
+    assert PASSWORD not in row.password_hash
+    _token(api, "yeni@mindex.dev")
 
 
 @pytest.mark.db
@@ -186,6 +202,22 @@ def test_login_failures_look_the_same(
     res = api.post("/api/auth/login", json={"email": email, "password": password})
     assert res.status_code == 401
     assert res.json() == {"detail": BAD_CREDENTIALS}
+
+
+@pytest.mark.db
+def test_login_with_unknown_email_still_verifies_a_hash(
+    api: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[str] = []
+
+    def spy(password_hash: str, password: str) -> bool:
+        calls.append(password_hash)
+        return security.verify_password(password_hash, password)
+
+    monkeypatch.setattr("mindex.api.routers.auth.verify_password", spy)
+    res = api.post("/api/auth/login", json={"email": "yok@mindex.dev", "password": PASSWORD})
+    assert res.status_code == 401
+    assert calls == [security.dummy_hash()]  # same Argon2 cost as a registered e-mail
 
 
 @pytest.mark.db
@@ -273,8 +305,11 @@ def test_cli_rejects_duplicate_and_weak_password(cli_sessions: Session) -> None:
     cli.create_user("iki@mindex.dev", "viewer", password=PASSWORD)
     with pytest.raises(SystemExit, match="zaten kayıtlı"):
         cli.create_user("iki@mindex.dev", "viewer", password=PASSWORD)
-    with pytest.raises(SystemExit, match="Geçersiz"):
-        cli.create_user("uc@mindex.dev", "viewer", password="kisa")
+    with pytest.raises(SystemExit, match="Geçersiz") as rejected:
+        cli.create_user("uc@mindex.dev", "viewer", password="kisa-pw")
+    message = str(rejected.value)
+    assert "password" in message
+    assert "kisa-pw" not in message  # the rejected password is never echoed
 
 
 def test_auth_routes_are_in_openapi() -> None:

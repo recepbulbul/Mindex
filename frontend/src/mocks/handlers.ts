@@ -42,7 +42,7 @@ const session = (user: User): LoginResponse => ({
 
 // Like roleOf, the mock trusts its own token instead of keeping server-side sessions.
 function userOf(request: Request): User | null {
-  const m = /^Bearer mock.(researcher|viewer).([A-Za-z0-9+/=]+)./.exec(
+  const m = /^Bearer mock\.(researcher|viewer)\.([A-Za-z0-9+/=]+)\.[0-9a-f-]{36}$/.exec(
     request.headers.get('Authorization') ?? '',
   )
   if (!m?.[1] || !m[2]) return null

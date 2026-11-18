@@ -147,11 +147,12 @@ def serve_api(host: str, port: int, *, reload: bool) -> None:
 def _read_password() -> str:
     if sys.stdin.isatty():
         return getpass.getpass("Parola: ")
-    return sys.stdin.readline().strip()
+    return sys.stdin.readline().rstrip("\r\n")  # spaces are valid password characters
 
 
 def create_user(email: str, role: str, *, password: str | None = None) -> None:
     """Create a user; the only way to make a researcher (self sign-up creates viewers)."""
+    from pydantic import ValidationError
     from sqlalchemy.exc import IntegrityError
 
     from mindex.api.schemas import RegisterRequest
@@ -164,8 +165,13 @@ def create_user(email: str, role: str, *, password: str | None = None) -> None:
         password = _read_password()
     try:
         body = RegisterRequest(email=email, password=password)  # same rules as /auth/register
-    except ValueError as exc:  # pydantic.ValidationError
-        raise SystemExit(f"Geçersiz kullanıcı: {exc}") from None
+    except ValidationError as exc:
+        # include_input=False: never echo the rejected password to the terminal or logs.
+        problems = "; ".join(
+            f"{'.'.join(map(str, e['loc']))}: {e['msg']}"
+            for e in exc.errors(include_input=False, include_url=False)
+        )
+        raise SystemExit(f"Geçersiz kullanıcı: {problems}") from None
     with get_sessionmaker()() as session:
         session.add(
             User(email=body.email, password_hash=hash_password(body.password), role=UserRole(role))
