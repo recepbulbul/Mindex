@@ -13,6 +13,8 @@ uv run mindex fetch-data            # Binance + Fear & Greed → ../data/snapsho
 uv run mindex baseline [--llm]      # doğrulama döneminde baseline → ../reports
 uv run mindex bench-llm --calls 30  # llama-server karar çağrısı gecikmesi
 uv sync --group eda                 # EDA notebook'u için jupyter, matplotlib, duckdb
+uv sync --group rl                  # PPO eğitimi: stable-baselines3 + CPU torch (yalnızca eğitim makinesi / CI)
+uv run mindex train-ppo --seed 0    # train'de eğit, validation'da seç → ../models/ppo/seed-0/
 
 docker compose up -d db             # (kök dizinde) PostgreSQL 17 + pgvector, 127.0.0.1:5432
 uv run alembic upgrade head         # şemayı kur / güncelle
@@ -23,6 +25,7 @@ uv run mindex serve --reload        # API: http://127.0.0.1:8000/api/docs
 
 - Şema Alembic migration'larıyla yönetilir (`alembic/versions/`); referans DDL [`docs/db/schema.sql`](../docs/db/schema.sql). Model değişince: `uv run alembic revision --autogenerate -m "..."`, ardından üretilen dosyayı gözden geçirin.
 - `@pytest.mark.db` testleri ayrı bir `mindex_test` veritabanında koşar (otomatik oluşturulur, her test kendi işleminde geri alınır). Veritabanı yoksa bu testler **atlanır**; CI'da `MINDEX_REQUIRE_DB=1` ile atlanmaz, başarısız olur.
+- `tests/test_ppo_sb3.py` stable-baselines3 ister; `rl` grubu kurulu değilse (yerelde) **atlanır**, CI `--group rl` ile koşar.
 - `@pytest.mark.model` testleri gerçek model ister (llama-server, embedding, eğitilmiş PPO); varsayılan koşuda yoktur, GPU'lu makinede `uv run pytest -m model` ile çalıştırılır.
 
 ## Modüller
@@ -36,10 +39,11 @@ uv run mindex serve --reload        # API: http://127.0.0.1:8000/api/docs
 | `mindex.domain.metrics` | Sharpe, maksimum düşüş, sürü korelasyonu |
 | `mindex.data` | ccxt + Fear & Greed kaynakları, Parquet anlık görüntüleri, zamansal ayrım ve mühürlü test seti (P3) |
 | `mindex.sim` | `t` kapanışında karar, `t+1` açılışında komisyon + kaymayla yürütme; checkpoint (P3) |
-| `mindex.agents` | `BaseAgent`, kural tabanlı ajanlar, llama.cpp ile ilk LLM ajanı (P3) |
+| `mindex.agents` | `BaseAgent`, kural tabanlı ajanlar, llama.cpp ile ilk LLM ajanı (P3), eğitilmiş modelden `PPOAgent` (P4) |
+| `mindex.rl` | Günlük Gymnasium ortamı (simülatörle aynı yürütme ve maliyet, look-ahead yok), PPO eğitimi, SHA-256 manifest (P4) |
 | `mindex.evaluation` | Koşu özeti, nicel hedef karşılaştırması, LLM gecikmesi ve hesap bütçesi (P3) |
 | `mindex.db` | SQLAlchemy 2 modelleri ve oturum fabrikası (P4) |
 | `mindex.api` | FastAPI uygulaması, `{detail, fields}` hata zarfı, `/api/health` (P4) |
-| `mindex.cli` | `mindex fetch-data | baseline | bench-llm | serve` |
+| `mindex.cli` | `mindex fetch-data | baseline | bench-llm | train-ppo | serve` |
 
 Ayrıntılar: [docs/08-data-pipeline-baseline.md](../docs/08-data-pipeline-baseline.md). Sonraki haftalarda: `mindex.mcp`.

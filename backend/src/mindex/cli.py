@@ -1,4 +1,4 @@
-"""Command line entry point: `uv run mindex fetch-data | baseline | bench-llm | serve`."""
+"""Command line entry point: `uv run mindex <command>` (see `main` for the commands)."""
 
 import argparse
 import json
@@ -26,12 +26,16 @@ from mindex.domain.decision import Asset, parse_decision
 from mindex.evaluation.budget import ComputeBudget, LatencySummary
 from mindex.evaluation.report import check_targets, herd, summarise, to_markdown
 from mindex.logging_config import configure_logging
+from mindex.rl import train as rl_train
+from mindex.rl.env import TradingEnv
+from mindex.rl.train import PPOHyperparams
 from mindex.sim.engine import Observation, Portfolio, Simulator
 from mindex.sim.market import MarketData, MarketView
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_SNAPSHOT = REPO_ROOT / "data" / "snapshots"
 DEFAULT_REPORTS = REPO_ROOT / "reports"
+DEFAULT_MODELS = REPO_ROOT / "models" / "ppo"
 LOOKBACK_DAYS = 31  # 30 daily returns need 31 closes
 
 
@@ -137,6 +141,27 @@ def bench_llm(snapshot: Path, reports: Path, calls: int) -> None:
     print(json.dumps(result, indent=2))
 
 
+def train_ppo(snapshot: Path, out: Path, seed: int, hp: PPOHyperparams) -> None:
+    """Train on the train split, select on validation. The test split is never loaded here."""
+    train_market, train_start = _market(snapshot, Split.TRAIN, unseal=False)
+    val_market, val_start = _market(snapshot, Split.VALIDATION, unseal=False)
+    train_env = TradingEnv(
+        train_market,
+        start=train_start,
+        turnover_penalty=hp.turnover_penalty,
+        episode_length=hp.episode_length,
+    )
+    val_env = TradingEnv(val_market, start=val_start)  # no penalty: report the net log return
+    periods = {
+        "train": (train_market.days[train_start], train_market.days[-1]),
+        "validation": (val_market.days[val_start], val_market.days[-1]),
+    }
+    manifest = rl_train.train_ppo(
+        train_env, val_env, hp, seed=seed, out_dir=out / f"seed-{seed}", periods=periods
+    )
+    print(json.dumps({k: manifest[k] for k in ("seed", "best", "files")}, indent=2))
+
+
 def serve_api(host: str, port: int, *, reload: bool) -> None:
     import uvicorn  # imported lazily: the data and baseline commands do not need a server
 
@@ -155,6 +180,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     base.add_argument("--unseal", action="store_true", help="yalnızca nihai değerlendirmede")
     bench = sub.add_parser("bench-llm", help="llama.cpp karar çağrısı hız ölçümü")
     bench.add_argument("--calls", type=int, default=30)
+    defaults = PPOHyperparams()
+    ppo = sub.add_parser("train-ppo", help="PPO eğitimi (train), doğrulamada model seçimi")
+    ppo.add_argument("--seed", type=int, default=0)
+    ppo.add_argument("--out", type=Path, default=DEFAULT_MODELS, help="artefakt kök dizini")
+    ppo.add_argument("--timesteps", type=int, default=defaults.total_timesteps)
+    ppo.add_argument("--eval-every", type=int, default=defaults.eval_every)
+    ppo.add_argument("--turnover-penalty", type=float, default=defaults.turnover_penalty)
     serve = sub.add_parser("serve", help="FastAPI sunucusunu başlat (geliştirme)")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
@@ -170,6 +202,13 @@ def main(argv: Sequence[str] | None = None) -> None:
             fetch_data(args.snapshot)
         elif args.command == "baseline":
             baseline(args.snapshot, args.reports, args.split, with_llm=args.llm, unseal=args.unseal)
+        elif args.command == "train-ppo":
+            hp = PPOHyperparams(
+                total_timesteps=args.timesteps,
+                eval_every=args.eval_every,
+                turnover_penalty=args.turnover_penalty,
+            )
+            train_ppo(args.snapshot, args.out, args.seed, hp)
         elif args.command == "serve":
             serve_api(args.host, args.port, reload=args.reload)
         else:
