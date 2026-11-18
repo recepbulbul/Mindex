@@ -26,7 +26,7 @@ jobs:
     services:
       db:
         # Same image as docker-compose.yml; tests marked `db` run against it.
-        image: pgvector/pgvector:pg17
+        image: pgvector/pgvector:pg17@sha256:b513c48566e4777cd3370451400000c78eda6a08131d68f4c31d4a76f27bd8fd
         env:
           POSTGRES_USER: mindex
           POSTGRES_PASSWORD: mindex

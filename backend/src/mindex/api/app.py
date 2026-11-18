@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, FastAPI
+from fastapi import APIRouter, Depends, FastAPI, Response, status
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -17,13 +17,16 @@ API_PREFIX = "/api"
 health_router = APIRouter(tags=["system"])
 
 
-@health_router.get("/health")
-def health(session: Annotated[Session, Depends(get_session)]) -> Health:
+@health_router.get("/health", responses={status.HTTP_503_SERVICE_UNAVAILABLE: {"model": Health}})
+def health(session: Annotated[Session, Depends(get_session)], response: Response) -> Health:
+    """Liveness plus database reachability; 503 when degraded so monitors alert on it."""
     try:
         session.execute(text("SELECT 1"))
         db_ok = True
     except SQLAlchemyError:
         db_ok = False
+    if not db_ok:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     return Health(status="ok" if db_ok else "degraded", database=db_ok)
 
 

@@ -1,5 +1,7 @@
 """Base for API schemas: camelCase on the wire (frontend/src/api/types.ts), snake_case in Python."""
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
@@ -21,5 +23,5 @@ class ApiErrorBody(ApiModel):
 
 
 class Health(ApiModel):
-    status: str
+    status: Literal["ok", "degraded"]
     database: bool

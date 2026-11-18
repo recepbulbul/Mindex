@@ -9,10 +9,16 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from mindex.config import get_settings
 
+CONNECT_TIMEOUT_SECONDS = 3  # fail fast: on Windows a closed port times out instead of refusing
+
 
 @lru_cache
 def get_engine() -> Engine:
-    return create_engine(get_settings().database_url, pool_pre_ping=True)
+    return create_engine(
+        get_settings().database_url,
+        pool_pre_ping=True,
+        connect_args={"connect_timeout": CONNECT_TIMEOUT_SECONDS},
+    )
 
 
 @lru_cache

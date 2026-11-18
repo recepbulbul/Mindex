@@ -1,7 +1,8 @@
-"""Test database helpers: a dedicated `<name>_test` database migrated once per session.
+"""Test database helpers: a dedicated `<name>_test` database rebuilt once per test session.
 
 Tests marked `db` need PostgreSQL + pgvector (`docker compose up -d db`, or the CI service).
-They are skipped, not failed, when no database is reachable, so pure unit tests still run.
+They are skipped, not failed, when no database is reachable, so pure unit tests still run;
+with `MINDEX_REQUIRE_DB=1` (CI) an unreachable database fails the run instead.
 """
 
 import os
@@ -16,28 +17,40 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from mindex.config import get_settings
+from mindex.db.session import CONNECT_TIMEOUT_SECONDS
 
 BACKEND = Path(__file__).resolve().parents[1]
+CONNECT_ARGS = {"connect_timeout": CONNECT_TIMEOUT_SECONDS}
 
 
-def test_database_url() -> str:
+def require_db() -> bool:
+    return os.environ.get("MINDEX_REQUIRE_DB", "").strip().lower() in {"1", "true", "yes"}
+
+
+def database_url_for_tests() -> str:
     explicit = os.environ.get("MINDEX_TEST_DATABASE_URL")
     if explicit:
-        return explicit
-    url = make_url(get_settings().database_url)
-    return url.set(database=f"{url.database}_test").render_as_string(hide_password=False)
+        url = make_url(explicit)
+    else:
+        base = make_url(get_settings().database_url)
+        url = base.set(database=f"{base.database}_test")
+    # The database is dropped and recreated: never let that hit a non-test database.
+    if not (url.database or "").endswith("_test"):
+        raise RuntimeError(f"test database name must end with '_test', got {url.database!r}")
+    return url.render_as_string(hide_password=False)
 
 
-def _ensure_database(url: str) -> None:
+def _recreate_database(url: str) -> None:
+    """Drop and create the test database so every session starts from a clean migration
+    (an edited or branch-specific revision cannot leave a stale schema behind)."""
     target = make_url(url)
-    admin = create_engine(target.set(database="postgres"), isolation_level="AUTOCOMMIT")
+    admin = create_engine(
+        target.set(database="postgres"), isolation_level="AUTOCOMMIT", connect_args=CONNECT_ARGS
+    )
     try:
         with admin.connect() as conn:
-            exists = conn.execute(
-                text("SELECT 1 FROM pg_database WHERE datname = :n"), {"n": target.database}
-            ).scalar()
-            if not exists:
-                conn.execute(text(f'CREATE DATABASE "{target.database}"'))
+            conn.execute(text(f'DROP DATABASE IF EXISTS "{target.database}" WITH (FORCE)'))
+            conn.execute(text(f'CREATE DATABASE "{target.database}"'))
     finally:
         admin.dispose()
 
@@ -45,21 +58,21 @@ def _ensure_database(url: str) -> None:
 def alembic_config(url: str) -> Config:
     cfg = Config(str(BACKEND / "alembic.ini"))
     cfg.set_main_option("script_location", str(BACKEND / "alembic"))
-    cfg.set_main_option("sqlalchemy.url", url)
+    cfg.set_main_option("sqlalchemy.url", url.replace("%", "%%"))  # ConfigParser interpolation
     cfg.attributes["configure_logger"] = False
     return cfg
 
 
 def migrated_engine() -> Iterator[Engine]:
-    url = test_database_url()
+    url = database_url_for_tests()
     try:
-        _ensure_database(url)
+        _recreate_database(url)
     except OperationalError as exc:
-        if os.environ.get("MINDEX_REQUIRE_DB"):
+        if require_db():
             raise
         pytest.skip(f"PostgreSQL yok ({exc.__class__.__name__}); `docker compose up -d db`")
     command.upgrade(alembic_config(url), "head")
-    engine = create_engine(url)
+    engine = create_engine(url, connect_args=CONNECT_ARGS)
     yield engine
     engine.dispose()
 

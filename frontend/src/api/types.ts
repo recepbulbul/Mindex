@@ -213,6 +213,12 @@ export interface Report {
   conditions: ConditionSummary[]
 }
 
+// GET /health: liveness plus database reachability; 503 when degraded (P4).
+export interface Health {
+  status: 'ok' | 'degraded'
+  database: boolean
+}
+
 export interface ApiErrorBody {
   detail: string
   fields?: Record<string, string>

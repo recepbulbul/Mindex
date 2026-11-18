@@ -3,6 +3,9 @@
 Differences from the reference DDL, all deliberate:
 - `agents.slug`: the stable id the API and `BaseAgent.agent_id` use (`buy-hold-btc`).
 - `experiments.checkpoint`: the simulator's `SimState` JSON, so a run resumes bit for bit (NF2).
+- `memories.day`: the day a lesson became known; retrieval only returns earlier lessons.
+- No `prices` table: prices stay in the Parquet snapshots for now.
+- Constraint names follow `NAMING_CONVENTION`, so later migrations can address them.
 """
 
 import enum
@@ -21,6 +24,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    MetaData,
     Numeric,
     SmallInteger,
     Text,
@@ -32,6 +36,14 @@ from sqlalchemy.dialects.postgresql import ARRAY, CITEXT, JSONB, TSVECTOR, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 EMBEDDING_DIM = 1024  # Qwen3-Embedding-0.6B
+
+NAMING_CONVENTION = {
+    "ix": "ix_%(column_0_label)s",
+    "uq": "uq_%(table_name)s_%(column_0_name)s",
+    "ck": "ck_%(table_name)s_%(constraint_name)s",
+    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+    "pk": "pk_%(table_name)s",
+}
 
 
 class UserRole(enum.StrEnum):
@@ -101,6 +113,7 @@ def _uuid_pk() -> Mapped[uuid.UUID]:
 
 
 class Base(DeclarativeBase):
+    metadata = MetaData(naming_convention=NAMING_CONVENTION)
     type_annotation_map = {  # noqa: RUF012 (SQLAlchemy reads this class attribute)
         dict[str, Any]: JSONB,
         datetime: DateTime(timezone=True),

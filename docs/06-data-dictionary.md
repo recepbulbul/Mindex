@@ -28,6 +28,9 @@ Tabloları oluşturan SQL komutları (DDL): [`db/schema.sql`](db/schema.sql). T�
 | quote | text | H | `USDT` | Karşı para birimi |
 
 ## prices
+
+> İP4 itibarıyla bu tablo migration'a alınmadı; fiyatlar Parquet anlık görüntülerinden okunuyor ([08](08-data-pipeline-baseline.md)).
+
 | Alan | Tip | Boş? | Kısıt | Açıklama |
 |---|---|:-:|---|---|
 | asset | text | H | PK, FK → assets | Varlık |
@@ -55,13 +58,15 @@ Tabloları oluşturan SQL komutları (DDL): [`db/schema.sql`](db/schema.sql). T�
 | model_version | text | H | | Örn. `qwen3.5-9b-q4_k_m@sha256:…` (NF5) |
 | prompt_version | text | H | | Örn. `decision-v3` (NF5) |
 | last_checkpoint_day | date | E | | Kaldığı yerden sürdürme noktası (NF2) |
+| checkpoint | jsonb | E | | O günkü simülatör durumu (`SimState`); koşu aynı sonuçla sürer (NF2) |
 | created_at | timestamptz | H | `now()` | |
 
 ## agents
 | Alan | Tip | Boş? | Kısıt | Açıklama |
 |---|---|:-:|---|---|
 | id | uuid | H | PK | |
-| name | text | H | UNIQUE | Örn. `llm-momentum`, `ppo`, `buy-hold-btc` |
+| slug | text | H | UNIQUE | API ve ajan kodunun kullandığı sabit kimlik, örn. `buy-hold-btc` |
+| name | text | H | UNIQUE | Görünen ad, örn. `BTC al-ve-tut` |
 | kind | agent_kind | H | rule \| rl \| llm \| external | `external` = MCP ile katılan dış ajan (F9) |
 | persona | text | E | | LLM ajanının kişilik tanımı (momentum, ortalamaya dönüş, duyarlılık, riskten kaçınan) |
 | params | jsonb | H | `{}` | Ajan hiperparametreleri (örn. MA pencereleri) |
@@ -115,6 +120,7 @@ Tabloları oluşturan SQL komutları (DDL): [`db/schema.sql`](db/schema.sql). T�
 | id | uuid | H | PK | |
 | experiment_agent_id | uuid | H | FK | Hafıza sahibi (deney kapsamlı) |
 | source_trade_id | uuid | E | FK, SET NULL | Post-mortemi tetikleyen kapanış işlemi |
+| day | date | H | | Dersin öğrenildiği gün; karar günü geri çağırma yalnızca daha önceki dersleri döner (look-ahead yok) |
 | lesson | text | H | 20–2000 karakter | Kabul edilmiş ders metni |
 | counterfactual | jsonb | H | | `{"actual": -3.2, "skip": 0, "half": -1.6, "stop_loss": -1.1}` (% PnL) |
 | regime | market_regime | H | | Dersin öğrenildiği rejim |

@@ -3,7 +3,7 @@
 Deviations from the reference DDL: `agents.slug` (stable API id), `experiments.checkpoint`
 (SimState JSON for resumable runs), `memories.day` (when a lesson became known; retrieval
 only returns earlier lessons, so no look-ahead). Prices stay in Parquet snapshots, so there is
-no `prices` table yet.
+no `prices` table yet. Constraint names follow `mindex.db.models.NAMING_CONVENTION`.
 
 Revision ID: 0001
 Revises:
@@ -53,16 +53,16 @@ def upgrade() -> None:
             server_default=sa.text("'{}'::jsonb"),
             nullable=False,
         ),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("name"),
-        sa.UniqueConstraint("slug"),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_agents")),
+        sa.UniqueConstraint("name", name=op.f("uq_agents_name")),
+        sa.UniqueConstraint("slug", name=op.f("uq_agents_slug")),
     )
     op.create_table(
         "assets",
         sa.Column("symbol", sa.Text(), nullable=False),
         sa.Column("quote", sa.Text(), server_default="USDT", nullable=False),
-        sa.CheckConstraint("symbol ~ '^[A-Z]{2,10}$'", name="symbol_format"),
-        sa.PrimaryKeyConstraint("symbol"),
+        sa.CheckConstraint("symbol ~ '^[A-Z]{2,10}$'", name=op.f("ck_assets_symbol_format")),
+        sa.PrimaryKeyConstraint("symbol", name=op.f("pk_assets")),
     )
     op.create_table(
         "users",
@@ -81,8 +81,8 @@ def upgrade() -> None:
             server_default=sa.text("now()"),
             nullable=False,
         ),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("email"),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_users")),
+        sa.UniqueConstraint("email", name=op.f("uq_users_email")),
     )
     op.create_table(
         "experiments",
@@ -130,13 +130,26 @@ def upgrade() -> None:
             server_default=sa.text("now()"),
             nullable=False,
         ),
-        sa.CheckConstraint("cardinality(assets) > 0", name="assets_nonempty"),
-        sa.CheckConstraint("commission_rate BETWEEN 0 AND 0.01", name="commission_range"),
-        sa.CheckConstraint("end_date IS NULL OR end_date > start_date", name="period_order"),
-        sa.CheckConstraint("length(name) BETWEEN 3 AND 120", name="name_length"),
-        sa.CheckConstraint("slippage_bps BETWEEN 0 AND 100", name="slippage_range"),
-        sa.ForeignKeyConstraint(["owner_id"], ["users.id"], ondelete="RESTRICT"),
-        sa.PrimaryKeyConstraint("id"),
+        sa.CheckConstraint("cardinality(assets) > 0", name=op.f("ck_experiments_assets_nonempty")),
+        sa.CheckConstraint(
+            "commission_rate BETWEEN 0 AND 0.01", name=op.f("ck_experiments_commission_range")
+        ),
+        sa.CheckConstraint(
+            "end_date IS NULL OR end_date > start_date", name=op.f("ck_experiments_period_order")
+        ),
+        sa.CheckConstraint(
+            "length(name) BETWEEN 3 AND 120", name=op.f("ck_experiments_name_length")
+        ),
+        sa.CheckConstraint(
+            "slippage_bps BETWEEN 0 AND 100", name=op.f("ck_experiments_slippage_range")
+        ),
+        sa.ForeignKeyConstraint(
+            ["owner_id"],
+            ["users.id"],
+            name=op.f("fk_experiments_owner_id_users"),
+            ondelete="RESTRICT",
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_experiments")),
     )
     op.create_index("experiments_owner_idx", "experiments", ["owner_id"], unique=False)
     op.create_index("experiments_status_idx", "experiments", ["status"], unique=False)
@@ -151,11 +164,25 @@ def upgrade() -> None:
             server_default=sa.text("10000"),
             nullable=False,
         ),
-        sa.CheckConstraint("initial_cash > 0", name="initial_cash_positive"),
-        sa.ForeignKeyConstraint(["agent_id"], ["agents.id"], ondelete="RESTRICT"),
-        sa.ForeignKeyConstraint(["experiment_id"], ["experiments.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("experiment_id", "agent_id"),
+        sa.CheckConstraint(
+            "initial_cash > 0", name=op.f("ck_experiment_agents_initial_cash_positive")
+        ),
+        sa.ForeignKeyConstraint(
+            ["agent_id"],
+            ["agents.id"],
+            name=op.f("fk_experiment_agents_agent_id_agents"),
+            ondelete="RESTRICT",
+        ),
+        sa.ForeignKeyConstraint(
+            ["experiment_id"],
+            ["experiments.id"],
+            name=op.f("fk_experiment_agents_experiment_id_experiments"),
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_experiment_agents")),
+        sa.UniqueConstraint(
+            "experiment_id", "agent_id", name=op.f("uq_experiment_agents_experiment_id")
+        ),
     )
     op.create_table(
         "decisions",
@@ -172,14 +199,21 @@ def upgrade() -> None:
         sa.Column("held_position", sa.Boolean(), server_default=sa.text("false"), nullable=False),
         sa.Column("latency_ms", sa.Integer(), nullable=True),
         sa.Column("trace_id", sa.Text(), nullable=True),
-        sa.CheckConstraint("attempts BETWEEN 1 AND 3", name="attempts_range"),
-        sa.CheckConstraint("confidence BETWEEN 0 AND 1", name="confidence_range"),
-        sa.CheckConstraint("latency_ms >= 0", name="latency_nonnegative"),
-        sa.ForeignKeyConstraint(
-            ["experiment_agent_id"], ["experiment_agents.id"], ondelete="CASCADE"
+        sa.CheckConstraint("attempts BETWEEN 1 AND 3", name=op.f("ck_decisions_attempts_range")),
+        sa.CheckConstraint(
+            "confidence BETWEEN 0 AND 1", name=op.f("ck_decisions_confidence_range")
         ),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("experiment_agent_id", "day"),
+        sa.CheckConstraint("latency_ms >= 0", name=op.f("ck_decisions_latency_nonnegative")),
+        sa.ForeignKeyConstraint(
+            ["experiment_agent_id"],
+            ["experiment_agents.id"],
+            name=op.f("fk_decisions_experiment_agent_id_experiment_agents"),
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_decisions")),
+        sa.UniqueConstraint(
+            "experiment_agent_id", "day", name=op.f("uq_decisions_experiment_agent_id")
+        ),
     )
     op.create_table(
         "forum_messages",
@@ -194,14 +228,25 @@ def upgrade() -> None:
         ),
         sa.Column("flagged", sa.Boolean(), server_default=sa.text("false"), nullable=False),
         sa.Column("verified", sa.Boolean(), nullable=True),
-        sa.CheckConstraint("length(content) <= 1000", name="content_length"),
-        sa.ForeignKeyConstraint(
-            ["asset"],
-            ["assets.symbol"],
+        sa.CheckConstraint(
+            "length(content) <= 1000", name=op.f("ck_forum_messages_content_length")
         ),
-        sa.ForeignKeyConstraint(["experiment_id"], ["experiments.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["sender_id"], ["experiment_agents.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
+        sa.ForeignKeyConstraint(
+            ["asset"], ["assets.symbol"], name=op.f("fk_forum_messages_asset_assets")
+        ),
+        sa.ForeignKeyConstraint(
+            ["experiment_id"],
+            ["experiments.id"],
+            name=op.f("fk_forum_messages_experiment_id_experiments"),
+            ondelete="CASCADE",
+        ),
+        sa.ForeignKeyConstraint(
+            ["sender_id"],
+            ["experiment_agents.id"],
+            name=op.f("fk_forum_messages_sender_id_experiment_agents"),
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_forum_messages")),
     )
     op.create_index(
         "forum_messages_exp_day_idx", "forum_messages", ["experiment_id", "day"], unique=False
@@ -213,12 +258,15 @@ def upgrade() -> None:
         sa.Column("equity", sa.Numeric(precision=20, scale=2), nullable=False),
         sa.Column("cash", sa.Numeric(precision=20, scale=2), nullable=False),
         sa.Column("holdings", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.CheckConstraint("cash >= 0", name="cash_nonnegative"),
-        sa.CheckConstraint("equity >= 0", name="equity_nonnegative"),
+        sa.CheckConstraint("cash >= 0", name=op.f("ck_portfolio_snapshots_cash_nonnegative")),
+        sa.CheckConstraint("equity >= 0", name=op.f("ck_portfolio_snapshots_equity_nonnegative")),
         sa.ForeignKeyConstraint(
-            ["experiment_agent_id"], ["experiment_agents.id"], ondelete="CASCADE"
+            ["experiment_agent_id"],
+            ["experiment_agents.id"],
+            name=op.f("fk_portfolio_snapshots_experiment_agent_id_experiment_agents"),
+            ondelete="CASCADE",
         ),
-        sa.PrimaryKeyConstraint("experiment_agent_id", "day"),
+        sa.PrimaryKeyConstraint("experiment_agent_id", "day", name=op.f("pk_portfolio_snapshots")),
     )
     op.create_table(
         "trust_scores",
@@ -238,22 +286,46 @@ def upgrade() -> None:
             server_default=sa.text("now()"),
             nullable=False,
         ),
-        sa.CheckConstraint("confirmed >= 0", name="confirmed_nonnegative"),
-        sa.CheckConstraint("refuted >= 0", name="refuted_nonnegative"),
-        sa.CheckConstraint("truster_id <> trustee_id", name="no_self_trust"),
-        sa.ForeignKeyConstraint(["trustee_id"], ["experiment_agents.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["truster_id"], ["experiment_agents.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("truster_id", "trustee_id"),
+        sa.CheckConstraint("confirmed >= 0", name=op.f("ck_trust_scores_confirmed_nonnegative")),
+        sa.CheckConstraint("refuted >= 0", name=op.f("ck_trust_scores_refuted_nonnegative")),
+        sa.CheckConstraint("truster_id <> trustee_id", name=op.f("ck_trust_scores_no_self_trust")),
+        sa.ForeignKeyConstraint(
+            ["trustee_id"],
+            ["experiment_agents.id"],
+            name=op.f("fk_trust_scores_trustee_id_experiment_agents"),
+            ondelete="CASCADE",
+        ),
+        sa.ForeignKeyConstraint(
+            ["truster_id"],
+            ["experiment_agents.id"],
+            name=op.f("fk_trust_scores_truster_id_experiment_agents"),
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("truster_id", "trustee_id", name=op.f("pk_trust_scores")),
     )
     op.create_table(
         "decision_forum_reads",
         sa.Column("decision_id", sa.UUID(), nullable=False),
         sa.Column("forum_message_id", sa.UUID(), nullable=False),
         sa.Column("weight", sa.Numeric(precision=5, scale=4), nullable=False),
-        sa.CheckConstraint("weight BETWEEN 0 AND 1", name="weight_range"),
-        sa.ForeignKeyConstraint(["decision_id"], ["decisions.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["forum_message_id"], ["forum_messages.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("decision_id", "forum_message_id"),
+        sa.CheckConstraint(
+            "weight BETWEEN 0 AND 1", name=op.f("ck_decision_forum_reads_weight_range")
+        ),
+        sa.ForeignKeyConstraint(
+            ["decision_id"],
+            ["decisions.id"],
+            name=op.f("fk_decision_forum_reads_decision_id_decisions"),
+            ondelete="CASCADE",
+        ),
+        sa.ForeignKeyConstraint(
+            ["forum_message_id"],
+            ["forum_messages.id"],
+            name=op.f("fk_decision_forum_reads_forum_message_id_forum_messages"),
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint(
+            "decision_id", "forum_message_id", name=op.f("pk_decision_forum_reads")
+        ),
     )
     op.create_table(
         "trades",
@@ -265,15 +337,17 @@ def upgrade() -> None:
         sa.Column("price", sa.Numeric(precision=20, scale=8), nullable=False),
         sa.Column("fee", sa.Numeric(precision=20, scale=8), nullable=False),
         sa.Column("executed_at", sa.DateTime(timezone=True), nullable=False),
-        sa.CheckConstraint("fee >= 0", name="fee_nonnegative"),
-        sa.CheckConstraint("price > 0", name="price_positive"),
-        sa.CheckConstraint("quantity > 0", name="quantity_positive"),
+        sa.CheckConstraint("fee >= 0", name=op.f("ck_trades_fee_nonnegative")),
+        sa.CheckConstraint("price > 0", name=op.f("ck_trades_price_positive")),
+        sa.CheckConstraint("quantity > 0", name=op.f("ck_trades_quantity_positive")),
+        sa.ForeignKeyConstraint(["asset"], ["assets.symbol"], name=op.f("fk_trades_asset_assets")),
         sa.ForeignKeyConstraint(
-            ["asset"],
-            ["assets.symbol"],
+            ["decision_id"],
+            ["decisions.id"],
+            name=op.f("fk_trades_decision_id_decisions"),
+            ondelete="CASCADE",
         ),
-        sa.ForeignKeyConstraint(["decision_id"], ["decisions.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_trades")),
     )
     op.create_index("trades_decision_idx", "trades", ["decision_id"], unique=False)
     op.create_table(
@@ -301,13 +375,23 @@ def upgrade() -> None:
             server_default=sa.text("now()"),
             nullable=False,
         ),
-        sa.CheckConstraint("importance BETWEEN 0 AND 1", name="importance_range"),
-        sa.CheckConstraint("length(lesson) BETWEEN 20 AND 2000", name="lesson_length"),
-        sa.ForeignKeyConstraint(
-            ["experiment_agent_id"], ["experiment_agents.id"], ondelete="CASCADE"
+        sa.CheckConstraint("importance BETWEEN 0 AND 1", name=op.f("ck_memories_importance_range")),
+        sa.CheckConstraint(
+            "length(lesson) BETWEEN 20 AND 2000", name=op.f("ck_memories_lesson_length")
         ),
-        sa.ForeignKeyConstraint(["source_trade_id"], ["trades.id"], ondelete="SET NULL"),
-        sa.PrimaryKeyConstraint("id"),
+        sa.ForeignKeyConstraint(
+            ["experiment_agent_id"],
+            ["experiment_agents.id"],
+            name=op.f("fk_memories_experiment_agent_id_experiment_agents"),
+            ondelete="CASCADE",
+        ),
+        sa.ForeignKeyConstraint(
+            ["source_trade_id"],
+            ["trades.id"],
+            name=op.f("fk_memories_source_trade_id_trades"),
+            ondelete="SET NULL",
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_memories")),
     )
     op.create_index(
         "memories_embedding_hnsw",
@@ -328,9 +412,19 @@ def upgrade() -> None:
         sa.Column("decision_id", sa.UUID(), nullable=False),
         sa.Column("memory_id", sa.UUID(), nullable=False),
         sa.Column("score", sa.Numeric(precision=6, scale=5), nullable=False),
-        sa.ForeignKeyConstraint(["decision_id"], ["decisions.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["memory_id"], ["memories.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("decision_id", "memory_id"),
+        sa.ForeignKeyConstraint(
+            ["decision_id"],
+            ["decisions.id"],
+            name=op.f("fk_decision_memories_decision_id_decisions"),
+            ondelete="CASCADE",
+        ),
+        sa.ForeignKeyConstraint(
+            ["memory_id"],
+            ["memories.id"],
+            name=op.f("fk_decision_memories_memory_id_memories"),
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("decision_id", "memory_id", name=op.f("pk_decision_memories")),
     )
     assets = sa.table("assets", sa.column("symbol", sa.Text()))
     op.bulk_insert(assets, [{"symbol": a} for a in ASSETS])
