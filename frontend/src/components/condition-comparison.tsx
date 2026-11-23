@@ -38,6 +38,12 @@ export function ConditionComparison({
             <th className="text-right">Getiri</th>
             <th className="text-right">Sürü kor.</th>
             <th className="text-right">Ders tutarlılığı</th>
+            <th
+              className="text-right"
+              title="Forumun okunduğu ortalama gönderen ağırlığı w (C2'de hep 0,5)"
+            >
+              Ort. forum ağırlığı
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -91,6 +97,9 @@ export function ConditionComparison({
                 <td className="text-right num">{formatNum(c.herdCorrelation)}</td>
                 <td className="text-right num">
                   {c.lessonConsistency === null ? '—' : formatPct(c.lessonConsistency)}
+                </td>
+                <td className="text-right num">
+                  {c.meanForumWeight === null ? '—' : formatNum(c.meanForumWeight)}
                 </td>
               </tr>
             )

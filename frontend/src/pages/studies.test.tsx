@@ -81,6 +81,13 @@ describe('studies in the mock (contract of /studies)', () => {
       ['C2', 2],
       ['C3', 2],
     ])
+    expect(comparison.conditions.map((c) => c.meanForumWeight)).toEqual([
+      null,
+      null,
+      null,
+      0.5,
+      0.56,
+    ])
     expect(comparison.differences.map((d) => `${d.condition}-${d.baseline}`)).toEqual([
       'C1-C0',
       'C1-C1_NO_REGIME',

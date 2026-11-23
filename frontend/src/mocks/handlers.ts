@@ -318,6 +318,7 @@ function conditionSummaries(exp: Experiment): ConditionSummary[] {
       totalReturn: mean((x) => x.ret),
       herdCorrelation: mean((x) => x.herd),
       lessonConsistency: condition === 'C0' ? null : 0.9 + (mean((x) => x.lessons) % 7) / 100,
+      meanForumWeight: mockForumWeight(condition),
     }
   })
 }
@@ -353,6 +354,9 @@ function studyRuns(study: Study): Experiment[] {
     .filter((e) => e.studyId === study.id)
     .sort((a, b) => a.seed - b.seed || order(a.condition) - order(b.condition))
 }
+
+// C2 reads everyone at 1/2; the mock's C3 at a typical learned level.
+const mockForumWeight = (c: Condition) => (c === 'C2' ? 0.5 : c === 'C3' ? 0.56 : null)
 
 function studyStatus(runs: Experiment[]): ExperimentStatus {
   const s = new Set(runs.map((e) => e.status))
@@ -426,6 +430,7 @@ function studyComparison(study: Study): StudyComparison | null {
         totalReturn: mean(rows.map((r) => r.ret)),
         herdCorrelation: mean(rows.map((r) => r.herd)),
         lessonConsistency: condition === 'C0' ? null : 0.92,
+        meanForumWeight: mockForumWeight(condition),
       },
     ]
   })

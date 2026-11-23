@@ -272,6 +272,10 @@ export interface ConditionSummary {
   totalReturn: number
   herdCorrelation: number
   lessonConsistency: number | null
+  // Mean sender weight w the agents read the forum with (per run, then over runs); null
+  // without a forum (C0, C1, C1′). C2 is always 0.5; C3's level shows how much of C3 − C2 is
+  // the forum's overall weight rather than telling senders apart.
+  meanForumWeight: number | null
 }
 
 export interface Report {

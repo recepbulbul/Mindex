@@ -336,6 +336,7 @@ class ConditionSummary(ApiModel):
     total_return: float
     herd_correlation: float
     lesson_consistency: float | None
+    mean_forum_weight: float | None  # mean w read (per run, then over runs); None without forum
 
 
 class ReportOut(ApiModel):

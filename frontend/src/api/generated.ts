@@ -71,6 +71,7 @@ export interface ConditionSummary {
   totalReturn: number
   herdCorrelation: number
   lessonConsistency: number | null
+  meanForumWeight: number | null
 }
 
 export interface CounterfactualOut {

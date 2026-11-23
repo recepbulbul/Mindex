@@ -17,7 +17,16 @@ import mindex.services.runner
 import mindex.services.study
 from mindex import cli
 from mindex.config import Settings
-from mindex.db.models import Experiment, ExperimentStatus, Study, User, UserRole
+from mindex.db.models import (
+    DecisionForumRead,
+    DecisionRow,
+    Experiment,
+    ExperimentAgent,
+    ExperimentStatus,
+    Study,
+    User,
+    UserRole,
+)
 from mindex.evaluation.bootstrap import bootstrap_sharpe
 from mindex.memory.embedder import HashEmbedder
 from mindex.services.runner import ExperimentRunner, lesson_consistency
@@ -493,3 +502,26 @@ def test_cli_start_again_resumes_the_runs_a_failure_left_queued(
     cli_env.expire_all()
     statuses = cli_env.scalars(select(Experiment.status).where(Experiment.study_id == study.id))
     assert set(statuses) == {ExperimentStatus.COMPLETED}
+
+
+def test_mean_forum_weight_per_condition(
+    api: TestClient, viewer: dict[str, str], finished_study: dict[str, Any], db_session: Session
+) -> None:
+    """C3 - C2 mixes two things: telling senders apart and the forum's overall weight. The
+    mean weight the agents read with shows the second (C2: always 1/2)."""
+    comp = api.get(f"/api/studies/{finished_study['id']}/comparison", headers=viewer).json()
+    rows = {c["condition"]: c for c in comp["conditions"]}
+    for c in ("C0", "C1", "C1_NO_REGIME"):
+        assert rows[c]["meanForumWeight"] is None  # no forum
+    assert rows["C2"]["meanForumWeight"] == 0.5
+    c3 = uuid.UUID(_run(finished_study, "C3"))
+    weights = db_session.scalars(
+        select(DecisionForumRead.weight)
+        .join(DecisionRow, DecisionRow.id == DecisionForumRead.decision_id)
+        .join(ExperimentAgent, ExperimentAgent.id == DecisionRow.experiment_agent_id)
+        .where(ExperimentAgent.experiment_id == c3)
+    ).all()
+    assert weights
+    assert rows["C3"]["meanForumWeight"] == pytest.approx(
+        float(sum(weights)) / len(weights), abs=1e-6
+    )

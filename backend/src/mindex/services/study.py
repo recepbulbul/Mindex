@@ -15,7 +15,7 @@ from datetime import timedelta
 from statistics import fmean
 from typing import cast
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from mindex.agents.llm import PROMPT_VERSION
@@ -41,7 +41,10 @@ from mindex.db.models import (
     AgentKindDb,
     AgentRow,
     Condition,
+    DecisionForumRead,
+    DecisionRow,
     Experiment,
+    ExperimentAgent,
     ExperimentMode,
     ExperimentStatus,
     Study,
@@ -246,6 +249,7 @@ class _Run:
     risk: list[tuple[float, float]]  # (max drawdown, total return) per LLM agent
     herd: float
     checks: tuple[int, int]  # (valid, consistent) post-mortem attempts
+    forum_weight: float | None  # mean sender weight w the run's decisions read (None: no reads)
 
 
 # Bootstrapping 2000 resamples per request is the slow part: results are kept per study and
@@ -288,7 +292,7 @@ def compare(
     if key in _CACHE:
         _CACHE.move_to_end(key)
         return _CACHE[key]
-    result = _compare(study, runs, resamples)
+    result = _compare(study, runs, resamples, _forum_weights(session, runs))
     if result is not None:
         _CACHE[key] = result
         while len(_CACHE) > CACHE_SIZE:
@@ -296,8 +300,23 @@ def compare(
     return result
 
 
+def _forum_weights(session: Session, runs: Sequence[Experiment]) -> dict[uuid.UUID, float]:
+    """Mean `decision_forum_reads.weight` per run that read the forum."""
+    rows = session.execute(
+        select(ExperimentAgent.experiment_id, func.avg(DecisionForumRead.weight))
+        .join(DecisionRow, DecisionRow.experiment_agent_id == ExperimentAgent.id)
+        .join(DecisionForumRead, DecisionForumRead.decision_id == DecisionRow.id)
+        .where(ExperimentAgent.experiment_id.in_([e.id for e in runs]))
+        .group_by(ExperimentAgent.experiment_id)
+    ).all()
+    return {experiment_id: float(mean) for experiment_id, mean in rows}
+
+
 def _compare(
-    study: Study, runs: Sequence[Experiment], resamples: int | None
+    study: Study,
+    runs: Sequence[Experiment],
+    resamples: int | None,
+    forum_weights: dict[uuid.UUID, float],
 ) -> StudyComparisonOut | None:
     done = [e for e in runs if e.status is ExperimentStatus.COMPLETED and e.checkpoint is not None]
     if not done:
@@ -316,7 +335,15 @@ def _compare(
             )
         s, r, h = _summary_inputs(exp)
         by_condition[exp.condition].append(
-            _Run(exp.condition, exp.seed, s, r, h, lesson_consistency(exp.config))
+            _Run(
+                exp.condition,
+                exp.seed,
+                s,
+                r,
+                h,
+                lesson_consistency(exp.config),
+                forum_weights.get(exp.id),
+            )
         )
     n = RESAMPLES if resamples is None else resamples
 
@@ -330,6 +357,7 @@ def _compare(
         if not rows:
             continue
         est = boot.sharpe[str(c)]
+        read = [r.forum_weight for r in rows if r.forum_weight is not None]
         valid = sum(r.checks[0] for r in rows)
         consistent = sum(r.checks[1] for r in rows)
         conditions.append(
@@ -348,6 +376,7 @@ def _compare(
                 lesson_consistency=(
                     None if c is Condition.C0 or valid == 0 else consistent / valid
                 ),
+                mean_forum_weight=fmean(read) if read else None,
             )
         )
     differences: list[ConditionDifference] = []
