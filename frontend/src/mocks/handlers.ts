@@ -1,19 +1,27 @@
 import { delay, http, HttpResponse } from 'msw'
 import {
   CONDITIONS,
+  MAX_SEEDS,
   PROMPT_VERSION,
+  SMOKE_DAYS,
   type AgentDetail,
   type AgentMetrics,
   type ApiErrorBody,
+  type Condition,
+  type ConditionDifference,
   type ConditionSummary,
   type Experiment,
   type ExperimentCreate,
+  type ExperimentStatus,
   type ExperimentUpdate,
   type Health,
   type LoginRequest,
   type LoginResponse,
   type RegisterRequest,
   type Report,
+  type Study,
+  type StudyComparison,
+  type StudyCreate,
   type Timeline,
   type User,
   type UserRole,
@@ -37,6 +45,7 @@ export const resetMockDb = () => {
   experiments = seedExperiments()
   owners = new Map()
   registered = {}
+  studies = []
 }
 
 const findUser = (email: string) => DEMO_USERS[email] ?? registered[email]
@@ -300,6 +309,8 @@ function conditionSummaries(exp: Experiment): ConditionSummary[] {
     const sharpes = perSeed.map((x) => x.sharpe).sort((a, b) => a - b)
     return {
       condition,
+      runs: SEEDS.length,
+      complete: true,
       sharpeMean: mean((x) => x.sharpe),
       sharpeCiLow: sharpes[0]!,
       sharpeCiHigh: sharpes.at(-1)!,
@@ -307,8 +318,255 @@ function conditionSummaries(exp: Experiment): ConditionSummary[] {
       totalReturn: mean((x) => x.ret),
       herdCorrelation: mean((x) => x.herd),
       lessonConsistency: condition === 'C0' ? null : 0.9 + (mean((x) => x.lessons) % 7) / 100,
+      meanForumWeight: mockForumWeight(condition),
     }
   })
+}
+
+// ---------------------------------------------------------------- studies (#54)
+// The backend's services/study.py: every condition × seed as draft experiments, queued
+// together, compared per condition. The mock's CI is the spread over seeds (min–max), not the
+// backend's block bootstrap over days, so its numbers only show the shape.
+
+let studies: (Study & { owner: string })[] = []
+const STUDY_NOT_FOUND = 'Çalışma bulunamadı.'
+const STUDY_NOT_OWNER = 'Bu çalışma başka bir araştırmacıya ait; yalnızca sahibi başlatabilir.'
+const NEEDS_LLM = 'Çalışma en az bir LLM ajanı ister: karşılaştırma LLM ajanlarının üzerinedir.'
+const DIFFERENCE_PAIRS: [Condition, Condition][] = [
+  ['C1', 'C0'],
+  ['C1', 'C1_NO_REGIME'],
+  ['C2', 'C1'],
+  ['C3', 'C2'],
+  ['C3', 'C0'],
+]
+const CONDITION_NAME: Record<Condition, string> = {
+  C0: 'C0',
+  C1: 'C1',
+  C1_NO_REGIME: 'C1′',
+  C2: 'C2',
+  C3: 'C3',
+}
+
+function studyRuns(study: Study): Experiment[] {
+  settleRuns()
+  const order = (c: Condition) => CONDITIONS.indexOf(c)
+  return experiments
+    .filter((e) => e.studyId === study.id)
+    .sort((a, b) => a.seed - b.seed || order(a.condition) - order(b.condition))
+}
+
+// C2 reads everyone at 1/2; the mock's C3 at a typical learned level.
+const mockForumWeight = (c: Condition) => (c === 'C2' ? 0.5 : c === 'C3' ? 0.56 : null)
+
+function studyStatus(runs: Experiment[]): ExperimentStatus {
+  const s = new Set(runs.map((e) => e.status))
+  if (s.size === 0 || (s.size === 1 && s.has('draft'))) return 'draft'
+  if (s.size === 1 && s.has('completed')) return 'completed'
+  if (s.has('running')) return 'running'
+  if (s.has('queued')) return 'queued'
+  if (s.has('failed')) return 'failed'
+  return 'running'
+}
+
+function studyOut({ owner: _owner, ...study }: Study & { owner: string }): Study {
+  const runs = studyRuns(study)
+  return {
+    ...study,
+    status: studyStatus(runs),
+    runs: runs.map((e) => ({
+      experimentId: e.id,
+      condition: e.condition,
+      seed: e.seed,
+      status: e.status,
+      lastDay: e.status === 'completed' ? e.endDate : null,
+    })),
+  }
+}
+
+function checkStudy(body: StudyCreate): Record<string, string> | null {
+  if (typeof body.name !== 'string' || body.name.trim().length < 3)
+    return { name: 'En az 3 karakter' }
+  if (body.name.trim().length > 80) return { name: 'En fazla 80 karakter' }
+  if (!Array.isArray(body.seeds) || body.seeds.length < 1 || body.seeds.length > MAX_SEEDS)
+    return { seeds: `1 ile ${MAX_SEEDS} arasında seed` }
+  if (new Set(body.seeds).size !== body.seeds.length) return { seeds: "Seed'ler farklı olmalı" }
+  return null
+}
+
+function studyComparison(study: Study): StudyComparison | null {
+  const runs = studyRuns(study)
+  const done = runs.filter((e) => e.status === 'completed')
+  if (done.length === 0) return null
+  const llm = (e: Experiment) => LLM_AGENT_IDS.filter((id) => e.agentIds.includes(id))
+  const perRun = done.map((e) => {
+    const sim = getSimulation(e)
+    const m = llm(e).map((id) => metricsFor(sim, id))
+    const avg = (f: (x: AgentMetrics) => number) => m.reduce((s, x) => s + f(x), 0) / m.length
+    return {
+      exp: e,
+      sharpe: avg((x) => x.sharpe),
+      mdd: avg((x) => x.maxDrawdown),
+      ret: avg((x) => x.totalReturn),
+      herd: m.length >= 2 ? llmHerd(sim) : 0,
+      days: sim.days.length - 1,
+    }
+  })
+  const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length
+  const conditions: ConditionSummary[] = CONDITIONS.flatMap((condition) => {
+    const rows = perRun.filter((r) => r.exp.condition === condition)
+    if (rows.length === 0) return []
+    const sharpes = rows.map((r) => r.sharpe)
+    return [
+      {
+        condition,
+        runs: rows.length,
+        complete: runs
+          .filter((e) => e.condition === condition)
+          .every((e) => e.status === 'completed'),
+        sharpeMean: mean(sharpes),
+        sharpeCiLow: Math.min(...sharpes),
+        sharpeCiHigh: Math.max(...sharpes),
+        maxDrawdown: mean(rows.map((r) => r.mdd)),
+        totalReturn: mean(rows.map((r) => r.ret)),
+        herdCorrelation: mean(rows.map((r) => r.herd)),
+        lessonConsistency: condition === 'C0' ? null : 0.92,
+        meanForumWeight: mockForumWeight(condition),
+      },
+    ]
+  })
+  const bySeed = (c: Condition) =>
+    new Map(perRun.filter((r) => r.exp.condition === c).map((r) => [r.exp.seed, r.sharpe]))
+  const differences: ConditionDifference[] = DIFFERENCE_PAIRS.flatMap(([condition, baseline]) => {
+    const a = bySeed(condition)
+    const b = bySeed(baseline)
+    const diffs = [...a].filter(([seed]) => b.has(seed)).map(([seed, x]) => x - b.get(seed)!)
+    if (diffs.length === 0) return []
+    return [
+      {
+        condition,
+        baseline,
+        seeds: diffs.length,
+        sharpeDiff: mean(diffs),
+        ciLow: Math.min(...diffs),
+        ciHigh: Math.max(...diffs),
+      },
+    ]
+  })
+  const days = Math.min(...perRun.map((r) => r.days))
+  return {
+    studyId: study.id,
+    complete: runs.every((e) => e.status === 'completed'),
+    days,
+    blockLength: Math.max(1, Math.round(Math.cbrt(days))),
+    resamples: 2000,
+    conditions,
+    differences,
+  }
+}
+
+const findStudy = (id: string | readonly string[] | undefined) => studies.find((s) => s.id === id)
+
+const studyHandlers = [
+  http.get(`${API}/studies`, async () => {
+    await delay()
+    return HttpResponse.json([...studies].reverse().map(studyOut))
+  }),
+
+  http.post(`${API}/studies`, async ({ request }) => {
+    await delay()
+    if (roleOf(request) !== 'researcher') return error(403, FORBIDDEN)
+    const body = (await request.json()) as StudyCreate
+    const invalid = checkStudy(body)
+    if (invalid) return error(422, INVALID_CONFIG, invalid)
+    const start = body.startDate
+    const end = body.smoke ? minDate(body.endDate, addDays(start, SMOKE_DAYS)) : body.endDate
+    const seeds = body.smoke ? body.seeds.slice(0, 1) : body.seeds
+    const configs = seeds.flatMap((seed) =>
+      CONDITIONS.map((condition): ExperimentCreate => ({
+        name: `${body.name.trim()} · ${CONDITION_NAME[condition]} · seed ${seed}`,
+        mode: 'replay',
+        condition,
+        startDate: start,
+        endDate: end,
+        assets: body.assets,
+        agentIds: body.agentIds,
+        seed,
+        commissionRate: body.commissionRate,
+        slippageBps: body.slippageBps,
+      })),
+    )
+    const checked = checkConfig(configs[0])
+    if ('fields' in checked) return error(422, INVALID_CONFIG, checked.fields)
+    if (!body.agentIds.some((id) => LLM_AGENT_IDS.includes(id)))
+      return error(422, INVALID_CONFIG, { agentIds: NEEDS_LLM })
+    // Only the agents and the mode decide, and they are the same for every run.
+    const notRunnable = runnableErrors({ ...checked.data, id: '', status: 'draft' } as Experiment)
+    if (notRunnable)
+      return error(422, 'Çalışmanın deneyleri bu koşucuda başlatılamaz.', notRunnable)
+    const id = `study-${crypto.randomUUID().slice(0, 8)}`
+    for (const config of configs) addDraft(config, request).studyId = id
+    const study = {
+      ...body,
+      name: body.name.trim(),
+      endDate: end,
+      seeds,
+      id,
+      status: 'draft' as const,
+      createdAt: new Date().toISOString(),
+      runs: [],
+      owner: userOf(request)?.email ?? '',
+    }
+    studies.push(study)
+    return HttpResponse.json(studyOut(study), { status: 201 })
+  }),
+
+  http.get(`${API}/studies/:id`, async ({ params }) => {
+    await delay()
+    const study = findStudy(params.id)
+    return study ? HttpResponse.json(studyOut(study)) : error(404, STUDY_NOT_FOUND)
+  }),
+
+  http.post(`${API}/studies/:id/start`, async ({ params, request }) => {
+    await delay()
+    if (roleOf(request) !== 'researcher') return error(403, FORBIDDEN)
+    const study = findStudy(params.id)
+    if (!study) return error(404, STUDY_NOT_FOUND)
+    if (userOf(request)?.email !== study.owner) return error(403, STUDY_NOT_OWNER)
+    for (const e of studyRuns(study))
+      if (e.status === 'draft' || e.status === 'failed') {
+        e.status = 'queued'
+        e.error = null
+      }
+    const out = studyOut(study)
+    return HttpResponse.json({ ...out, status: 'queued' satisfies ExperimentStatus })
+  }),
+
+  http.get(`${API}/studies/:id/comparison`, async ({ params }) => {
+    await delay()
+    const study = findStudy(params.id)
+    if (!study) return error(404, STUDY_NOT_FOUND)
+    const comparison = studyComparison(study)
+    return comparison
+      ? HttpResponse.json(comparison)
+      : error(409, 'Çalışmanın henüz tamamlanan koşusu yok.')
+  }),
+]
+
+function addDays(day: string, n: number) {
+  const d = new Date(`${day}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + n)
+  return d.toISOString().slice(0, 10)
+}
+
+const minDate = (a: string, b: string) => (a < b ? a : b)
+
+// A study's experiment reports its study's table, like the backend; the seeded demo runs keep
+// their five virtual seeds per condition.
+function reportConditions(exp: Experiment): ConditionSummary[] {
+  if (exp.mode !== 'replay') return []
+  const study = exp.studyId ? findStudy(exp.studyId) : undefined
+  if (study) return studyComparison(study)?.conditions ?? []
+  return conditionSummaries(exp)
 }
 
 export const handlers = [
@@ -515,7 +773,8 @@ export const handlers = [
         'buy-hold-btc',
       ),
       herdCorrelation: llmHerd(sim),
-      conditions: exp.mode === 'replay' ? conditionSummaries(exp) : [],
+      conditions: reportConditions(exp),
     } satisfies Report)
   }),
+  ...studyHandlers,
 ]

@@ -45,6 +45,10 @@ BAD_YAML = "YAML okunamadı."
 NOT_STARTABLE = '"{status}" durumundaki deney başlatılamaz.'
 NOT_RUNNABLE = "Deney bu koşucuda başlatılamaz."
 NOT_OWNER = "Bu deney başka bir araştırmacıya ait; yalnızca sahibi değiştirebilir."
+IN_STUDY = (
+    "Bu deney bir çalışmaya ait: koşulları aynı dönem, ajan ve varlıkla karşılaştırılır; "
+    "tek başına düzenlenemez ya da silinemez."
+)
 PPO_UNAVAILABLE = "PPO ajanı eğitilmiş model ister; bu sunucuda MINDEX_PPO_MODEL_DIR ayarlı değil."
 TEST_WINDOW = SPLITS[Split.TEST]
 SEALED = (
@@ -59,7 +63,7 @@ YAML_HEADER = "# Mindex deney yapılandırması (F2)\n"
 YAML_KEYS = {"name", "mode", "condition", "period", "assets", "agents", "seed", "execution", "llm"}
 
 
-def _invalid(fields: Mapping[str, str], detail: str = INVALID_CONFIG) -> HTTPException:
+def invalid(fields: Mapping[str, str], detail: str = INVALID_CONFIG) -> HTTPException:
     return HTTPException(
         status.HTTP_422_UNPROCESSABLE_CONTENT, {"detail": detail, "fields": dict(fields)}
     )
@@ -76,7 +80,7 @@ def parse_config(data: Mapping[str, Any]) -> ExperimentCreate:
         return ExperimentCreate.model_validate(data)
     except ValidationError as exc:
         errs = [{**e, "loc": ("body", *e["loc"])} for e in exc.errors()]
-        raise _invalid(validation_fields(errs)) from None
+        raise invalid(validation_fields(errs)) from None
 
 
 def check_config(cfg: ExperimentCreate, agents: Mapping[str, AgentRow], settings: Settings) -> None:
@@ -84,33 +88,33 @@ def check_config(cfg: ExperimentCreate, agents: Mapping[str, AgentRow], settings
     distinct agents, agents this server can build, and the sealed test window."""
     known_agents = list(agents)
     if cfg.mode == "replay" and cfg.end_date is None:
-        raise _invalid({"endDate": "Replay modunda bitiş tarihi zorunlu"})
+        raise invalid({"endDate": "Replay modunda bitiş tarihi zorunlu"})
     if cfg.end_date is not None and cfg.end_date <= cfg.start_date:
-        raise _invalid({"endDate": "Bitiş, başlangıçtan sonra olmalı"})
+        raise invalid({"endDate": "Bitiş, başlangıçtan sonra olmalı"})
     unknown = next((a for a in cfg.agent_ids if a not in known_agents), None)
     if unknown is not None:
-        raise _invalid({"agentIds": f"Bilinmeyen ajan: {unknown}"})
+        raise invalid({"agentIds": f"Bilinmeyen ajan: {unknown}"})
     if len(set(cfg.agent_ids)) != len(cfg.agent_ids):
-        raise _invalid({"agentIds": "Aynı ajan birden fazla seçilmiş."})
+        raise invalid({"agentIds": "Aynı ajan birden fazla seçilmiş."})
     # Refused here, not half-way through a run: the PPO agent needs a trained artefact.
     if settings.ppo_model_dir is None and any(
         agents[a].kind is AgentKindDb.RL for a in cfg.agent_ids
     ):
-        raise _invalid({"agentIds": PPO_UNAVAILABLE})
+        raise invalid({"agentIds": PPO_UNAVAILABLE})
     if overlaps_test_window(cfg.start_date, cfg.end_date):
         field = (
             "endDate"
             if cfg.end_date is not None and cfg.start_date < TEST_WINDOW.start
             else "startDate"
         )
-        raise _invalid({field: SEALED})
+        raise invalid({field: SEALED})
 
 
 def _agents_by_slug(session: SessionDep) -> dict[str, AgentRow]:
     return {a.slug: a for a in session.scalars(select(AgentRow))}
 
 
-def _out(exp: Experiment) -> ExperimentOut:
+def experiment_out(exp: Experiment) -> ExperimentOut:
     return ExperimentOut(
         id=str(exp.id),
         name=exp.name,
@@ -128,6 +132,7 @@ def _out(exp: Experiment) -> ExperimentOut:
         prompt_version=exp.prompt_version,
         created_at=exp.created_at,
         error=cast(str | None, exp.config.get(RUN_ERROR)),
+        study_id=None if exp.study_id is None else str(exp.study_id),
     )
 
 
@@ -148,7 +153,7 @@ def config_of(exp: Experiment) -> ExperimentCreate:
     return ExperimentCreate.model_validate(user_config(exp))
 
 
-def _apply(exp: Experiment, cfg: ExperimentCreate, agents: Mapping[str, AgentRow]) -> None:
+def apply_config(exp: Experiment, cfg: ExperimentCreate, agents: Mapping[str, AgentRow]) -> None:
     """Write a validated configuration onto the row and its agent links.
 
     Costs are rounded to the columns' scale first, so the row, `config`, the API response
@@ -207,17 +212,17 @@ def _create(
         model_version=settings.llm_model,
         prompt_version=PROMPT_VERSION,
     )
-    _apply(exp, cfg, agents)
+    apply_config(exp, cfg, agents)
     session.add(exp)
     session.commit()
     session.refresh(exp)
-    return _out(exp)
+    return experiment_out(exp)
 
 
 @router.get("")
 def list_experiments(session: SessionDep, _: CurrentUser) -> list[ExperimentOut]:
     rows = session.scalars(select(Experiment).order_by(Experiment.created_at.desc()))
-    return [_out(e) for e in rows]
+    return [experiment_out(e) for e in rows]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -262,7 +267,7 @@ def import_experiment(
 
 @router.get("/{experiment_id}")
 def get_experiment(experiment_id: str, session: SessionDep, _: CurrentUser) -> ExperimentOut:
-    return _out(get_experiment_row(session, experiment_id))
+    return experiment_out(get_experiment_row(session, experiment_id))
 
 
 @router.patch(
@@ -287,16 +292,18 @@ def update_experiment(
     require_owner(exp, user)
     if exp.status is not ExperimentStatus.DRAFT:
         raise HTTPException(status.HTTP_409_CONFLICT, NOT_EDITABLE)
+    if exp.study_id is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, IN_STUDY)
     unknown = sorted(k for k in body if k not in CONFIG_FIELDS)
     if unknown:
-        raise _invalid(dict.fromkeys(unknown, "Bilinmeyen alan."))
+        raise invalid(dict.fromkeys(unknown, "Bilinmeyen alan."))
     cfg = parse_config({**user_config(exp), **body})
     agents = _agents_by_slug(session)
     check_config(cfg, agents, settings)
-    _apply(exp, cfg, agents)
+    apply_config(exp, cfg, agents)
     session.commit()
     session.refresh(exp)
-    return _out(exp)
+    return experiment_out(exp)
 
 
 @router.delete(
@@ -307,6 +314,8 @@ def update_experiment(
 def delete_experiment(experiment_id: str, session: SessionDep, user: Researcher) -> Response:
     exp = get_experiment_row(session, experiment_id)
     require_owner(exp, user)
+    if exp.study_id is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, IN_STUDY)
     if exp.status not in DELETABLE:
         raise HTTPException(
             status.HTTP_409_CONFLICT, f'"{exp.status}" durumundaki deney silinemez.'
@@ -338,7 +347,7 @@ def start_experiment(
         raise HTTPException(status.HTTP_409_CONFLICT, NOT_STARTABLE.format(status=exp.status))
     errors = runnable_errors(exp, [ea.agent for ea in agent_rows(exp)], settings)
     if errors:
-        raise _invalid(errors, NOT_RUNNABLE)
+        raise invalid(errors, NOT_RUNNABLE)
     # Claimed in SQL, so two concurrent starts cannot both queue the same experiment.
     claimed: CursorResult[Any] = session.execute(  # pyright: ignore[reportAssignmentType]
         update(Experiment)
@@ -351,7 +360,7 @@ def start_experiment(
     session.commit()
     session.refresh(exp)
     jobs.submit(exp.id)
-    return _out(exp)
+    return experiment_out(exp)
 
 
 @router.get(
@@ -394,11 +403,11 @@ def experiment_to_yaml(exp: Experiment) -> str:
 def _section(doc: Mapping[str, Any], key: str, keys: set[str]) -> Mapping[str, Any]:
     value = doc.get(key, {})
     if not isinstance(value, dict):
-        raise _invalid({key: "Eşleme olmalı."}, BAD_YAML)
+        raise invalid({key: "Eşleme olmalı."}, BAD_YAML)
     section = cast(dict[str, Any], value)
     extra = sorted(str(k) for k in section if k not in keys)
     if extra:
-        raise _invalid({f"{key}.{k}": "Bilinmeyen alan." for k in extra}, BAD_YAML)
+        raise invalid({f"{key}.{k}": "Bilinmeyen alan." for k in extra}, BAD_YAML)
     return section
 
 
@@ -435,13 +444,13 @@ def config_from_yaml(raw: bytes) -> dict[str, Any]:
         loaded = yaml.load(raw, Loader=_ConfigLoader)  # noqa: S506 (a SafeLoader subclass)
     except Exception as exc:
         log.info("yaml_import_rejected", error=type(exc).__name__, exc_info=exc)
-        raise _invalid({"body": "Geçerli bir YAML belgesi olmalı."}, BAD_YAML) from None
+        raise invalid({"body": "Geçerli bir YAML belgesi olmalı."}, BAD_YAML) from None
     if not isinstance(loaded, dict):
-        raise _invalid({"body": "Deney yapılandırması bir eşleme olmalı."}, BAD_YAML)
+        raise invalid({"body": "Deney yapılandırması bir eşleme olmalı."}, BAD_YAML)
     doc = cast(dict[str, Any], loaded)
     extra = sorted(str(k) for k in doc if k not in YAML_KEYS)
     if extra:
-        raise _invalid(dict.fromkeys(extra, "Bilinmeyen alan."), BAD_YAML)
+        raise invalid(dict.fromkeys(extra, "Bilinmeyen alan."), BAD_YAML)
     period = _section(doc, "period", {"start", "end"})
     execution = _section(doc, "execution", {"commission_rate", "slippage_bps"})
     _section(doc, "llm", {"model", "prompt_version"})

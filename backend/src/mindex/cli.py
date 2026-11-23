@@ -11,6 +11,7 @@ from collections.abc import Sequence
 from dataclasses import asdict
 from datetime import timedelta
 from pathlib import Path
+from typing import Any, cast
 
 import numpy as np
 
@@ -348,6 +349,155 @@ def create_user(email: str, role: str, *, password: str | None = None) -> None:
     print(f"{body.email} ({role}) oluşturuldu")
 
 
+# ---------------------------------------------------------------- studies (#54)
+
+STUDY_AGENTS = (
+    "buy-hold-btc",
+    "equal-weight",
+    "llm-momentum",
+    "llm-mean-reversion",
+    "llm-sentiment",
+    "llm-risk-averse",
+)
+
+
+def _study_error(exc: Exception) -> SystemExit:
+    """An API refusal (422 with fields) as a readable CLI error."""
+    from fastapi import HTTPException
+
+    if isinstance(exc, HTTPException):
+        detail = exc.detail
+        if isinstance(detail, dict):
+            body = cast(dict[str, Any], detail)
+            fields = cast(dict[str, str], body.get("fields") or {})
+            lines = [str(body.get("detail", ""))] + [f"  {k}: {v}" for k, v in fields.items()]
+            return SystemExit("\n".join(lines))
+        return SystemExit(str(detail))
+    return SystemExit(str(exc))
+
+
+def study_create(args: argparse.Namespace) -> None:
+    """Every condition x seed as draft experiments; `--smoke`: 14 days, the first seed."""
+    from fastapi import HTTPException
+    from pydantic import ValidationError
+    from sqlalchemy import select
+
+    from mindex.api.schemas import StudyCreate
+    from mindex.db.models import User, UserRole
+    from mindex.db.session import get_sessionmaker
+    from mindex.services.study import create_study, study_out
+
+    try:
+        body = StudyCreate(
+            name=args.name,
+            start_date=args.start,
+            end_date=args.end,
+            assets=args.assets,
+            agent_ids=args.agents,
+            seeds=list(range(1, args.seeds + 1)),
+            smoke=args.smoke,
+        )
+    except ValidationError as exc:
+        problems = "; ".join(
+            f"{'.'.join(map(str, e['loc']))}: {e['msg']}"
+            for e in exc.errors(include_input=False, include_url=False)
+        )
+        raise SystemExit(f"Geçersiz çalışma: {problems}") from None
+    settings = get_settings()
+    with get_sessionmaker()() as session:
+        owner = session.scalar(select(User).where(User.email == args.owner))
+        if owner is None or owner.role is not UserRole.RESEARCHER:
+            raise SystemExit(f"{args.owner}: araştırmacı kullanıcı yok (mindex create-user)")
+        try:
+            study = create_study(session, settings, owner.id, body)
+        except HTTPException as exc:
+            raise _study_error(exc) from None
+        out = study_out(session, study)
+    period = f"{out.start_date} / {out.end_date}"
+    print(f"Çalışma {out.id}: {len(out.runs)} deney ({period}, seed {out.seeds})")
+    print(f"Başlatmak için: mindex study start {out.id}")
+
+
+def study_start(study_id: str, *, run: bool) -> None:
+    """Queue the study's draft or failed runs and, unless `run` is False, run them here one by
+    one (a stopped command resumes: run it again)."""
+    from fastapi import HTTPException
+
+    from mindex.db.models import Experiment, ExperimentStatus
+    from mindex.db.session import get_sessionmaker
+    from mindex.services.runner import ExperimentRunner
+    from mindex.services.study import get_study, queue_study, study_out
+
+    settings = get_settings()
+    sessions = get_sessionmaker()
+    with sessions() as session:
+        study = get_study(session, study_id)
+        if study is None:
+            raise SystemExit(f"Çalışma bulunamadı: {study_id}")
+        try:
+            queued = queue_study(session, settings, study)
+        except HTTPException as exc:
+            raise _study_error(exc) from None
+        runs = {r.experiment_id: r for r in study_out(session, study).runs}
+    print(f"{len(queued)} deney kuyrukta")
+    if not run:
+        print("API sunucusu (mindex serve) kuyruğu açılışta devralır.")
+        return
+    runner = ExperimentRunner(sessions, settings)
+    for i, experiment_id in enumerate(queued, 1):
+        r = runs[str(experiment_id)]
+        print(f"[{i}/{len(queued)}] {r.condition} seed {r.seed} koşuyor...", flush=True)
+        started = time.perf_counter()
+        runner(experiment_id)
+        with sessions() as session:
+            exp = session.get(Experiment, experiment_id)
+            state = None if exp is None else exp.status
+            reason = None if exp is None else exp.config.get("error")
+        if state is not ExperimentStatus.COMPLETED:
+            raise SystemExit(
+                f"  {r.condition} seed {r.seed} {state}: {reason or 'neden kaydedilmedi'}\n"
+                f"Sorunu giderip aynı komutla sürdürün: mindex study start {study_id}"
+            )
+        print(f"  bitti ({time.perf_counter() - started:.0f} sn)")
+    study_status(study_id)
+
+
+def study_status(study_id: str) -> None:
+    from mindex.db.session import get_sessionmaker
+    from mindex.services.study import compare, get_study, study_out
+
+    with get_sessionmaker()() as session:
+        study = get_study(session, study_id)
+        if study is None:
+            raise SystemExit(f"Çalışma bulunamadı: {study_id}")
+        out = study_out(session, study)
+        result = compare(session, study)
+    print(f"{out.name} [{out.status}] {out.start_date} / {out.end_date}, seed {out.seeds}")
+    for r in out.runs:
+        print(f"  {r.condition:<13} seed {r.seed:<3} {r.status:<10} son gün {r.last_day or '-'}")
+    if result is None:
+        print("Henüz tamamlanan koşu yok.")
+        return
+    kind = "tam" if result.complete else "kısmi"
+    print(
+        f"\nKarşılaştırma ({kind}; {result.days} gün, blok {result.block_length}, "
+        f"{result.resamples} yeniden örnekleme)"
+    )
+    print("koşul          koşu  Sharpe  %95 GA             MDD     getiri  sürü   ders")
+    for c in result.conditions:
+        lesson = "-" if c.lesson_consistency is None else f"{c.lesson_consistency:.0%}"
+        print(
+            f"{c.condition:<13} {c.runs:>5} {c.sharpe_mean:>7.2f}  "
+            f"[{c.sharpe_ci_low:>6.2f}, {c.sharpe_ci_high:>6.2f}]  {c.max_drawdown:>6.1%} "
+            f"{c.total_return:>7.1%} {c.herd_correlation:>5.2f}  {lesson}"
+        )
+    for d in result.differences:
+        print(
+            f"{d.condition} - {d.baseline}: fark Sharpe {d.sharpe_diff:+.2f} "
+            f"[{d.ci_low:+.2f}, {d.ci_high:+.2f}]"
+        )
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="mindex", description="Mindex P3 araçları")
     parser.add_argument("--snapshot", type=Path, default=DEFAULT_SNAPSHOT)
@@ -394,6 +544,23 @@ def main(argv: Sequence[str] | None = None) -> None:
     spec = sub.add_parser("openapi", help="OpenAPI şemasını TypeScript tiplerine dök")
     spec.add_argument("--ts", type=Path, default=DEFAULT_TS, help="generated.ts yolu")
     spec.add_argument("--json", type=Path, default=None, help="isteğe bağlı openapi.json yolu")
+    validation = SPLITS[Split.VALIDATION]
+    study = sub.add_parser("study", help="C0-C3 x seed çalışması (#54)")
+    study_sub = study.add_subparsers(dest="study_command", required=True)
+    create = study_sub.add_parser("create", help="Her koşul x seed için taslak deney oluştur")
+    create.add_argument("--owner", required=True, help="araştırmacının e-postası")
+    create.add_argument("--name", default="C0-C3 karşılaştırması")
+    create.add_argument("--start", default=validation.start.isoformat())
+    create.add_argument("--end", default=validation.end.isoformat())
+    create.add_argument("--assets", nargs="+", default=[str(a) for a in Asset])
+    create.add_argument("--agents", nargs="+", default=list(STUDY_AGENTS))
+    create.add_argument("--seeds", type=int, default=5, help="1..N seed")
+    create.add_argument("--smoke", action="store_true", help="14 gün, tek seed: hızlı deneme")
+    begin = study_sub.add_parser("start", help="Kuyruğa al ve burada sırayla koştur")
+    begin.add_argument("study_id")
+    begin.add_argument("--no-run", action="store_true", help="yalnızca kuyruğa al (API koşar)")
+    status = study_sub.add_parser("status", help="Koşuların durumu ve karşılaştırma tablosu")
+    status.add_argument("study_id")
     serve = sub.add_parser("serve", help="FastAPI sunucusunu başlat (geliştirme)")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
@@ -424,6 +591,13 @@ def main(argv: Sequence[str] | None = None) -> None:
             create_user(args.email, args.role)
         elif args.command == "openapi":
             export_openapi(args.ts, args.json)
+        elif args.command == "study":
+            if args.study_command == "create":
+                study_create(args)
+            elif args.study_command == "start":
+                study_start(args.study_id, run=not args.no_run)
+            else:
+                study_status(args.study_id)
         elif args.command == "serve":
             serve_api(args.host, args.port, reload=args.reload)
         else:

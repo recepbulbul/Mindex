@@ -4,8 +4,8 @@ Shapes follow `frontend/src/api/types.ts`. Equity, decisions and trades come fro
 runner commits each day; report metrics come from the simulator checkpoint (full float
 precision, the numbers `mindex baseline` reports). The forum endpoint returns the posts, the
 current trust counts and the trust history replayed from the verdict days (`verified_on`); it
-is empty outside C2/C3. The report's `conditions` stays empty (the multi-seed condition
-comparison is the study's). Regimes are the labels the run stored; a run without a regime
+is empty outside C2/C3. The report's `conditions` is the study's condition comparison for an
+experiment in a study. Regimes are the labels the run stored; a run without a regime
 model is marked `regime_source: "placeholder"` in its `config` and shows "sideways" on every
 day.
 """
@@ -28,6 +28,7 @@ from mindex.api.schemas import (
     AgentOut,
     AgentRun,
     CandleOut,
+    ConditionSummary,
     CounterfactualOut,
     DecisionOut,
     EquityPoint,
@@ -54,6 +55,7 @@ from mindex.db.models import (
     ForumMessageRow,
     MemoryRow,
     PortfolioSnapshot,
+    Study,
     TradeRow,
     TrustScoreRow,
 )
@@ -72,6 +74,7 @@ from mindex.services.runner import (
     experiment_market,
     load_market,
 )
+from mindex.services.study import StudyMismatchError, compare
 from mindex.sim.engine import AgentBook, ExecutionCosts, SimState, Simulator
 from mindex.sim.market import MarketData
 
@@ -369,8 +372,21 @@ def report(
         agents=agents,
         benchmark=_benchmark(exp, settings, state),
         herd_correlation=herd,
-        conditions=[],  # the multi-seed condition comparison is P9
+        conditions=_study_conditions(session, exp),
     )
+
+
+def _study_conditions(session: SessionDep, exp: Experiment) -> list[ConditionSummary]:
+    """The study's condition table for one of its experiments; [] outside a study or before
+    any of its runs completed."""
+    if exp.study_id is None:
+        return []
+    study = session.get(Study, exp.study_id)
+    try:
+        result = None if study is None else compare(session, study)
+    except StudyMismatchError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from None
+    return [] if result is None else result.conditions
 
 
 @router.get("/{experiment_id}/memories")

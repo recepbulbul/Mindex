@@ -1,7 +1,9 @@
 """LLM trading agent: `decision-v1` (C0 baseline), `decision-v2` (hold option, trading cost,
-days since the last trade and, with memory, the agent's own lessons) and `decision-v3`
-(`decision-v2` plus, in C2/C3, the forum: other agents' recent posts as untrusted data and an
-optional `post` of its own inside the same JSON answer, so the forum costs no extra call).
+days since the last trade and, with memory, the agent's own lessons) and `decision-v4`
+(`decision-v2` plus, in C2/C3, the forum: other agents' recent posts as untrusted data with
+their sender's absolute weight and an optional `post` of its own inside the same JSON answer,
+so the forum costs no extra call). `decision-v3` (per-asset shares) stays only for the record:
+outside the forum it equals v2, and C2/C3 refuse it.
 
 Observation -> anonymised prompt -> llama.cpp (thinking off, JSON-schema constrained)
 -> Pydantic validation with retries -> hold on failure (NF2, flow 2 in docs/03-flows.md).
@@ -191,7 +193,7 @@ def anonymise(assets: tuple[Asset, ...]) -> dict[Asset, str]:
 
 
 def decision_schema(codes: list[str], *, post: bool = False) -> dict[str, Any]:
-    """The answer's JSON schema; `post` adds the optional forum post (decision-v3 in C2/C3)."""
+    """The answer's JSON schema; `post` adds the optional forum post (decision-v4 in C2/C3)."""
     schema = _decision_schema(codes)
     if post:
         schema["properties"]["post"] = {
@@ -278,7 +280,7 @@ def build_messages(
     if prompt_version not in PROMPT_VERSIONS:
         raise ValueError(f"unknown prompt version {prompt_version!r}")
     if lessons is not None and prompt_version not in MEMORY_VERSIONS:
-        raise ValueError("lessons need prompt version decision-v2 or decision-v3")
+        raise ValueError(f"lessons need prompt version {' or '.join(MEMORY_VERSIONS)}")
     if forum is not None and prompt_version != FORUM_VERSION:
         raise ValueError(f"the forum needs prompt version {FORUM_VERSION}")
     view = obs.view
@@ -410,7 +412,7 @@ class LLMAgent(BaseAgent):
         if prompt_version not in PROMPT_VERSIONS:
             raise ValueError(f"unknown prompt version {prompt_version!r}")
         if recall is not None and prompt_version not in MEMORY_VERSIONS:
-            raise ValueError("memory needs prompt version decision-v2 or decision-v3")
+            raise ValueError(f"memory needs prompt version {' or '.join(MEMORY_VERSIONS)}")
         if forum is not None and prompt_version != FORUM_VERSION:
             raise ValueError(f"the forum needs prompt version {FORUM_VERSION}")
         super().__init__(agent_id or f"llm-{persona}")

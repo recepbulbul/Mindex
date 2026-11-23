@@ -1,4 +1,4 @@
-"""Forum (C2/C3): untrusted text, weights, verification and the decision-v3 prompt. No database:
+"""Forum (C2/C3): untrusted text, weights, verification and the decision-v4 prompt. No database:
 the runner and API tests (test_forum_runner.py) cover persistence, resumption and look-ahead."""
 
 import json
@@ -389,7 +389,7 @@ def test_a_malformed_post_is_dropped_but_the_decision_counts() -> None:
 @pytest.mark.model
 def test_real_model_reads_the_forum_and_posts(market: MarketData) -> None:
     """Needs a running `llama-server` with the Qwen model (`uv run pytest -m model --no-cov`):
-    the decision-v3 schema with `post` is accepted and an injection in a post is not obeyed."""
+    the decision-v4 schema with `post` is accepted and an injection in a post is not obeyed."""
     from mindex.agents.llm import LlamaCppClient
     from mindex.config import get_settings
 

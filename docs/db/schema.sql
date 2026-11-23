@@ -61,9 +61,18 @@ CREATE TABLE prices (
 );
 
 -- ---------------------------------------------------------------- experiments
+CREATE TABLE studies (
+    id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    owner_id   uuid NOT NULL REFERENCES users (id) ON DELETE RESTRICT,
+    name       text NOT NULL CHECK (length(name) BETWEEN 3 AND 80),
+    config     jsonb NOT NULL,                              -- StudyCreate
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE experiments (
     id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     owner_id            uuid NOT NULL REFERENCES users (id) ON DELETE RESTRICT,
+    study_id            uuid REFERENCES studies (id) ON DELETE SET NULL,        -- koşul × seed grubu
     name                text NOT NULL CHECK (length(name) BETWEEN 3 AND 120),
     mode                experiment_mode      NOT NULL,
     condition           experiment_condition NOT NULL,
@@ -84,6 +93,7 @@ CREATE TABLE experiments (
 );
 CREATE INDEX experiments_owner_idx  ON experiments (owner_id);
 CREATE INDEX experiments_status_idx ON experiments (status);
+CREATE INDEX experiments_study_idx  ON experiments (study_id);
 
 CREATE TABLE agents (
     id      uuid PRIMARY KEY DEFAULT gen_random_uuid(),

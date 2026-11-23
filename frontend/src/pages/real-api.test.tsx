@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { renderHook, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, renderHook, screen, waitFor, within } from '@testing-library/react'
 import { delay, http, HttpResponse } from 'msw'
 import { describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
@@ -320,4 +320,76 @@ describe('forum against the backend (#13)', () => {
     expect(await screen.findByText(/^1 mesaj/)).toBeInTheDocument()
     expect(within(feed).getByText(/doğrulandı/)).toBeInTheDocument()
   })
+})
+
+describe('live screen follows a running run (#54)', () => {
+  // The timeline of a run that has reached day `n`.
+  const upTo = (n: number): Timeline => {
+    const t = timelineOf(C3)
+    const days = t.days.slice(0, n)
+    const last = days.at(-1)!
+    return {
+      ...t,
+      days,
+      regimes: t.regimes.slice(0, n),
+      candles: Object.fromEntries(Object.entries(t.candles).map(([a, cs]) => [a, cs.slice(0, n)])),
+      runs: t.runs.map((r) => ({
+        ...r,
+        equity: r.equity.slice(0, n),
+        weights: r.weights.slice(0, n),
+      })),
+      trades: t.trades.filter((x) => x.day <= last),
+    }
+  }
+
+  // "gün 40/40": the day on screen and the days so far (split over two elements).
+  const shown = (day: number, of: number) =>
+    waitFor(
+      () =>
+        expect(screen.getByText(`gün ${day}`).parentElement).toHaveTextContent(`gün ${day}/${of}`),
+      { timeout: 4000 },
+    )
+
+  it('stays on the last day when the followed run finishes', async () => {
+    let status: Experiment['status'] = 'running'
+    server.use(
+      http.get('*/api/experiments/exp-test-c3', () => HttpResponse.json({ ...C3, status })),
+      http.get('*/api/experiments/exp-test-c3/timeline', () => HttpResponse.json(upTo(50))),
+    )
+    signIn('viewer')
+    renderApp('/experiments/exp-test-c3/live')
+    await shown(50, 50)
+    status = 'completed'
+    await waitFor(() => expect(screen.queryByText('Canlı takip')).not.toBeInTheDocument(), {
+      timeout: 4000,
+    })
+    await shown(50, 50) // not back to day 30
+  }, 10_000)
+
+  it('moves to each new day until the user takes the cursor', async () => {
+    let reached = 40
+    server.use(
+      http.get('*/api/experiments/exp-test-c3', () =>
+        HttpResponse.json({ ...C3, status: 'running' }),
+      ),
+      http.get('*/api/experiments/exp-test-c3/timeline', () => HttpResponse.json(upTo(reached))),
+    )
+    signIn('viewer')
+    renderApp('/experiments/exp-test-c3/live')
+    await shown(40, 40) // the latest day, not day 30
+    expect(screen.getByText('Canlı takip')).toBeInTheDocument()
+    reached = 44
+    await shown(44, 44)
+
+    // Taking the scrubber lets go: new days arrive, the cursor stays.
+    fireEvent.change(screen.getByLabelText('Simülasyon günü'), { target: { value: '9' } })
+    await shown(10, 44)
+    reached = 47
+    await shown(10, 47)
+    expect(screen.queryByText('Canlı takip')).not.toBeInTheDocument()
+
+    // ... until the user asks to follow again.
+    fireEvent.click(screen.getByRole('button', { name: 'Canlıya dön' }))
+    await shown(47, 47)
+  }, 15_000)
 })

@@ -221,6 +221,7 @@ class ExperimentOut(ApiModel):
     prompt_version: str
     created_at: datetime
     error: str | None = None  # why the last run failed (status "failed"), else null
+    study_id: str | None = None  # the study it belongs to, if any
 
 
 class AgentOut(ApiModel):
@@ -326,6 +327,8 @@ class AgentMetrics(ApiModel):
 
 class ConditionSummary(ApiModel):
     condition: Condition
+    runs: int  # completed runs (seeds) the row is computed from
+    complete: bool  # every run of this condition in the study has completed
     sharpe_mean: float
     sharpe_ci_low: float
     sharpe_ci_high: float
@@ -333,6 +336,7 @@ class ConditionSummary(ApiModel):
     total_return: float
     herd_correlation: float
     lesson_consistency: float | None
+    mean_forum_weight: float | None  # mean w read (per run, then over runs); None without forum
 
 
 class ReportOut(ApiModel):
@@ -376,3 +380,112 @@ class ForumOut(ApiModel):
     messages: list[ForumMessageOut]
     trust: list[TrustScoreOut]
     trust_history: list[TrustHistoryPoint]
+
+
+# ---------------------------------------------------------------- studies (#54)
+
+SMOKE_DAYS = 14  # `smoke`: this many days from `startDate`, first seed only
+MAX_SEEDS = 10
+
+
+class StudyCreate(ApiModel):
+    """Every condition x every seed over one period, agents, assets and costs. Field rules are
+    those of `ExperimentCreate`; the period and agents are checked like an experiment's."""
+
+    name: str
+    start_date: IsoDate
+    end_date: IsoDate
+    assets: list[Asset]
+    agent_ids: list[StrictStr]
+    seeds: list[Annotated[int, BeforeValidator(_integer)]]
+    smoke: bool = False
+    commission_rate: Number = 0.001
+    slippage_bps: Number = 5.0
+
+    @field_validator("name")
+    @classmethod
+    def _name(cls, v: str) -> str:
+        v = ExperimentCreate._name(v)  # pyright: ignore[reportPrivateUsage]
+        if len(v) > 80:
+            raise ValueError("En fazla 80 karakter")
+        return v
+
+    @field_validator("assets")
+    @classmethod
+    def _assets(cls, v: list[Asset]) -> list[Asset]:
+        if not v:
+            raise ValueError("En az bir varlık seçin")
+        if len(set(v)) != len(v):
+            raise ValueError("Aynı varlık birden fazla seçilmiş")
+        return v
+
+    @field_validator("agent_ids")
+    @classmethod
+    def _agents(cls, v: list[str]) -> list[str]:
+        return ExperimentCreate._agents(v)  # pyright: ignore[reportPrivateUsage]
+
+    @field_validator("seeds")
+    @classmethod
+    def _seeds(cls, v: list[int]) -> list[int]:
+        if not 1 <= len(v) <= MAX_SEEDS:
+            raise ValueError(f"1 ile {MAX_SEEDS} arasında seed")
+        if len(set(v)) != len(v):
+            raise ValueError("Seed'ler farklı olmalı")
+        for seed in v:
+            ExperimentCreate._seed(seed)  # pyright: ignore[reportPrivateUsage]
+        return v
+
+    @field_validator("commission_rate")
+    @classmethod
+    def _commission(cls, v: float) -> float:
+        return ExperimentCreate._commission(v)  # pyright: ignore[reportPrivateUsage]
+
+    @field_validator("slippage_bps")
+    @classmethod
+    def _slippage(cls, v: float) -> float:
+        return ExperimentCreate._slippage(v)  # pyright: ignore[reportPrivateUsage]
+
+
+class StudyRunOut(ApiModel):
+    experiment_id: str
+    condition: Condition
+    seed: int
+    status: ExperimentStatus
+    last_day: date | None
+
+
+class StudyOut(ApiModel):
+    id: str
+    name: str
+    start_date: date
+    end_date: date
+    assets: list[Asset]
+    agent_ids: list[str]
+    seeds: list[int]
+    smoke: bool
+    commission_rate: float
+    slippage_bps: float
+    status: ExperimentStatus
+    created_at: datetime
+    runs: list[StudyRunOut]
+
+
+class ConditionDifference(ApiModel):
+    """Over the seeds both conditions completed (`seeds`); never mixes unpaired runs."""
+
+    condition: Condition
+    baseline: Condition
+    seeds: int
+    sharpe_diff: float
+    ci_low: float
+    ci_high: float
+
+
+class StudyComparisonOut(ApiModel):
+    study_id: str
+    complete: bool
+    days: int
+    block_length: int
+    resamples: int
+    conditions: list[ConditionSummary]
+    differences: list[ConditionDifference]

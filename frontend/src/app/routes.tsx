@@ -16,6 +16,8 @@ const AgentPage = lazy(() => import('@/pages/AgentPage'))
 const ForumPage = lazy(() => import('@/pages/ForumPage'))
 const ReportPage = lazy(() => import('@/pages/ReportPage'))
 const AccountPage = lazy(() => import('@/pages/AccountPage'))
+const StudiesPage = lazy(() => import('@/pages/StudiesPage'))
+const StudyPage = lazy(() => import('@/pages/StudyPage'))
 
 const page = (node: ReactNode) => (
   <Suspense fallback={<Skeleton className="h-96 w-full" />}>{node}</Suspense>
@@ -48,6 +50,8 @@ export const routes: RouteObject[] = [
         children: [
           { path: 'experiments', element: <ExperimentsPage /> },
           { path: 'account', element: page(<AccountPage />) },
+          { path: 'studies', element: page(<StudiesPage />) },
+          { path: 'studies/:id', element: page(<StudyPage />) },
           {
             element: <RequireAuth requiredRole="researcher" />,
             children: [{ path: 'experiments/new', element: page(<NewExperimentPage />) }],

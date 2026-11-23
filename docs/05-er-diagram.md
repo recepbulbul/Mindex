@@ -40,6 +40,7 @@ erDiagram
     experiments {
         uuid id PK
         uuid owner_id FK
+        uuid study_id FK "null = çalışmasız"
         text name
         experiment_mode mode "replay | live"
         experiment_condition condition "C0..C3"

@@ -40,11 +40,21 @@ Tabloları oluşturan SQL komutları (DDL): [`db/schema.sql`](db/schema.sql). T�
 | fear_greed | smallint | E | 0–100 | Crypto Fear & Greed endeksi |
 | funding_rate | numeric(12,8) | E | | Perpetual funding oranı (yalnızca gözlem özelliği) |
 
+## studies
+| Alan | Tip | Boş? | Kısıt / varsayılan | Açıklama |
+|---|---|:-:|---|---|
+| id | uuid | H | PK | |
+| owner_id | uuid | H | FK → users, RESTRICT | Çalışmayı kuran araştırmacı |
+| name | text | H | 3–80 karakter | |
+| config | jsonb | H | | `StudyCreate`: dönem, varlıklar, ajanlar, seed'ler, `smoke`, maliyetler |
+| created_at | timestamptz | H | now() | |
+
 ## experiments
 | Alan | Tip | Boş? | Kısıt / varsayılan | Açıklama |
 |---|---|:-:|---|---|
 | id | uuid | H | PK | |
 | owner_id | uuid | H | FK → users, RESTRICT | Deneyi kuran araştırmacı |
+| study_id | uuid | E | FK → studies, SET NULL | Deneyin ait olduğu çalışma (koşul × seed grubu) |
 | name | text | H | 3–120 karakter | |
 | mode | experiment_mode | H | `replay` \| `live` | Geçmiş veri tekrarı veya canlı paper-trading |
 | condition | experiment_condition | H | C0, C1, C1_NO_REGIME, C2, C3 | Ablasyon koşulu |
@@ -56,7 +66,7 @@ Tabloları oluşturan SQL komutları (DDL): [`db/schema.sql`](db/schema.sql). T�
 | slippage_bps | numeric(6,2) | H | 5, 0–100 | Kayma (baz puan) |
 | config | jsonb | H | | Tam yapılandırma; YAML dışa aktarımının kaynağı (F2) |
 | model_version | text | H | | Örn. `qwen3.5-9b-q4_k_m@sha256:…` (NF5) |
-| prompt_version | text | H | | Örn. `decision-v3` (NF5) |
+| prompt_version | text | H | | Örn. `decision-v4` (NF5) |
 | last_checkpoint_day | date | E | | Kaldığı yerden sürdürme noktası (NF2) |
 | checkpoint | jsonb | E | | O günkü simülatör durumu (`SimState`); koşu aynı sonuçla sürer (NF2) |
 | created_at | timestamptz | H | `now()` | |
