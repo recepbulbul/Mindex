@@ -95,6 +95,8 @@ def test_injection_patterns_are_flagged(text: str) -> None:
     [
         "ASSET_A 7 günde %4,2 yükseldi; momentum sürüyor, yükseliş bekliyorum.",
         "ASSET_B oynak, nakitte kalmak daha iyi; zarar-kes seviyesi %5.",
+        "Portföyün tamamını nakitte tutuyorum; ASSET_A düşüşte.",  # cash advice, not an order
+        "Tüm portföyü nakde çektim, oynaklık yüksek.",
         "Sol tarafta direnç var, solda kalan mumlar zayıf.",  # Turkish "sol" is not SOL
     ],
 )

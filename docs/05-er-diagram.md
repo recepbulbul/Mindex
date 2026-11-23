@@ -119,6 +119,7 @@ erDiagram
         text stance "bullish | bearish | neutral"
         bool flagged "prompt injection şüphesi"
         bool verified "null = henüz değerlendirilmedi"
+        date verified_on "hükmün verildiği gün"
     }
     decision_forum_reads {
         uuid decision_id PK,FK

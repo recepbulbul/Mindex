@@ -457,6 +457,7 @@ def _trust_history(
         return []
     verdicts = session.execute(
         select(
+            ForumMessageRow.id,
             ForumMessageRow.verified_on,
             ForumMessageRow.sender_id,
             ForumMessageRow.verified,
@@ -465,10 +466,10 @@ def _trust_history(
         .join(DecisionForumRead, DecisionForumRead.forum_message_id == ForumMessageRow.id)
         .join(DecisionRow, DecisionRow.id == DecisionForumRead.decision_id)
         .where(ForumMessageRow.experiment_id == exp.id, ForumMessageRow.verified_on.is_not(None))
-        .distinct()
+        .distinct()  # one row per (post, reader), as the runner counts
     ).all()
     by_day: dict[date, list[tuple[str, str, bool]]] = defaultdict(list)
-    for day, sender, held, reader in verdicts:
+    for _, day, sender, held, reader in verdicts:
         assert day is not None  # noqa: S101 (filtered above)
         assert held is not None  # noqa: S101
         by_day[day].append((slug_of[reader], slug_of[sender], held))
