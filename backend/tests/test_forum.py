@@ -4,6 +4,7 @@ the runner and API tests (test_forum_runner.py) cover persistence, resumption an
 import json
 from collections.abc import Mapping
 from datetime import date, timedelta
+from fractions import Fraction
 from typing import Any
 
 import pytest
@@ -24,6 +25,7 @@ from mindex.agents.llm import (
 )
 from mindex.domain.decision import Asset
 from mindex.domain.forum import (
+    EQUAL_WEIGHT,
     HORIZON_DAYS,
     POST_MAX_CHARS,
     WINDOW_DAYS,
@@ -154,6 +156,35 @@ def test_c2_weighs_everyone_alike_and_c3_by_trust() -> None:
     c3 = weigh(reads, by_trust=True)
     assert c2.shown == c2.weights == (0.5, 0.5)
     assert c3.shown == c3.weights == (0.9, 0.1)  # (8+1)/(8+2), 1/10: absolute, not shares
+
+
+def test_c2_weight_is_c3_at_the_prior() -> None:
+    """C2's fixed weight is exactly C3's weight before any verdict (a = b = 0)."""
+    assert Fraction(1, 2) == EQUAL_WEIGHT
+    assert read("llm-a").weight(by_trust=True) == EQUAL_WEIGHT
+    assert BetaTrust().score == float(EQUAL_WEIGHT)
+
+
+def test_lone_post_prompt_differs_with_trust(market: MarketData) -> None:
+    """w = 0.09 and w = 0.91 on a single post give different prompts and consensus."""
+    codes = anonymise(market.assets)
+
+    def user(a: int, b: int) -> dict[str, Any]:
+        messages = build_messages(
+            obs(market),
+            "momentum",
+            codes,
+            prompt_version=DECISION_V4,
+            lessons=[],
+            forum=feed(read("llm-a", a=a, b=b), by_trust=True),
+        )
+        return json.loads(messages[1]["content"])
+
+    low, high = user(0, 9), user(9, 0)  # w = 1/11 = 0.09 and 10/11 = 0.91
+    assert [p["weight"] for p in low["forum"]["posts"]] == [0.091]
+    assert [p["weight"] for p in high["forum"]["posts"]] == [0.909]
+    assert low["forum"]["consensus"] == {"ASSET_A": 0.091}
+    assert high["forum"]["consensus"] == {"ASSET_A": 0.909}
 
 
 def test_neutral_trust_gives_c2_exactly() -> None:

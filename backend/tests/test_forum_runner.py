@@ -291,7 +291,7 @@ def _without_ids(db: Session, exp_id: uuid.UUID) -> dict[str, Any]:
     return {**_record(db, exp_id), **forum_record(db, exp_id)}
 
 
-def test_c3_with_equal_trust_is_c2_bit_for_bit(
+def test_c3_with_all_trust_at_the_prior_is_c2_bit_for_bit(
     api: TestClient,
     researcher: dict[str, str],
     db_session: Session,
@@ -302,7 +302,8 @@ def test_c3_with_equal_trust_is_c2_bit_for_bit(
     # Unequal trust: C3 weighs the senders differently and decides differently (the contrast).
     c2, c3 = (_run(api, researcher, sessions, settings, c) for c in ("C2", "C3"))
     assert _without_ids(db_session, c2)["decisions"] != _without_ids(db_session, c3)["decisions"]
-    # Equal trust everywhere (no advice is ever judged, every score stays 0.5): identical runs.
+    # Every trust stays at the prior (no advice is ever judged, a = b = 0, w = 1/2, which is
+    # C2's fixed weight): identical runs, so C3 - C2 comes only from learning trust.
     monkeypatch.setattr(mindex.forum.store, "verdict", never_judged)
     c2, c3 = (_run(api, researcher, sessions, settings, c) for c in ("C2", "C3"))
     flat_c2, flat_c3 = _without_ids(db_session, c2), _without_ids(db_session, c3)
