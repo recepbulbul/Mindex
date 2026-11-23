@@ -71,6 +71,29 @@ flowchart LR
 
 Bölümler arasındaki oklar verinin aktığı yönü gösterir; hafızadan (`pgvector`) karar döngüsüne ve güven sayaçlarından foruma geri dönen oklar, ajanın zamanla öğrenmesini sağlayan **geri besleme döngüleridir**. Kesikli ok (`iz` → Langfuse) her LLM çağrısının izleme kaydıdır. **Yeşil kutular** projenin özgün katkılarıdır. Bu diyagramda kırmızı hata kutusu yoktur; "pozisyonu koru" ve "ders reddedilir" dalları buradaki hata/ret yollarıdır, ayrıntıları [akış diyagramlarındadır](03-flows.md).
 
+## Rejim modeli
+
+Kod: `backend/src/mindex/regime/` (`hmm.py`, `report.py`). Üç durumlu Gauss HMM (`hmmlearn`), eşit ağırlıklı sepetin günlük log getirilerinden türetilen özelliklerle yalnızca eğitim döneminde eğitilir. Her günün etiketi **filtrelenmiş** olasılığın (`P(durum_t | x_1..x_t)`, ileri geçiş) en büyüğüdür; Viterbi ya da düzleştirilmiş olasılık geleceği okuduğu için kullanılmaz. Durumların adı (boğa / ayı / yatay) eğitimde bir kez sabitlenir ve artefakta (`models/regime-hmm.json`, JSON + SHA-256) yazılır.
+
+**Etiketleme (`mindex train-hmm --labeling`).** Durumların nasıl adlandırılacağı seçilebilir. Seçim artefakttaki `labeling` ve `features` alanlarına yazılır; koşucu yöntemi ve özellikleri yalnızca artefakttan okur, deney `config`'ine `regime_labeling` olarak kaydeder.
+
+| `--labeling` | Özellikler | Adlandırma |
+|---|---|---|
+| `momentum` (varsayılan, ilk yöntem) | 14 günlük momentum, 14 günlük volatilite | ortalama momentumu en yüksek durum boğa, en düşük ayı, ortadaki yatay |
+| `trend-30` | + 30 günlük trend (günlük log getiri ortalaması) | ortalama 30 günlük trende göre; volatilite yalnızca ikinci eksen |
+| `return-60` | varsayılanla aynı | her durumun eğitim günlerindeki geriye dönük 60 günlük sepet getirisinin (filtrelenmiş olasılıkla ağırlıklı) ortalamasına göre |
+| `vol-first` | varsayılanla aynı | en sakin durum (en düşük ortalama volatilite) yatay; kalan ikisinden momentumu yüksek olan boğa, düşük olan ayı |
+
+Her yöntem her rejimi tam bir kez kullanır. Adlandırma eğitim verisiyle bir kez yapılır, bir günün etiketi yine yalnızca o güne kadarki veriye bakar; önek ve filtrelenmiş olasılık testleri her yöntem için koşar. Artefakt sürümü 3'tür; `labeling` alanı olmayan sürüm 2 dosyaları "yeniden eğitin" hatasıyla reddedilir.
+
+**Neden?** Gerçek veride (#50) varsayılan yöntemin etiketleri trendle tutarsız çıktı: doğrulama döneminde BTC −%42,4 iken ayı günlerin yalnızca %15,4'ü, boğa %41,2'siydi; "boğa" günlerinin ertesi günkü getirisi ayınınkinden düşüktü. C1'in rejim bonusu bu etiketlere dayandığı için yöntem, aşağıdaki tanı tablosuyla seçilecek.
+
+**Tanı (`mindex regime-report`, `train-hmm` sonunda da çalışır).** Eğitim ve doğrulama bölmeleri için her etiketin gün payını, ortalama süresini (ardışık gün), geriye dönük 30 günlük ve ileriye dönük 1/5/20 günlük sepet ve BTC getirisini (`exp(Σ log getiri) − 1`) ve "tutarlılık" özetini (boğa > yatay > ayı sırası her getiride tutuyor mu; bir etiketin değeri yoksa "belirsiz") yazar. Çıktı `reports/regime-report-<labeling>.json` ve issue'ya yapıştırılabilir `.md` tablosudur.
+
+- **İleriye dönük getiriler yalnızca değerlendirme içindir.** Karar yolunda, etiketlemede ya da eğitimde kullanılmaz; `report.py`'yi karar yolundaki hiçbir modül içe aktarmaz.
+- Ufku bölmenin sonunu aşan günler (doğrulamanın son 20 günü) dışarıda kalır, bir sonraki bölmeden okunmaz; her ortalamanın yanında `n` vardır.
+- Test bölmesi hiçbir zaman okunmaz: iki bölme de `ensure_readable`'dan mühür açılmadan geçer.
+
 ## Kalıcı hafıza
 
 Kod: `backend/src/mindex/memory/` (`embedder.py`, `store.py`). Her ders `memories` tablosunda; `embedding` (pgvector, 1024 boyut, HNSW) ve `lesson_tsv` (`to_tsvector('simple', lesson)`, GIN) sütunlarıyla tutulur.
