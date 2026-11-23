@@ -350,6 +350,22 @@ describe('live screen follows a running run (#54)', () => {
       { timeout: 4000 },
     )
 
+  it('stays on the last day when the followed run finishes', async () => {
+    let status: Experiment['status'] = 'running'
+    server.use(
+      http.get('*/api/experiments/exp-test-c3', () => HttpResponse.json({ ...C3, status })),
+      http.get('*/api/experiments/exp-test-c3/timeline', () => HttpResponse.json(upTo(50))),
+    )
+    signIn('viewer')
+    renderApp('/experiments/exp-test-c3/live')
+    await shown(50, 50)
+    status = 'completed'
+    await waitFor(() => expect(screen.queryByText('Canlı takip')).not.toBeInTheDocument(), {
+      timeout: 4000,
+    })
+    await shown(50, 50) // not back to day 30
+  }, 10_000)
+
   it('moves to each new day until the user takes the cursor', async () => {
     let reached = 40
     server.use(

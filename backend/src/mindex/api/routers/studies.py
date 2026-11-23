@@ -10,7 +10,14 @@ from sqlalchemy import select
 from mindex.api.deps import CurrentUser, JobQueueDep, Researcher, SessionDep, SettingsDep
 from mindex.api.schemas import StudyComparisonOut, StudyCreate, StudyOut
 from mindex.db.models import Study
-from mindex.services.study import compare, create_study, get_study, queue_study, study_out
+from mindex.services.study import (
+    StudyMismatchError,
+    compare,
+    create_study,
+    get_study,
+    queue_study,
+    study_out,
+)
 
 router = APIRouter(prefix="/studies", tags=["studies"])
 
@@ -71,7 +78,10 @@ def start(
 )
 def comparison(study_id: str, session: SessionDep, _: CurrentUser) -> StudyComparisonOut:
     """Per condition over its completed runs, with block-bootstrap CIs (see `bootstrap`)."""
-    result = compare(session, _study(session, study_id))
+    try:
+        result = compare(session, _study(session, study_id))
+    except StudyMismatchError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from None
     if result is None:
         raise HTTPException(status.HTTP_409_CONFLICT, NO_RESULTS)
     return result

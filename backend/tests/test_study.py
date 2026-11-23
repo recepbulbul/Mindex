@@ -24,6 +24,7 @@ from test_forum_runner import ForumChat
 from test_runner import (  # fixtures and helpers shared with the runner tests
     PASSWORD,
     START,
+    DownChat,
     ListQueue,
     _login,  # pyright: ignore[reportPrivateUsage]
     api,  # noqa: F401  # pyright: ignore[reportUnusedImport]
@@ -327,3 +328,51 @@ def test_cli_refuses_the_test_window_and_unknown_owners(cli_env: Session) -> Non
     with pytest.raises(SystemExit, match="bulunamadı"):
         cli.main(["study", "status", str(uuid.uuid4())])
     assert cli_env.scalar(select(Study)) is None
+
+
+def test_study_runs_are_not_edited_or_deleted_alone(
+    api: TestClient, researcher: dict[str, str]
+) -> None:
+    study = _create(api, researcher)
+    run = f"/api/experiments/{study['runs'][0]['experimentId']}"
+    edit = api.patch(run, json={"endDate": "2025-11-01"}, headers=researcher)
+    assert edit.status_code == 409
+    assert "çalışmaya ait" in edit.json()["detail"]
+    assert api.delete(run, headers=researcher).status_code == 409
+
+
+def test_a_run_that_left_the_study_period_is_refused_not_truncated(
+    api: TestClient,
+    researcher: dict[str, str],
+    finished_study: dict[str, Any],
+    db_session: Session,
+) -> None:
+    exp = db_session.get(Experiment, uuid.UUID(_run(finished_study, "C2")))
+    assert exp is not None
+    exp.end_date = date(2025, 10, 12)  # as if edited behind the study's back
+    db_session.commit()
+    res = api.get(f"/api/studies/{finished_study['id']}/comparison", headers=researcher)
+    assert res.status_code == 409
+    assert "çalışmanınkinden farklı" in res.json()["detail"]
+
+
+def test_cli_start_stops_at_a_failed_run(
+    cli_env: Session,
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def down(s: Callable[[], Session], _: Settings) -> ExperimentRunner:
+        chat = DownChat(down_from_day=3)
+        return ExperimentRunner(s, settings, lambda exp: chat, HashEmbedder())
+
+    monkeypatch.setattr(mindex.services.runner, "ExperimentRunner", down)
+    create = ["study", "create", "--owner", "hoca@mindex.dev", "--smoke"]
+    cli.main([*create, "--assets", "BTC", "ETH", "--agents", *AGENTS])
+    study = cli_env.scalar(select(Study))
+    assert study is not None
+    with pytest.raises(SystemExit, match="failed: LLMUnavailableError"):
+        cli.main(["study", "start", str(study.id)])
+    out = capsys.readouterr().out
+    assert "[1/5]" in out
+    assert "[2/5]" not in out  # it stopped at the first failure

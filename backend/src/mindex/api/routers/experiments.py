@@ -45,6 +45,10 @@ BAD_YAML = "YAML okunamadı."
 NOT_STARTABLE = '"{status}" durumundaki deney başlatılamaz.'
 NOT_RUNNABLE = "Deney bu koşucuda başlatılamaz."
 NOT_OWNER = "Bu deney başka bir araştırmacıya ait; yalnızca sahibi değiştirebilir."
+IN_STUDY = (
+    "Bu deney bir çalışmaya ait: koşulları aynı dönem, ajan ve varlıkla karşılaştırılır; "
+    "tek başına düzenlenemez ya da silinemez."
+)
 PPO_UNAVAILABLE = "PPO ajanı eğitilmiş model ister; bu sunucuda MINDEX_PPO_MODEL_DIR ayarlı değil."
 TEST_WINDOW = SPLITS[Split.TEST]
 SEALED = (
@@ -288,6 +292,8 @@ def update_experiment(
     require_owner(exp, user)
     if exp.status is not ExperimentStatus.DRAFT:
         raise HTTPException(status.HTTP_409_CONFLICT, NOT_EDITABLE)
+    if exp.study_id is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, IN_STUDY)
     unknown = sorted(k for k in body if k not in CONFIG_FIELDS)
     if unknown:
         raise invalid(dict.fromkeys(unknown, "Bilinmeyen alan."))
@@ -308,6 +314,8 @@ def update_experiment(
 def delete_experiment(experiment_id: str, session: SessionDep, user: Researcher) -> Response:
     exp = get_experiment_row(session, experiment_id)
     require_owner(exp, user)
+    if exp.study_id is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, IN_STUDY)
     if exp.status not in DELETABLE:
         raise HTTPException(
             status.HTTP_409_CONFLICT, f'"{exp.status}" durumundaki deney silinemez.'

@@ -12,6 +12,7 @@ from collections import defaultdict
 from collections.abc import Sequence
 from datetime import timedelta
 from statistics import fmean
+from typing import cast
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -75,6 +76,10 @@ NEEDS_LLM = "Çalışma en az bir LLM ajanı ister: karşılaştırma LLM ajanla
 NOT_STARTABLE_RUNS = "Çalışmanın deneyleri bu koşucuda başlatılamaz."
 
 
+class StudyMismatchError(RuntimeError):
+    """A run of the study no longer has the study's period, assets or agents."""
+
+
 def effective(cfg: StudyCreate) -> StudyCreate:
     """`smoke`: the first SMOKE_DAYS days and the first seed only."""
     if not cfg.smoke:
@@ -132,6 +137,10 @@ def create_study(
     session.commit()
     session.refresh(study)
     return study
+
+
+def agent_ids(exp: Experiment) -> list[str]:
+    return cast(list[str], exp.config["agentIds"])
 
 
 def study_runs(session: Session, study: Study) -> list[Experiment]:
@@ -232,15 +241,24 @@ def compare(
     herds: dict[Condition, list[float]] = defaultdict(list)
     checks: dict[Condition, list[tuple[int, int]]] = defaultdict(list)
     count: dict[Condition, int] = defaultdict(int)
+    cfg = StudyCreate.model_validate(study.config)
     for exp in done:
+        if (exp.start_date, exp.end_date, exp.assets, agent_ids(exp)) != (
+            cfg.start_date,
+            cfg.end_date,
+            [str(a) for a in cfg.assets],
+            cfg.agent_ids,
+        ):
+            raise StudyMismatchError(
+                f"{exp.id}: dönem, varlık ya da ajanlar çalışmanınkinden farklı"
+            )
         s, r, h = _summary_inputs(exp)
         series[exp.condition] += s
         risk[exp.condition] += r
         herds[exp.condition].append(h)
         checks[exp.condition].append(lesson_consistency(exp.config))
         count[exp.condition] += 1
-    days = min(len(x) for rows in series.values() for x in rows)
-    groups = {str(c): [x[:days] for x in rows] for c, rows in series.items()}
+    groups = {str(c): rows for c, rows in series.items()}
     boot = bootstrap_sharpe(
         groups,
         [(str(a), str(b)) for a, b in PAIRS],

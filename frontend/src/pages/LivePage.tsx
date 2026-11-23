@@ -66,6 +66,15 @@ export default function LivePage() {
   // a run opened after it finished starts at day 30 like any replay.
   const [sawActive, setSawActive] = useState(false)
   if (isActive && !sawActive) setSawActive(true)
+  // The page stays mounted when a sidebar link opens another experiment: start it afresh.
+  const [shownId, setShownId] = useState(id)
+  if (shownId !== id) {
+    setShownId(id)
+    setCursor(null)
+    setPlaying(false)
+    setFollow(true)
+    setSawActive(false)
+  }
   const following = follow && (isActive || sawActive)
   // Running runs and live experiments open at the latest day; finished replays at day 30 so
   // there is history to see.

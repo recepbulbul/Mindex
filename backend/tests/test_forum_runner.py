@@ -34,7 +34,7 @@ from mindex.db.models import (
 )
 from mindex.domain.forum import HORIZON_DAYS, WINDOW_DAYS
 from mindex.memory.embedder import HashEmbedder
-from mindex.services.runner import ExperimentRunner, resume_interrupted
+from mindex.services.runner import ExperimentRunner, lesson_consistency, resume_interrupted
 from test_runner import (  # fixtures and helpers shared with the runner tests
     END,
     START,
@@ -394,6 +394,13 @@ def test_resume_with_forum_and_memory_is_bit_for_bit(
         assert got[part], part
     assert got == want
     assert _trust_rows(db_session, resumed) == _trust_rows(db_session, c3_run)
+    # The post-mortem checks behind the lesson consistency rate resume with the run, too.
+    db_session.expire_all()
+    configs = [db_session.get(Experiment, x) for x in (resumed, c3_run)]
+    assert configs[0] is not None
+    assert configs[1] is not None
+    assert lesson_consistency(configs[0].config) == lesson_consistency(configs[1].config)
+    assert lesson_consistency(configs[0].config)[0] > 0
 
 
 # ------------------------------------------------------------------ read endpoints

@@ -367,6 +367,7 @@ def study_start(study_id: str, *, run: bool) -> None:
     one (a stopped command resumes: run it again)."""
     from fastapi import HTTPException
 
+    from mindex.db.models import Experiment, ExperimentStatus
     from mindex.db.session import get_sessionmaker
     from mindex.services.runner import ExperimentRunner
     from mindex.services.study import get_study, queue_study, study_out
@@ -392,6 +393,15 @@ def study_start(study_id: str, *, run: bool) -> None:
         print(f"[{i}/{len(queued)}] {r.condition} seed {r.seed} koşuyor...", flush=True)
         started = time.perf_counter()
         runner(experiment_id)
+        with sessions() as session:
+            exp = session.get(Experiment, experiment_id)
+            state = None if exp is None else exp.status
+            reason = None if exp is None else exp.config.get("error")
+        if state is not ExperimentStatus.COMPLETED:
+            raise SystemExit(
+                f"  {r.condition} seed {r.seed} {state}: {reason or 'neden kaydedilmedi'}\n"
+                f"Sorunu giderip aynı komutla sürdürün: mindex study start {study_id}"
+            )
         print(f"  bitti ({time.perf_counter() - started:.0f} sn)")
     study_status(study_id)
 
