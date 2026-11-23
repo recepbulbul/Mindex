@@ -13,7 +13,9 @@ uv run mindex fetch-data            # Binance + Fear & Greed → ../data/snapsho
 uv run mindex baseline [--llm]      # doğrulama döneminde baseline → ../reports
 uv run mindex bench-llm --calls 30  # llama-server karar çağrısı gecikmesi
 uv run mindex bench-llm --calls 30 --prompt decision-v2 --lessons 3  # C1 bağlamı: hafıza dersleriyle
-uv run mindex train-hmm             # rejim HMM'i, yalnızca eğitim dönemi → ../models/regime-hmm.json
+uv run mindex train-hmm             # rejim HMM'i, yalnızca eğitim dönemi → ../models/regime-hmm.json (+ tanı raporu)
+uv run mindex train-hmm --labeling trend-30 --out ../models/regime-hmm-trend-30.json  # başka etiketleme
+uv run mindex regime-report --model ../models/regime-hmm.json  # etiket tanısı → ../reports/regime-report-<labeling>.{json,md}
 uv sync --group eda                 # EDA notebook'u için jupyter, matplotlib, duckdb
 uv sync --group rl                  # PPO eğitimi: stable-baselines3 + CPU torch (yalnızca eğitim makinesi / CI)
 uv run mindex train-ppo --seed 0    # train'de eğit, validation'da seç → ../models/ppo/seed-0/
@@ -47,14 +49,14 @@ uv run mindex serve --reload        # API + deney koşucusu: http://127.0.0.1:80
 | `mindex.sim` | `t` kapanışında karar, `t+1` açılışında komisyon + kaymayla yürütme; checkpoint (P3) |
 | `mindex.agents` | `BaseAgent`, kural tabanlı ajanlar, llama.cpp ile ilk LLM ajanı (P3), eğitilmiş modelden `PPOAgent` (P4) |
 | `mindex.rl` | Günlük Gymnasium ortamı (simülatörle aynı yürütme ve maliyet, look-ahead yok), PPO eğitimi, SHA-256 manifest (P4) |
-| `mindex.regime` | Gauss HMM rejim modeli (boğa/ayı/yatay); filtrelenmiş olasılık, look-ahead yok (P4) |
+| `mindex.regime` | Gauss HMM rejim modeli (boğa/ayı/yatay); filtrelenmiş olasılık, look-ahead yok (P4); seçilebilir etiketleme ve etiket tanısı (`report.py`) |
 | `mindex.evaluation` | Koşu özeti, nicel hedef karşılaştırması, LLM gecikmesi ve hesap bütçesi (P3) |
 | `mindex.db` | SQLAlchemy 2 modelleri ve oturum fabrikası (P4) |
 | `mindex.memory` | Kalıcı hafıza: `Embedder` (llama-server `/v1/embeddings`, testte `HashEmbedder`), pgvector + tam metin hibrit arama; `recall`: bir ajanın kararı öncesi kendi derslerini getirir, C1/C1′ (P5) |
 | `mindex.postmortem` | Kapanan pozisyon için karşı-olgusal PnL tablosu (gerçek / girmemek / yarım / zarar-kes) ve sayısal tutarlılık denetimli ders yazımı (`postmortem-v1`, P5) |
 | `mindex.api` | FastAPI uygulaması, `{detail, fields}` hata zarfı, `/api/health` (P4); `/agents`, `/experiments` CRUD + YAML, sonuç uçları (P5) |
 | `mindex.services.runner` | Süreç içi deney koşucusu: `JobQueue` + `InProcessQueue`, gün sonu checkpoint, yeniden başlatmada sürdürme (NF2) |
-| `mindex.cli` | `mindex fetch-data | baseline | bench-llm | train-hmm | train-ppo | create-user | serve` |
+| `mindex.cli` | `mindex fetch-data | baseline | bench-llm | train-hmm | regime-report | train-ppo | create-user | serve` |
 
 Ayrıntılar: [docs/08-data-pipeline-baseline.md](../docs/08-data-pipeline-baseline.md). Sonraki haftalarda: `mindex.mcp`.
 
@@ -66,4 +68,4 @@ Ayrıntılar: [docs/08-data-pipeline-baseline.md](../docs/08-data-pipeline-basel
 - LLM ajanları `MINDEX_LLM_BASE_URL` llama-server'ına deneyin `model_version` ve `seed` değeriyle bağlanır; testlerde sahte `ChatClient`.
 - Henüz koşturulmayanlar (başlatmada 422): canlı mod, MCP misafir ajanı, eğitilmiş model yoksa PPO (`MINDEX_PPO_MODEL_DIR`), C0 dışı koşullarda LLM ajanları.
 - Kuyruk süreç içidir: API'yi **tek süreçle** çalıştırın (birden fazla worker aynı deneyi sürdürmeye çalışır); çok süreçli kuyruk İP6–7'de Redis Streams ile gelir.
-- Rejim: `MINDEX_REGIME_MODEL_PATH` (`mindex train-hmm` çıktısı) yoksa her gün `sideways` yer tutucusudur.
+- Rejim: `MINDEX_REGIME_MODEL_PATH` (`mindex train-hmm` çıktısı) yoksa her gün `sideways` yer tutucusudur. Etiketleme yöntemi (`labeling`) yalnızca artefakttan okunur, ayrı bir ayarı yoktur; deneyin `config`'ine `regime_source`, `regime_sha256` ve `regime_labeling` yazılır. Eski (v2) artefakt açık bir hatayla reddedilir: yeniden eğitin. Yöntemler ve tanı: [docs/04-ai-pipeline.md](../docs/04-ai-pipeline.md#rejim-modeli).

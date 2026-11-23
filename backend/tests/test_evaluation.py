@@ -118,10 +118,14 @@ def test_cli_train_hmm_fits_on_train_only(
 
     monkeypatch.setattr(RegimeModel, "fit", spy)
     out = tmp_path / "models" / "regime-hmm.json"
-    cli.main(["--snapshot", str(snapshot), "train-hmm", "--out", str(out)])
+    reports = tmp_path / "reports"
+    cli.main(
+        ["--snapshot", str(snapshot), "--reports", str(reports), "train-hmm", "--out", str(out)]
+    )
     train = MarketData.from_frame(load_split(snapshot, Split.TRAIN))
     assert len(seen) == 1
     assert np.array_equal(seen[0], regime_features(train))
     assert max(train.days) < SPLITS[Split.VALIDATION].start
     model = RegimeModel.load(out)
     assert sorted(model.labels) == sorted(Regime)
+    assert (reports / "regime-report-momentum.json").exists()

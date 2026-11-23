@@ -2,6 +2,7 @@
 
 import argparse
 import getpass
+import hashlib
 import json
 import sys
 import time
@@ -11,6 +12,8 @@ from dataclasses import asdict
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, cast
+
+import numpy as np
 
 from mindex.agents.base import BaseAgent
 from mindex.agents.llm import (
@@ -30,12 +33,20 @@ from mindex.agents.rule import BuyAndHoldAgent, EqualWeightAgent, MovingAverageC
 from mindex.config import get_settings
 from mindex.data import sources
 from mindex.data.snapshot import build_frame, load_split, load_window, write_snapshot
-from mindex.data.splits import FULL_RANGE, SPLITS, SealedTestSetError, Split
+from mindex.data.splits import FULL_RANGE, SPLITS, SealedTestSetError, Split, ensure_readable
 from mindex.domain.decision import Asset, parse_decision
 from mindex.evaluation.budget import ComputeBudget, LatencySummary
 from mindex.evaluation.report import check_targets, herd, summarise, to_markdown
 from mindex.logging_config import configure_logging
-from mindex.regime.hmm import RegimeModel, regime_features
+from mindex.regime import report as regime_diag
+from mindex.regime.hmm import (
+    FloatArray,
+    Labeling,
+    RegimeModel,
+    basket_log_returns,
+    features_of,
+    warmup_of,
+)
 from mindex.rl import train as rl_train
 from mindex.rl.env import TradingEnv
 from mindex.rl.train import PPOHyperparams
@@ -219,18 +230,63 @@ def train_ppo(snapshot: Path, out: Path, seed: int, hp: PPOHyperparams) -> None:
     print(json.dumps({k: manifest[k] for k in ("seed", "best", "files")}, indent=2))
 
 
-def train_hmm(snapshot: Path, out: Path, seed: int) -> None:
-    """Fit the regime HMM on the training split only and report validation label shares."""
-    model = RegimeModel.fit(
-        regime_features(MarketData.from_frame(load_split(snapshot, Split.TRAIN))), seed=seed
+def train_hmm(snapshot: Path, out: Path, seed: int, labeling: Labeling, reports: Path) -> None:
+    """Fit the regime HMM on the training split only, then write its label diagnostics."""
+    model = RegimeModel.fit_market(
+        MarketData.from_frame(load_split(snapshot, Split.TRAIN)), labeling, seed=seed
     )
-    digest = model.save(out)
-    market, start = _market(snapshot, Split.VALIDATION, unseal=False)
-    labels = model.label(regime_features(market))[start:]
-    shares = {str(r): round(labels.count(r) / len(labels), 3) for r in sorted(set(labels))}
-    print(
-        json.dumps({"artifact": str(out), "sha256": digest, "validation_shares": shares}, indent=2)
-    )
+    model.save(out)
+    regime_report(snapshot, out, reports)
+
+
+def _btc_log_returns(market: MarketData) -> FloatArray | None:
+    if Asset.BTC not in market.assets:
+        return None
+    closes = np.array([b.close for b in market.bars[Asset.BTC]], dtype=float)
+    return np.concatenate([[0.0], np.diff(np.log(closes))])
+
+
+def regime_report(snapshot: Path, model_path: Path, reports: Path) -> dict[str, object]:
+    """Label diagnostics of a trained regime model on the training and validation splits.
+
+    Never the test split: each split goes through `ensure_readable` without unsealing. Forward
+    returns in the report are evaluation only (see `mindex.regime.report`).
+    """
+    raw = model_path.read_text(encoding="utf-8")
+    try:
+        model = RegimeModel.from_json(raw)
+    except ValueError as exc:  # e.g. a v2 artefact from before `--labeling`
+        raise SystemExit(f"{model_path}: {exc}") from None
+    splits: dict[str, object] = {}
+    for split in (Split.TRAIN, Split.VALIDATION):
+        ensure_readable(split)
+        if split is Split.TRAIN:  # labels from the first day with full feature windows
+            market = MarketData.from_frame(load_split(snapshot, split))
+            start = warmup_of(model.labeling)
+        else:
+            market, start = _market(snapshot, split, unseal=False)
+        part = regime_diag.label_report(
+            model.label_market(market), basket_log_returns(market), _btc_log_returns(market), start
+        )
+        splits[str(split)] = {
+            "start": market.days[start].isoformat(),
+            "end": market.days[-1].isoformat(),
+            **part,
+        }
+    result: dict[str, object] = {
+        "artifact": str(model_path),
+        "sha256": hashlib.sha256(raw.encode()).hexdigest(),
+        "labeling": str(model.labeling),
+        "features": list(features_of(model.labeling)),
+        "splits": splits,
+    }
+    reports.mkdir(parents=True, exist_ok=True)
+    name = f"regime-report-{model.labeling}"
+    _write_json(reports / f"{name}.json", result)
+    md = regime_diag.to_markdown(result)
+    _write(reports / f"{name}.md", md + "\n")
+    print(md)
+    return result
 
 
 def export_openapi(ts: Path | None, json_out: Path | None) -> None:
@@ -471,6 +527,17 @@ def main(argv: Sequence[str] | None = None) -> None:
     hmm = sub.add_parser("train-hmm", help="Rejim HMM'ini yalnızca eğitim döneminde eğit")
     hmm.add_argument("--out", type=Path, default=DEFAULT_MODELS / "regime-hmm.json")
     hmm.add_argument("--seed", type=int, default=0)
+    hmm.add_argument(
+        "--labeling",
+        type=Labeling,
+        choices=list(Labeling),
+        default=Labeling.MOMENTUM,
+        help="durumların boğa/ayı/yatay adlandırma yöntemi (artefakta yazılır)",
+    )
+    diag = sub.add_parser(
+        "regime-report", help="Rejim etiketlerinin tanısı (eğitim + doğrulama, test asla)"
+    )
+    diag.add_argument("--model", type=Path, default=DEFAULT_MODELS / "regime-hmm.json")
     user = sub.add_parser("create-user", help="Kullanıcı oluştur (parola istemle/stdin'den)")
     user.add_argument("--email", required=True)
     user.add_argument("--role", choices=["researcher", "viewer"], default="viewer")
@@ -508,7 +575,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         if args.command == "fetch-data":
             fetch_data(args.snapshot)
         elif args.command == "train-hmm":
-            train_hmm(args.snapshot, args.out, args.seed)
+            train_hmm(args.snapshot, args.out, args.seed, args.labeling, args.reports)
+        elif args.command == "regime-report":
+            regime_report(args.snapshot, args.model, args.reports)
         elif args.command == "baseline":
             baseline(args.snapshot, args.reports, args.split, with_llm=args.llm, unseal=args.unseal)
         elif args.command == "train-ppo":
