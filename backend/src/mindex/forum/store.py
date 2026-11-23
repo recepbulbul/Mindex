@@ -115,8 +115,11 @@ class ForumStore:
                 )
             )
 
-    def post(self, sender: uuid.UUID, day: date, post: PostOut) -> ForumMessageRow:
+    def post(self, sender: uuid.UUID, day: date, post: PostOut) -> ForumMessageRow | None:
+        """Store a screened post; None when nothing is left of it after cleaning."""
         clean = screen(post.text, self.codes)
+        if clean is None:
+            return None
         row = ForumMessageRow(
             id=uuid.uuid4(),
             experiment_id=self.experiment_id,

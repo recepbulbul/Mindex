@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 import mindex.forum.store
 from conftest import synthetic_frame
-from mindex.agents.llm import DECISION_V3
+from mindex.agents.llm import DECISION_V4, PostOut, anonymise
 from mindex.config import Settings
 from mindex.data.snapshot import write_snapshot
 from mindex.db.models import (
@@ -32,9 +32,11 @@ from mindex.db.models import (
     ForumMessageRow,
     TrustScoreRow,
 )
-from mindex.domain.forum import HORIZON_DAYS, WINDOW_DAYS
+from mindex.domain.decision import Asset
+from mindex.domain.forum import HORIZON_DAYS, WINDOW_DAYS, Stance
+from mindex.forum.store import ForumStore
 from mindex.memory.embedder import HashEmbedder
-from mindex.services.runner import ExperimentRunner, resume_interrupted
+from mindex.services.runner import ExperimentRunner, experiment_market, resume_interrupted
 from test_runner import (  # fixtures and helpers shared with the runner tests
     END,
     START,
@@ -207,8 +209,8 @@ def test_a_c3_run_posts_reads_judges_and_trusts(
     assert _status(db_session, c3_run) is ExperimentStatus.COMPLETED
     exp = db_session.get(Experiment, c3_run)
     assert exp is not None
-    assert exp.prompt_version == DECISION_V3
-    assert exp.config["prompt_version"] == DECISION_V3
+    assert exp.prompt_version == DECISION_V4
+    assert exp.config["prompt_version"] == DECISION_V4
     assert exp.config["forum"]["weighting"] == "beta"
     assert exp.config["forum"]["horizon_days"] == HORIZON_DAYS
     assert "postmortem_prompt_version" in exp.config  # C3 keeps C1's memory
@@ -289,7 +291,7 @@ def _without_ids(db: Session, exp_id: uuid.UUID) -> dict[str, Any]:
     return {**_record(db, exp_id), **forum_record(db, exp_id)}
 
 
-def test_c3_with_equal_trust_is_c2_bit_for_bit(
+def test_c3_with_all_trust_at_the_prior_is_c2_bit_for_bit(
     api: TestClient,
     researcher: dict[str, str],
     db_session: Session,
@@ -300,7 +302,8 @@ def test_c3_with_equal_trust_is_c2_bit_for_bit(
     # Unequal trust: C3 weighs the senders differently and decides differently (the contrast).
     c2, c3 = (_run(api, researcher, sessions, settings, c) for c in ("C2", "C3"))
     assert _without_ids(db_session, c2)["decisions"] != _without_ids(db_session, c3)["decisions"]
-    # Equal trust everywhere (no advice is ever judged, every score stays 0.5): identical runs.
+    # Every trust stays at the prior (no advice is ever judged, a = b = 0, w = 1/2, which is
+    # C2's fixed weight): identical runs, so C3 - C2 comes only from learning trust.
     monkeypatch.setattr(mindex.forum.store, "verdict", never_judged)
     c2, c3 = (_run(api, researcher, sessions, settings, c) for c in ("C2", "C3"))
     flat_c2, flat_c3 = _without_ids(db_session, c2), _without_ids(db_session, c3)
@@ -444,3 +447,28 @@ def test_forum_endpoint_and_agent_trust(
     assert not any(set(d["forumMessageIds"]) & flagged_ids for d in detail["decisions"])
     rule = api.get(f"/api/experiments/{c3_run}/agents/equal-weight", headers=viewer).json()
     assert rule["trustGiven"] == rule["trustReceived"] == []
+
+
+def test_a_post_is_never_read_on_its_own_day(
+    c3_run: uuid.UUID, db_session: Session, settings: Settings
+) -> None:
+    """#57: the store reads only earlier days (`day < today`), whatever the runner's order."""
+    exp = db_session.get(Experiment, c3_run)
+    assert exp is not None
+    by_slug = {ea.agent.slug: ea.id for ea in exp.agents}
+    market, _ = experiment_market(exp, settings)
+    store = ForumStore(
+        db_session, exp.id, _ids(db_session, c3_run), market, anonymise(market.assets)
+    )
+    day = END + timedelta(days=30)  # after the run: no other post that day
+    reader, sender = by_slug["llm-momentum"], by_slug["llm-risk-averse"]
+    post = PostOut(asset=Asset.BTC, stance=Stance.BULLISH, text="ASSET_A güçlü görünüyor.")
+    row = store.post(sender, day, post)
+    assert row is not None
+    db_session.flush()
+    assert row.id not in {r.message_id for r in store.reads_for(reader, day)}
+    assert row.id in {r.message_id for r in store.reads_for(reader, day + timedelta(days=1))}
+    assert row.id not in {r.message_id for r in store.reads_for(sender, day + timedelta(days=1))}
+    # Nothing left after cleaning: nothing stored.
+    empty = PostOut(asset=Asset.BTC, stance=Stance.BULLISH, text="<>")
+    assert store.post(sender, day, empty) is None
