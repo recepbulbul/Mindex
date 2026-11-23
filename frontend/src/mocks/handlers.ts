@@ -257,9 +257,8 @@ function addDraft(config: ExperimentCreate, request: Request): Experiment {
 }
 
 // The backend runner's start-time refusals (services/runner.py `runnable_errors`). The mock
-// can run PPO, so only the rules that hold everywhere are mirrored.
-const LLM_NEEDS_FORUM =
-  'LLM ajanları henüz foruma bağlı değil: C2 ve C3 koşulunda koşmak, forumsuz davranışı yanlış koşul etiketiyle kaydeder ve araştırma verisini bozar. LLM ajanlarını C0, C1 ya da C1_NO_REGIME koşulunda çalıştırın ya da deneyden çıkarın.'
+// can run PPO and stamps every experiment with the current prompt, so only the rules that
+// hold everywhere are mirrored (every condition runs LLM agents since the forum, P6).
 
 function runnableErrors(exp: Experiment): Record<string, string> | null {
   const fields: Record<string, string> = {}
@@ -273,11 +272,6 @@ function runnableErrors(exp: Experiment): Record<string, string> | null {
     return []
   })
   if (problems.length) fields.agentIds = `${problems.join('; ')}.`
-  if (
-    (exp.condition === 'C2' || exp.condition === 'C3') &&
-    exp.agentIds.some((id) => LLM_AGENT_IDS.includes(id))
-  )
-    fields.condition = LLM_NEEDS_FORUM
   return Object.keys(fields).length ? fields : null
 }
 

@@ -8,8 +8,11 @@ export const CONDITIONS = ['C0', 'C1', 'C1_NO_REGIME', 'C2', 'C3'] as const
 export type Condition = (typeof CONDITIONS)[number]
 
 // The decision prompt the server stamps on new experiments (agents/llm.py `PROMPT_VERSION`).
-// `decision-v1` (the C0 baseline) stays runnable for experiments stored with it.
-export const PROMPT_VERSION = 'decision-v2'
+// `decision-v4` adds the forum in C2/C3 with absolute sender weights (#57) and is
+// `decision-v2` byte for byte elsewhere, as is `decision-v3` (whose per-asset shares made a
+// lone post weigh 1; C2/C3 stored with it are refused). v1 (the C0 baseline), v2 and v3 stay
+// runnable outside the forum for experiments stored with them.
+export const PROMPT_VERSION = 'decision-v4'
 
 export const CONDITION_LABELS: Record<Condition, string> = {
   C0: 'C0 · Hafızasız',
@@ -86,11 +89,14 @@ export interface Experiment {
 //   So is the PPO agent (422 + fields.agentIds) on a server without a trained PPO model,
 //   on create, PATCH and import alike, so a run never fails half-way for it.
 //   The server stamps `modelVersion` / `promptVersion` with what it will run.
-// POST /experiments/:id/start: LLM agents run in C0 (no memory) and C1 / C1_NO_REGIME
-//   (own lessons recalled before each decision, post-mortem lessons written when a
-//   position closes). C2 / C3 need the forum (P6): 422 + fields.condition.
+// POST /experiments/:id/start: LLM agents run in every condition. C0 has no memory;
+//   C1 / C1_NO_REGIME / C2 / C3 recall the agent's own lessons before each decision and write
+//   post-mortem lessons when a position closes; C2 / C3 add the forum (`decision-v4`): posts of
+//   the previous days, weighted equally (C2) or by the reader's Beta trust in the sender (C3).
 //   A run recalls only lessons learned on an earlier day; each decision's recalled
-//   lessons come back as `Decision.memories`.
+//   lessons come back as `Decision.memories`, the forum posts it read as `forumMessageIds`.
+//   An experiment stored with an older prompt is refused with 422 + fields.promptVersion when
+//   that prompt cannot serve its condition (decision-v1 has no memory, only v4 has the forum).
 // PATCH /experiments/:id (200, ExperimentUpdate): drafts only (409 otherwise); the merged
 //   configuration is validated as a whole, with the same rules as create.
 // DELETE /experiments/:id (204): draft, completed or failed only (409 while queued/running/paused).
@@ -148,14 +154,19 @@ export interface AgentRun {
 //   runner (a failed run resumes from its checkpoint, e.g. after the LLM server came back),
 //   which commits each day's decisions, trades and snapshots with a checkpoint and resumes from it
 //   after a restart. 409 in other states; 422 + fields when the runner cannot run it yet: `mode`
-//   (live, P7), `agentIds` (external MCP agents, buy-hold-btc without BTC), `condition` (LLM agents run only as the C0 baseline until memory/forum are wired in).
+//   (live, P7), `agentIds` (external MCP agents, buy-hold-btc without BTC), `promptVersion`.
 // Results of a started experiment (drafts: timeline 409, the others 404):
 // GET /experiments/:id/timeline: days up to the last checkpoint; `candles` has a key per
 //   experiment asset (not all five). `regimes` are the labels the run decided with: the HMM's
 //   (its SHA-256 is pinned in the experiment's stored config) or, without a regime model, the
 //   placeholder 'sideways' on every day (stored as `regime_source: "placeholder"`).
 // GET /experiments/:id/report: 409 before the first checkpoint; `conditions` is [] until the
-//   multi-seed comparison (P9). GET /experiments/:id/forum: empty lists until the forum (P6).
+//   multi-seed comparison (P9).
+// GET /experiments/:id/forum: C2/C3 runs' posts (newest first), the current trust matrix and its
+//   history; empty lists in other conditions. A post written on day t is read from t+1 on and
+//   judged on the close of t+5 (`verified`, null until then and for neutral stances); posts the
+//   injection filter flags are kept for the record and never shown to an agent. `content` is
+//   stored sanitised and anonymised (ASSET_A…), at most 280 characters.
 // GET /experiments/:id/memories?regime=&agent=&q=: most important first.
 export interface Timeline {
   experimentId: string
@@ -210,6 +221,7 @@ export interface ForumMessage {
   content: string
   asset: Asset
   stance: Stance
+  regime: Regime // the market regime of the day it was posted
   flagged: boolean
   verified: boolean | null
 }
@@ -222,6 +234,7 @@ export interface TrustScore {
   score: number
 }
 
+// The start of the run, then every day on which advice was judged.
 export interface TrustHistoryPoint {
   day: string
   trusteeId: string

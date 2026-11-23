@@ -135,7 +135,7 @@ Tabloları oluşturan SQL komutları (DDL): [`db/schema.sql`](db/schema.sql). T�
 | decision_id + memory_id | uuid, PK | Kararda hangi anıların kullanıldığı (F6) |
 | score | numeric(6,5) | Hibrit sıralama skoru |
 | decision_id + forum_message_id | uuid, PK | Kararda hangi forum mesajlarının okunduğu |
-| weight | numeric(5,4) | O anki gönderen güveni `w` |
+| weight | numeric(5,4) | O anki gönderen ağırlığı `w`: C3'te okuyanın Beta güveni, C2'de herkese 0,5 |
 
 ## forum_messages
 | Alan | Tip | Boş? | Kısıt | Açıklama |
@@ -144,11 +144,12 @@ Tabloları oluşturan SQL komutları (DDL): [`db/schema.sql`](db/schema.sql). T�
 | experiment_id | uuid | H | FK | |
 | sender_id | uuid | H | FK → experiment_agents | |
 | day | date | H | | |
-| content | text | H | ≤ 1000 karakter | Güvenilmeyen veri olarak işlenir (LLM01) |
+| content | text | H | ≤ 1000 karakter | Güvenilmeyen veri olarak işlenir (LLM01); temizlenmiş, anonim (`ASSET_x`), ≤ 280 karakter saklanır |
 | asset | text | E | FK | Tavsiyenin ilgili olduğu varlık |
 | stance | forum_stance | H | | Doğrulama için yön |
 | flagged | boolean | H | false | Talimat/injection kalıbı tespit edildi |
-| verified | boolean | E | | Ufuk sonunda tavsiye tuttu mu; NULL = henüz değil |
+| verified | boolean | E | | Ufuk (5 gün) sonunda tavsiye tuttu mu; NULL = henüz değil ya da nötr duruş |
+| verified_on | date | E | | Hükmün verildiği gün (gönderim günü + 5); güven geçmişi bundan yeniden kurulur |
 
 ## trust_scores
 | Alan | Tip | Boş? | Kısıt | Açıklama |

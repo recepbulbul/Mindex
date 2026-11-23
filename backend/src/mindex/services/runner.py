@@ -13,9 +13,15 @@ write a post-mortem lesson that passes the numeric consistency check (dated the 
 so it is usable from the next day on). The lesson is part of the day's transaction, so a
 resumed run recalls and writes exactly what an uninterrupted run would.
 
+C2 and C3 add the forum to C1 (`decision-v3`): before the agents decide on day `t`, advice
+whose five-day horizon ended by `t` is judged on closes up to `t` and the readers' Beta trust in
+its senders is updated; each LLM agent then reads the filtered posts of the previous days (C2:
+every sender weighs the same; C3: by the reader's trust) and may post one view inside its
+decision answer. Posts, reads, verdicts and trust are written in the day's transaction too
+(`mindex.forum.store`), so a resumed forum run is bit for bit an uninterrupted one.
+
 Scope until later work packages (refused with an explicit message, never run silently):
 - `live` mode (P7) and external MCP agents;
-- LLM agents in C2/C3: the forum comes in P6;
 - the PPO agent without a trained artefact (`MINDEX_PPO_MODEL_DIR`; training needs torch,
   which runs on the GPU machine).
 
@@ -49,14 +55,18 @@ from sqlalchemy.orm import Session
 from mindex.agents.base import BaseAgent
 from mindex.agents.llm import (
     DECISION_V1,
-    DECISION_V2,
+    FORUM_VERSION,
+    MEMORY_VERSIONS,
     PROMPT_VERSIONS,
     ChatClient,
+    Forum,
     LlamaCppClient,
     LLMAgent,
     LLMUnavailableError,
+    PostOut,
     Recall,
     RecalledLesson,
+    anonymise,
 )
 from mindex.agents.rule import BuyAndHoldAgent, EqualWeightAgent, MovingAverageCrossAgent
 from mindex.config import Settings
@@ -77,27 +87,26 @@ from mindex.db.models import (
     TradeSide,
 )
 from mindex.domain.decision import Asset, Decision
+from mindex.domain.forum import FILTER_VERSION, HORIZON_DAYS, MAX_READS, WINDOW_DAYS, ForumRead
 from mindex.domain.regime import Regime
+from mindex.forum.store import ForumStore
 from mindex.memory.embedder import Embedder, LlamaServerEmbedder
 from mindex.memory.recall import make_recall
 from mindex.memory.store import MemoryStore
 from mindex.postmortem.counterfactual import closed_on, counterfactual
 from mindex.postmortem.lesson import POSTMORTEM_PROMPT_VERSION, postmortem
 from mindex.sim.engine import ExecutionCosts, Fill, Observation, SimState, Simulator
-from mindex.sim.market import MarketData
+from mindex.sim.market import MarketData, MarketView
 
 LOOKBACK_DAYS = 31  # indicator warm-up before the first decision day (30 returns, MA(30))
 PLACEHOLDER_REGIME = Regime.SIDEWAYS
 # `failed` restarts from its checkpoint (e.g. after the LLM server came back).
 # `paused` is not startable yet: nothing pauses a run until a pause endpoint exists.
 STARTABLE = (ExperimentStatus.DRAFT, ExperimentStatus.FAILED)
-MEMORY_CONDITIONS = (Condition.C1, Condition.C1_NO_REGIME)
+# C2 and C3 keep C1's personal memory (docs/04-ai-pipeline.md, ablation table), so C2 - C1
+# isolates the forum and C3 - C2 the trust weighting.
+MEMORY_CONDITIONS = (Condition.C1, Condition.C1_NO_REGIME, Condition.C2, Condition.C3)
 FORUM_CONDITIONS = (Condition.C2, Condition.C3)
-LLM_NEEDS_FORUM = (
-    "LLM ajanları henüz foruma bağlı değil: C2 ve C3 koşulunda koşmak, forumsuz davranışı "
-    "yanlış koşul etiketiyle kaydeder ve araştırma verisini bozar. LLM ajanlarını C0, C1 ya da "
-    "C1_NO_REGIME koşulunda çalıştırın ya da deneyden çıkarın."
-)
 ACTIVE = (ExperimentStatus.QUEUED, ExperimentStatus.RUNNING)
 
 log = structlog.get_logger(__name__)
@@ -234,6 +243,25 @@ POSTMORTEM_VERSION = "postmortem_prompt_version"  # more `config` keys, for memo
 EMBEDDING_MODEL = "embedding_model"
 
 
+FORUM_SETTINGS = "forum"  # `config` key of a forum run's fixed parameters
+PROMPT_VERSION_KEY = "prompt_version"  # the decision prompt, copied into `config` (NF5)
+
+
+def forum_provenance(condition: Condition) -> dict[str, Any]:
+    """The forum's fixed parameters, recorded for C2/C3 and checked on resume; empty otherwise."""
+    if condition not in FORUM_CONDITIONS:
+        return {}
+    return {
+        FORUM_SETTINGS: {
+            "horizon_days": HORIZON_DAYS,
+            "window_days": WINDOW_DAYS,
+            "max_reads": MAX_READS,
+            "filter": FILTER_VERSION,
+            "weighting": "beta" if condition is Condition.C3 else "equal",
+        }
+    }
+
+
 def memory_provenance(settings: Settings, memory: bool) -> dict[str, str | None]:
     """What the lessons of a C1/C1' run depend on besides the decision prompt (NF5): the
     post-mortem prompt version and the embedding model. Empty for C0 (no memory)."""
@@ -292,16 +320,20 @@ def runnable_errors(
     if problems:
         errors["agentIds"] = "; ".join(problems) + "."
     if any(a.kind is AgentKindDb.LLM for a in agents):
-        if exp.condition in FORUM_CONDITIONS:
-            errors["condition"] = LLM_NEEDS_FORUM
         if exp.prompt_version not in PROMPT_VERSIONS:
             errors["promptVersion"] = (
                 f"Deney {exp.prompt_version} prompt'uyla kaydedilmiş; bu sunucu "
                 f"{', '.join(PROMPT_VERSIONS)} çalıştırır."
             )
-        elif exp.prompt_version == DECISION_V1 and exp.condition in MEMORY_CONDITIONS:
+        elif exp.condition in FORUM_CONDITIONS and exp.prompt_version != FORUM_VERSION:
             errors["promptVersion"] = (
-                f"{DECISION_V1} hafızayı bilmez; C1 ve C1_NO_REGIME koşulları {DECISION_V2} ister."
+                f"{exp.prompt_version} forumu bilmez ya da güveni eski (paylaşımlı) biçimde "
+                f"ağırlıklar; C2 ve C3 koşulları {FORUM_VERSION} ister. Deneyi yeniden oluşturun."
+            )
+        elif exp.prompt_version not in MEMORY_VERSIONS and exp.condition in MEMORY_CONDITIONS:
+            errors["promptVersion"] = (
+                f"{DECISION_V1} hafızayı bilmez; C1 ve C1_NO_REGIME koşulları "
+                f"{' ya da '.join(MEMORY_VERSIONS)} ister."
             )
     return errors
 
@@ -326,6 +358,7 @@ def build_agent(
     settings: Settings,
     chat_client: ChatClientFactory,
     recall: Recall | None = None,
+    forum: Forum | None = None,
 ) -> BaseAgent:
     params = row.params
     match row.kind, params.get("rule"):
@@ -346,6 +379,7 @@ def build_agent(
                 prompt_version=exp.prompt_version,
                 costs=experiment_costs(exp),
                 recall=recall,
+                forum=forum,
             )
         case AgentKindDb.RL, _ if settings.ppo_model_dir is not None:
             from mindex.agents.ppo import PPOAgent  # loads SB3/torch only when used
@@ -361,7 +395,10 @@ class Recorded:
     weights: dict[Asset, float]  # before the decision (what a hold keeps)
     attempts: int
     latency_ms: int
-    lessons: tuple[RecalledLesson, ...] = ()  # recalled for this decision (C1/C1')
+    lessons: tuple[RecalledLesson, ...] = ()  # recalled for this decision (memory conditions)
+    reads: tuple[ForumRead, ...] = ()  # forum posts read for it (C2/C3) ...
+    read_weights: tuple[float, ...] = ()  # ... with the sender weight w of each
+    post: PostOut | None = None  # what the decision said on the forum
 
 
 class RecordingAgent:
@@ -379,11 +416,20 @@ class RecordingAgent:
         started = time.perf_counter()
         decision = self.inner.decide(obs)
         latency = round((time.perf_counter() - started) * 1000)
-        if isinstance(self.inner, LLMAgent):
-            attempts, lessons = self.inner.stats.attempts[-1], self.inner.last_lessons
+        inner = self.inner
+        if isinstance(inner, LLMAgent):
+            self.last = Recorded(
+                decision,
+                dict(obs.weights),
+                inner.stats.attempts[-1],
+                latency,
+                inner.last_lessons,
+                inner.last_reads,
+                inner.last_weights,
+                inner.last_post,
+            )
         else:
-            attempts, lessons = 1, ()
-        self.last = Recorded(decision, dict(obs.weights), attempts, latency, lessons)
+            self.last = Recorded(decision, dict(obs.weights), 1, latency)
         return decision
 
 
@@ -485,6 +531,18 @@ class ExperimentRunner:
             regimes = regime_labels(market, self.settings)
             memory = exp.condition in MEMORY_CONDITIONS
             store = MemoryStore(session, self.embedder) if memory else None
+            forum = (
+                ForumStore(
+                    session,
+                    exp.id,
+                    {ea.id: ea.agent.slug for ea in links},
+                    market,
+                    anonymise(market.assets),
+                )
+                if exp.condition in FORUM_CONDITIONS
+                else None
+            )
+            members = [ea.id for ea in links if ea.agent.kind is AgentKindDb.LLM]
             agents = [
                 RecordingAgent(
                     build_agent(
@@ -493,6 +551,11 @@ class ExperimentRunner:
                         self.settings,
                         self.chat_client,
                         recall=self._recall(store, exp, ea, regimes),
+                        forum=(
+                            forum.feed(ea.id, by_trust=exp.condition is Condition.C3)
+                            if forum is not None and ea.id in members
+                            else None
+                        ),
                     )
                 )
                 for ea in links
@@ -504,14 +567,23 @@ class ExperimentRunner:
                 costs=experiment_costs(exp),
                 initial_cash=float(links[0].initial_cash),
             )
-            provenance = {
+            provenance: dict[str, Any] = {
                 **regime_provenance(self.settings),
                 **memory_provenance(self.settings, memory),
+                **forum_provenance(exp.condition),
             }
             postmortem_chat = self.chat_client(exp) if memory else None
 
             if exp.checkpoint is None:
-                exp.config = {**exp.config, **provenance}
+                # The prompt version is copied for the record only: it cannot change after a
+                # draft, and runs started before it was recorded must still resume.
+                exp.config = {
+                    **exp.config,
+                    **provenance,
+                    PROMPT_VERSION_KEY: exp.prompt_version,
+                }
+                if forum is not None:
+                    forum.start(members)
                 state = sim.initial_state()
                 for ea in links:
                     self._snapshot(session, ea, state, market.days[start])
@@ -534,11 +606,13 @@ class ExperimentRunner:
                 if max_days is not None and days >= max_days:
                     return
                 t = state.t
+                if forum is not None:
+                    forum.verify(MarketView(market, t))  # before today's decisions read trust
                 before = {ea.agent.slug: len(state.books[ea.agent.slug].fills) for ea in links}
                 state = sim.step(state)
                 for ea, agent in zip(links, agents, strict=True):
                     fill_ids = self._record_day(
-                        session, ea, agent, state, market, t, before, regimes[t]
+                        session, ea, agent, state, market, t, before, regimes[t], forum
                     )
                     if (
                         store is not None
@@ -646,9 +720,11 @@ class ExperimentRunner:
         t: int,
         fills_before: Mapping[str, int],
         regime: Regime,
+        forum: ForumStore | None = None,
     ) -> dict[Fill, uuid.UUID]:
-        """Write the day's decision, recalled memories, trades and snapshot; returns the new
-        fills with their trade ids (the post-mortem links its lesson to the closing trade)."""
+        """Write the day's decision, recalled memories, forum reads and post, trades and
+        snapshot; returns the new fills with their trade ids (the post-mortem links its lesson
+        to the closing trade)."""
         rec = agent.last
         assert rec is not None  # noqa: S101 (step() asked every agent)
         d = rec.decision
@@ -675,6 +751,10 @@ class ExperimentRunner:
                     score=Decimal(str(round(lesson.score, 5))),
                 )
             )
+        if forum is not None:
+            forum.record_reads(decision.id, rec.reads, rec.read_weights)
+            if rec.post is not None:
+                forum.post(ea.id, market.days[t], rec.post)
         book = state.books[ea.agent.slug]
         fill_ids: dict[Fill, uuid.UUID] = {}
         for f in book.fills[fills_before[ea.agent.slug] :]:

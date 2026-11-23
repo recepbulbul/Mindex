@@ -174,7 +174,8 @@ CREATE TABLE forum_messages (
     asset         text REFERENCES assets (symbol),
     stance        forum_stance NOT NULL,
     flagged       boolean NOT NULL DEFAULT false,            -- OWASP LLM01 filtresi
-    verified      boolean                                     -- NULL: ufuk dolmadı
+    verified      boolean,                                    -- NULL: ufuk dolmadı / nötr
+    verified_on   date                                        -- hükmün verildiği gün (güven geçmişi)
 );
 CREATE INDEX forum_messages_exp_day_idx ON forum_messages (experiment_id, day);
 
