@@ -583,3 +583,21 @@ def test_queueing_claims_in_sql_and_never_requeues_a_run_finished_meanwhile(
     status = check.get(Experiment, first)
     assert status is not None
     assert status.status is ExperimentStatus.COMPLETED
+
+
+def test_cli_tables_a_study_with_one_llm_agent(
+    cli_env: Session, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Herd correlation is null below two LLM agents; `start` and `status` print a dash."""
+    create = ["study", "create", "--owner", "hoca@mindex.dev", "--smoke", "--assets", "BTC", "ETH"]
+    cli.main([*create, "--agents", "buy-hold-btc", "llm-momentum"])
+    study = cli_env.scalar(select(Study))
+    assert study is not None
+    cli.main(["study", "start", str(study.id)])
+    started = capsys.readouterr().out
+    cli.main(["study", "status", str(study.id)])
+    status = capsys.readouterr().out
+    for out in (started, status):
+        rows = [line for line in out.splitlines() if line.startswith(("C0    ", "C3    "))]
+        assert len(rows) == 2
+        assert all("  —  " in row for row in rows)

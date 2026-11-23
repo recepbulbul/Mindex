@@ -486,10 +486,12 @@ def study_status(study_id: str) -> None:
     print("koşul          koşu  Sharpe  %95 GA             MDD     getiri  sürü   ders")
     for c in result.conditions:
         lesson = "-" if c.lesson_consistency is None else f"{c.lesson_consistency:.0%}"
+        # Null below two LLM agents: nothing to correlate.
+        herd = "—" if c.herd_correlation is None else f"{c.herd_correlation:.2f}"
         print(
             f"{c.condition:<13} {c.runs:>5} {c.sharpe_mean:>7.2f}  "
             f"[{c.sharpe_ci_low:>6.2f}, {c.sharpe_ci_high:>6.2f}]  {c.max_drawdown:>6.1%} "
-            f"{c.total_return:>7.1%} {c.herd_correlation:>5.2f}  {lesson}"
+            f"{c.total_return:>7.1%} {herd:>5}  {lesson}"
         )
     for d in result.differences:
         print(

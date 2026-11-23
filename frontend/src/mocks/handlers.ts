@@ -300,7 +300,7 @@ function conditionSummaries(exp: Experiment): ConditionSummary[] {
         sharpe: avg((x) => x.sharpe),
         mdd: avg((x) => x.maxDrawdown),
         ret: avg((x) => x.totalReturn),
-        herd: llmHerd(sim) ?? 0,
+        herd: llmHerd(sim),
         lessons: sim.memories.length,
       }
     })
@@ -316,7 +316,8 @@ function conditionSummaries(exp: Experiment): ConditionSummary[] {
       sharpeCiHigh: sharpes.at(-1)!,
       maxDrawdown: mean((x) => x.mdd),
       totalReturn: mean((x) => x.ret),
-      herdCorrelation: mean((x) => x.herd),
+      // Like the backend: null when no run has two LLM agents to correlate.
+      herdCorrelation: perSeed.every((x) => x.herd === null) ? null : mean((x) => x.herd ?? 0),
       lessonConsistency: condition === 'C0' ? null : 0.9 + (mean((x) => x.lessons) % 7) / 100,
       meanForumWeight: mockForumWeight(condition),
     }
