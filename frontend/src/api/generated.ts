@@ -145,6 +145,7 @@ export interface ForumMessageOut {
   content: string
   asset: Asset
   stance: Stance
+  regime: Regime
   flagged: boolean
   verified: boolean | null
 }

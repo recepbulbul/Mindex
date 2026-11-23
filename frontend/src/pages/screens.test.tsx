@@ -199,6 +199,27 @@ describe('forum and memory (F7)', () => {
     expect(await screen.findByText(/ajanlara iletilmedi/)).toBeInTheDocument()
   })
 
+  it('filters forum posts by regime and finds them by text', async () => {
+    signIn('viewer')
+    const { user } = renderApp('/experiments/exp-test-c3/forum')
+    const count = await screen.findByText(/^\d+ mesaj/)
+    const total = Number(count.textContent!.match(/\d+/)![0])
+    expect(total).toBeGreaterThan(0)
+    await user.selectOptions(screen.getByLabelText('Mesaj rejimi'), 'bear')
+    await waitFor(() => {
+      const feed = screen.getByRole('region', { name: 'Forum mesajları' })
+      const badges = within(feed).queryAllByText(/^(Boğa|Ayı|Yatay)$/)
+      expect(badges.every((b) => b.textContent === 'Ayı')).toBe(true)
+    })
+    await user.selectOptions(screen.getByLabelText('Mesaj rejimi'), '')
+    await user.type(screen.getByLabelText('Mesajlarda ara'), 'SİSTEM TALİMATI')
+    await waitFor(() => expect(screen.getByText(/^1 mesaj/)).toBeInTheDocument())
+    expect(screen.getByText(/ajanlara iletilmedi/)).toBeInTheDocument()
+    await user.clear(screen.getByLabelText('Mesajlarda ara'))
+    await user.type(screen.getByLabelText('Mesajlarda ara'), 'zzz-yok')
+    expect(await screen.findByText('Eşleşen mesaj yok')).toBeInTheDocument()
+  })
+
   it('opens the memory browser from the URL', async () => {
     signIn('viewer')
     renderApp('/experiments/exp-test-c3/forum?view=memory')

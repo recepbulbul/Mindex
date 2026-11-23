@@ -25,6 +25,7 @@ from conftest import synthetic_frame
 from mindex.agents.llm import (
     DECISION_V1,
     DECISION_V2,
+    DECISION_V3,
     LESSONS_PROMPT,
     PERSONAS,
     SYSTEM_PROMPT,
@@ -58,7 +59,6 @@ from mindex.memory.store import MemoryStore
 from mindex.postmortem.lesson import POSTMORTEM_PROMPT_VERSION
 from mindex.regime.hmm import RegimeModel, regime_features
 from mindex.services.runner import (
-    LLM_NEEDS_FORUM,
     DataUnavailableError,
     ExperimentRunner,
     InProcessQueue,
@@ -569,7 +569,6 @@ def test_start_rules(
     [
         ({"agentIds": ["mcp-guest", "equal-weight"]}, "agentIds"),
         ({"agentIds": ["buy-hold-btc", "ma-cross"], "assets": ["ETH"]}, "agentIds"),
-        ({"condition": "C3"}, "condition"),  # LLM agents run only as the C0 baseline for now
         ({"mode": "live", "startDate": "2026-10-01", "endDate": None}, "mode"),
     ],
 )
@@ -835,7 +834,7 @@ def test_memories_and_forum(
     assert api.get(url, params={"q": "_"}, headers=viewer).json() == []
     assert api.get(url, params={"regime": "moon"}, headers=viewer).status_code == 422
     forum = api.get(f"/api/experiments/{finished}/forum", headers=viewer).json()
-    assert forum == {"messages": [], "trust": [], "trustHistory": []}
+    assert forum == {"messages": [], "trust": [], "trustHistory": []}  # C0: no forum
 
 
 def test_drafts_have_no_results(
@@ -1196,7 +1195,7 @@ def test_c0_and_c1_differ_only_by_the_lessons(
     for exp_id in (c0, c1):
         exp = db_session.get(Experiment, exp_id)
         assert exp is not None
-        assert exp.prompt_version == DECISION_V2
+        assert exp.prompt_version == DECISION_V3
 
     assert _recalled(db_session, c0, "llm-momentum") == []
     got = _recalled(db_session, c1, "llm-momentum")
@@ -1395,16 +1394,10 @@ def test_memory_conditions_start(
 
 
 @pytest.mark.parametrize("condition", ["C2", "C3"])
-def test_llm_in_forum_conditions_is_refused_with_the_reason(
+def test_forum_conditions_start(
     api: TestClient, researcher: dict[str, str], condition: str
 ) -> None:
-    exp = api.post(
-        "/api/experiments", json={**CONFIG, "condition": condition}, headers=researcher
-    ).json()
-    res = api.post(f"/api/experiments/{exp['id']}/start", headers=researcher)
-    assert res.status_code == 422
-    assert res.json()["fields"]["condition"] == LLM_NEEDS_FORUM
-    assert "araştırma verisini bozar" in LLM_NEEDS_FORUM
+    _started(api, researcher, condition=condition)  # the forum exists (P6): no more 422
 
 
 def _draft_with_version(
@@ -1440,6 +1433,8 @@ def test_a_stored_decision_v1_experiment_still_runs_the_v1_prompt(
     ("version", "over", "reason"),
     [
         (DECISION_V1, {"condition": "C1"}, "hafızayı bilmez"),
+        (DECISION_V2, {"condition": "C3"}, "forumu bilmez"),
+        (DECISION_V1, {"condition": "C2"}, "forumu bilmez"),
         ("decision-v0", {}, "prompt'uyla kaydedilmiş"),
     ],
 )

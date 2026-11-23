@@ -14,9 +14,11 @@ from mindex.agents.base import AgentKind
 from mindex.agents.llm import (
     DECISION_V1,
     DECISION_V2,
+    DECISION_V3,
     PERSONAS,
     PROMPT_VERSION,
     SYSTEM_PROMPT,
+    ForumFeed,
     LlamaCppClient,
     LLMAgent,
     LLMUnavailableError,
@@ -314,7 +316,13 @@ def test_prompt_version_rules(market: MarketData) -> None:
         LLMAgent(FakeChat([GOOD]), prompt_version="decision-v9")
     with pytest.raises(ValueError, match="decision-v2"):
         LLMAgent(FakeChat([GOOD]), recall=lambda o: [])
-    assert PROMPT_VERSION == DECISION_V2  # new experiments run v2; v1 stays for stored C0 runs
+    assert PROMPT_VERSION == DECISION_V3  # new experiments run v3; v1, v2 stay for stored runs
+    with pytest.raises(ValueError, match="decision-v3"):
+        LLMAgent(
+            FakeChat([GOOD]),
+            prompt_version=DECISION_V2,
+            forum=lambda o: ForumFeed((), by_trust=False),
+        )
 
 
 def test_llm_agent_recalls_before_deciding_and_exposes_the_lessons(market: MarketData) -> None:

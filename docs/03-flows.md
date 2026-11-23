@@ -77,7 +77,7 @@ flowchart TD
 
 Her durumda karar kaydedilir ve ertesi günün (`t+1`) açılış fiyatıyla yürütülür; bu, ajanın kararını verdiği günün kapanışından sonraki fiyatları görmemesini sağlar.
 
-Bu akışın doğrulama/yeniden deneme kısmı [`backend/src/mindex/domain/decision.py`](../backend/src/mindex/domain/decision.py) içinde uygulanmış ve test edilmiştir. P3'te gözlem, llama.cpp çağrısı (düşünme kapalı, JSON şeması), zaman aşımı ve pozisyonu koruma dalları [`backend/src/mindex/agents/llm.py`](../backend/src/mindex/agents/llm.py) içinde eklendi; rejim, hafıza, forum ve önbellek adımları P4–P6'dadır.
+Bu akışın doğrulama/yeniden deneme kısmı [`backend/src/mindex/domain/decision.py`](../backend/src/mindex/domain/decision.py) içinde uygulanmış ve test edilmiştir. P3'te gözlem, llama.cpp çağrısı (düşünme kapalı, JSON şeması), zaman aşımı ve pozisyonu koruma dalları [`backend/src/mindex/agents/llm.py`](../backend/src/mindex/agents/llm.py) içinde eklendi; rejim ve hafıza P4–P5'te, forum P6'da geldi (`decision-v3`). Uygulamada içerik filtresi mesaj yazılırken çalışır ve işaretli mesajı okumadan tümüyle çıkarır; ayrıntı ve gerekçe: [Güven ağırlıklı forum](04-ai-pipeline.md#güven-ağırlıklı-forum-c2c3). Önbellek adımı henüz yoktur.
 
 ## Akış 3 — Canlı paper-trading veri akışı (F4, F5, NF1)
 
