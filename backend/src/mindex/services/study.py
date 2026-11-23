@@ -15,7 +15,7 @@ from datetime import timedelta
 from statistics import fmean
 from typing import cast
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from mindex.agents.llm import PROMPT_VERSION
@@ -53,6 +53,7 @@ from mindex.domain.metrics import herd_correlation
 from mindex.evaluation.bootstrap import RESAMPLES, bootstrap_sharpe
 from mindex.evaluation.report import daily_returns, differences, summarise
 from mindex.services.runner import (
+    ACTIVE,
     STARTABLE,
     agent_rows,
     lesson_consistency,
@@ -207,7 +208,11 @@ def queue_study(session: Session, settings: Settings, study: Study) -> list[uuid
     (a failed run, a killed process) leaves those behind, and starting again picks them up.
     Running one twice is harmless: the runner's advisory lock lets one worker run it and a
     finished run is not rerun. The caller submits them to a queue or runs them. Refused as a
-    whole (422) when the runner cannot run one of them."""
+    whole (422) when the runner cannot run one of them.
+
+    The claim is a conditional UPDATE (as `POST /experiments/:id/start`): a run another worker
+    finished or started after the listing is never set back to `queued`, and only runs still
+    queued or running after the claim are returned."""
     runs = [e for e in study_runs(session, study) if e.status in RESUMABLE]
     for exp in runs:
         errors = runnable_errors(exp, [ea.agent for ea in agent_rows(exp)], settings)
@@ -215,13 +220,25 @@ def queue_study(session: Session, settings: Settings, study: Study) -> list[uuid
             raise invalid(errors, NOT_RUNNABLE)
     for exp in runs:
         if exp.status in STARTABLE:
-            exp.status = ExperimentStatus.QUEUED
-            exp.config = user_config_with_runner_keys(exp)
+            session.execute(
+                update(Experiment)
+                .where(Experiment.id == exp.id, Experiment.status.in_(STARTABLE))
+                .values(status=ExperimentStatus.QUEUED, config=user_config_with_runner_keys(exp))
+            )
     session.commit()
-    return [e.id for e in runs]
+    ids = [e.id for e in runs]
+    active = set(
+        session.scalars(
+            select(Experiment.id).where(Experiment.id.in_(ids), Experiment.status.in_(ACTIVE))
+        )
+    )
+    session.expire_all()  # the ORM copies of the claimed rows are stale now
+    return [i for i in ids if i in active]
 
 
-def _summary_inputs(exp: Experiment) -> tuple[list[list[float]], list[tuple[float, float]], float]:
+def _summary_inputs(
+    exp: Experiment,
+) -> tuple[list[list[float]], list[tuple[float, float]], float | None]:
     """Per LLM agent: daily returns and (max drawdown, total return); and the run's herd
     correlation (LLM agents' daily changes in invested weight, as in the report)."""
     assert exp.checkpoint is not None  # noqa: S101 (completed runs have one)
@@ -235,7 +252,7 @@ def _summary_inputs(exp: Experiment) -> tuple[list[list[float]], list[tuple[floa
         series.append(daily_returns(book.equity))
         risk.append((s.max_drawdown, s.total_return))
     changes = [differences(state.books[slug].invested) for slug in llm]
-    herd = herd_correlation(changes) if len(changes) >= 2 and len(changes[0]) >= 2 else 0.0
+    herd = herd_correlation(changes) if len(changes) >= 2 and len(changes[0]) >= 2 else None
     return series, risk, herd
 
 
@@ -247,7 +264,7 @@ class _Run:
     seed: int
     series: list[list[float]]  # daily returns per LLM agent
     risk: list[tuple[float, float]]  # (max drawdown, total return) per LLM agent
-    herd: float
+    herd: float | None  # None below two LLM agents
     checks: tuple[int, int]  # (valid, consistent) post-mortem attempts
     forum_weight: float | None  # mean sender weight w the run's decisions read (None: no reads)
 
@@ -372,7 +389,9 @@ def _compare(
                 sharpe_ci_high=est.ci_high,
                 max_drawdown=fmean(m for r in rows for m, _ in r.risk),
                 total_return=fmean(t for r in rows for _, t in r.risk),
-                herd_correlation=fmean(r.herd for r in rows),
+                herd_correlation=fmean(herds)
+                if (herds := [r.herd for r in rows if r.herd is not None])
+                else None,
                 lesson_consistency=(
                     None if c is Condition.C0 or valid == 0 else consistent / valid
                 ),

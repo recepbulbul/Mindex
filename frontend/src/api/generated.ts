@@ -69,7 +69,7 @@ export interface ConditionSummary {
   sharpeCiHigh: number
   maxDrawdown: number
   totalReturn: number
-  herdCorrelation: number
+  herdCorrelation: number | null
   lessonConsistency: number | null
   meanForumWeight: number | null
 }
@@ -210,7 +210,7 @@ export interface ReportOut {
   experimentId: string
   agents: AgentMetrics[]
   benchmark: AgentMetrics
-  herdCorrelation: number
+  herdCorrelation: number | null
   conditions: ConditionSummary[]
 }
 

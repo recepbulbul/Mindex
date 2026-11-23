@@ -790,7 +790,7 @@ def test_report_benchmark_is_simulated_when_missing(
     assert r["benchmark"]["agentId"] == "buy-hold-btc"
     assert r["benchmark"]["trades"] == 1
     assert r["benchmark"]["totalReturn"] > 0  # synthetic BTC trends up
-    assert r["herdCorrelation"] == 0  # fewer than two LLM agents
+    assert r["herdCorrelation"] is None  # fewer than two LLM agents: nothing to correlate
 
 
 def test_memories_and_forum(

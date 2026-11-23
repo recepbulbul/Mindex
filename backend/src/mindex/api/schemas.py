@@ -334,7 +334,7 @@ class ConditionSummary(ApiModel):
     sharpe_ci_high: float
     max_drawdown: float
     total_return: float
-    herd_correlation: float
+    herd_correlation: float | None  # None: fewer than two LLM agents in every run
     lesson_consistency: float | None
     mean_forum_weight: float | None  # mean w read (per run, then over runs); None without forum
 
@@ -343,7 +343,7 @@ class ReportOut(ApiModel):
     experiment_id: str
     agents: list[AgentMetrics]
     benchmark: AgentMetrics
-    herd_correlation: float
+    herd_correlation: float | None  # None below two LLM agents
     conditions: list[ConditionSummary]
 
 
