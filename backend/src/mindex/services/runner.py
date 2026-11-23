@@ -55,7 +55,7 @@ from sqlalchemy.orm import Session
 from mindex.agents.base import BaseAgent
 from mindex.agents.llm import (
     DECISION_V1,
-    DECISION_V3,
+    FORUM_VERSION,
     MEMORY_VERSIONS,
     PROMPT_VERSIONS,
     ChatClient,
@@ -315,9 +315,10 @@ def runnable_errors(
                 f"Deney {exp.prompt_version} prompt'uyla kaydedilmiş; bu sunucu "
                 f"{', '.join(PROMPT_VERSIONS)} çalıştırır."
             )
-        elif exp.condition in FORUM_CONDITIONS and exp.prompt_version != DECISION_V3:
+        elif exp.condition in FORUM_CONDITIONS and exp.prompt_version != FORUM_VERSION:
             errors["promptVersion"] = (
-                f"{exp.prompt_version} forumu bilmez; C2 ve C3 koşulları {DECISION_V3} ister."
+                f"{exp.prompt_version} forumu bilmez ya da güveni eski (paylaşımlı) biçimde "
+                f"ağırlıklar; C2 ve C3 koşulları {FORUM_VERSION} ister. Deneyi yeniden oluşturun."
             )
         elif exp.prompt_version not in MEMORY_VERSIONS and exp.condition in MEMORY_CONDITIONS:
             errors["promptVersion"] = (

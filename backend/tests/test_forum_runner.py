@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 import mindex.forum.store
 from conftest import synthetic_frame
-from mindex.agents.llm import DECISION_V3
+from mindex.agents.llm import DECISION_V4, PostOut, anonymise
 from mindex.config import Settings
 from mindex.data.snapshot import write_snapshot
 from mindex.db.models import (
@@ -32,9 +32,11 @@ from mindex.db.models import (
     ForumMessageRow,
     TrustScoreRow,
 )
-from mindex.domain.forum import HORIZON_DAYS, WINDOW_DAYS
+from mindex.domain.decision import Asset
+from mindex.domain.forum import HORIZON_DAYS, WINDOW_DAYS, Stance
+from mindex.forum.store import ForumStore
 from mindex.memory.embedder import HashEmbedder
-from mindex.services.runner import ExperimentRunner, resume_interrupted
+from mindex.services.runner import ExperimentRunner, experiment_market, resume_interrupted
 from test_runner import (  # fixtures and helpers shared with the runner tests
     END,
     START,
@@ -207,8 +209,8 @@ def test_a_c3_run_posts_reads_judges_and_trusts(
     assert _status(db_session, c3_run) is ExperimentStatus.COMPLETED
     exp = db_session.get(Experiment, c3_run)
     assert exp is not None
-    assert exp.prompt_version == DECISION_V3
-    assert exp.config["prompt_version"] == DECISION_V3
+    assert exp.prompt_version == DECISION_V4
+    assert exp.config["prompt_version"] == DECISION_V4
     assert exp.config["forum"]["weighting"] == "beta"
     assert exp.config["forum"]["horizon_days"] == HORIZON_DAYS
     assert "postmortem_prompt_version" in exp.config  # C3 keeps C1's memory
@@ -444,3 +446,28 @@ def test_forum_endpoint_and_agent_trust(
     assert not any(set(d["forumMessageIds"]) & flagged_ids for d in detail["decisions"])
     rule = api.get(f"/api/experiments/{c3_run}/agents/equal-weight", headers=viewer).json()
     assert rule["trustGiven"] == rule["trustReceived"] == []
+
+
+def test_a_post_is_never_read_on_its_own_day(
+    c3_run: uuid.UUID, db_session: Session, settings: Settings
+) -> None:
+    """#57: the store reads only earlier days (`day < today`), whatever the runner's order."""
+    exp = db_session.get(Experiment, c3_run)
+    assert exp is not None
+    by_slug = {ea.agent.slug: ea.id for ea in exp.agents}
+    market, _ = experiment_market(exp, settings)
+    store = ForumStore(
+        db_session, exp.id, _ids(db_session, c3_run), market, anonymise(market.assets)
+    )
+    day = END + timedelta(days=30)  # after the run: no other post that day
+    reader, sender = by_slug["llm-momentum"], by_slug["llm-risk-averse"]
+    post = PostOut(asset=Asset.BTC, stance=Stance.BULLISH, text="ASSET_A güçlü görünüyor.")
+    row = store.post(sender, day, post)
+    assert row is not None
+    db_session.flush()
+    assert row.id not in {r.message_id for r in store.reads_for(reader, day)}
+    assert row.id in {r.message_id for r in store.reads_for(reader, day + timedelta(days=1))}
+    assert row.id not in {r.message_id for r in store.reads_for(sender, day + timedelta(days=1))}
+    # Nothing left after cleaning: nothing stored.
+    empty = PostOut(asset=Asset.BTC, stance=Stance.BULLISH, text="<>")
+    assert store.post(sender, day, empty) is None

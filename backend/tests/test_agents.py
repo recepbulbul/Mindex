@@ -14,7 +14,7 @@ from mindex.agents.base import AgentKind
 from mindex.agents.llm import (
     DECISION_V1,
     DECISION_V2,
-    DECISION_V3,
+    DECISION_V4,
     PERSONAS,
     PROMPT_VERSION,
     SYSTEM_PROMPT,
@@ -316,8 +316,8 @@ def test_prompt_version_rules(market: MarketData) -> None:
         LLMAgent(FakeChat([GOOD]), prompt_version="decision-v9")
     with pytest.raises(ValueError, match="decision-v2"):
         LLMAgent(FakeChat([GOOD]), recall=lambda o: [])
-    assert PROMPT_VERSION == DECISION_V3  # new experiments run v3; v1, v2 stay for stored runs
-    with pytest.raises(ValueError, match="decision-v3"):
+    assert PROMPT_VERSION == DECISION_V4  # new experiments run v4; v1-v3 stay for stored runs
+    with pytest.raises(ValueError, match="decision-v4"):
         LLMAgent(
             FakeChat([GOOD]),
             prompt_version=DECISION_V2,
