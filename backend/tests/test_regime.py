@@ -10,6 +10,7 @@ import numpy as np
 import polars as pl
 import pytest
 from hmmlearn.hmm import GaussianHMM
+from pydantic import SecretStr
 
 from mindex.config import Settings
 from mindex.data.snapshot import SCHEMA
@@ -313,7 +314,7 @@ def test_runner_labels_with_the_artifacts_labeling(model: RegimeModel, tmp_path:
     """The runner takes the labeling (and so the features) from the artefact and records it."""
     path = tmp_path / "regime.json"
     digest = model.save(path)
-    settings = Settings(_env_file=None, regime_model_path=path)  # pyright: ignore[reportCallIssue]
+    settings = Settings(_env_file=None, jwt_secret=SecretStr("x" * 64), regime_model_path=path)  # pyright: ignore[reportCallIssue]
     market = regime_market()
     assert regime_labels(market, settings) == model.label_market(market)
     assert regime_provenance(settings) == {
@@ -321,7 +322,7 @@ def test_runner_labels_with_the_artifacts_labeling(model: RegimeModel, tmp_path:
         "regime_sha256": digest,
         "regime_labeling": str(model.labeling),
     }
-    placeholder = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+    placeholder = settings.model_copy(update={"regime_model_path": None})
     assert regime_provenance(placeholder)["regime_labeling"] is None
 
 
