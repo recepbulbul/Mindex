@@ -93,28 +93,28 @@ describe('runs that finish in the background', () => {
 describe('experiments list against the backend', () => {
   it('shows why a start was refused', async () => {
     signIn('researcher')
-    // LLM agents in a forum condition (C3): the runner refuses them until the forum exists.
+    // An MCP guest: the runner cannot run external agents yet.
     await api.post<Experiment>('/experiments', {
-      name: 'Forum bekleyen deney',
+      name: 'Dış ajanlı deney',
       mode: 'replay',
       condition: 'C3',
       startDate: '2025-10-01',
       endDate: '2026-03-31',
       assets: ['BTC', 'ETH'],
-      agentIds: ['buy-hold-btc', 'llm-momentum'],
+      agentIds: ['buy-hold-btc', 'mcp-guest'],
       seed: 1,
       commissionRate: 0.001,
       slippageBps: 5,
     })
     renderApp('/experiments')
-    const row = (await screen.findByText('Forum bekleyen deney')).closest('li')!
+    const row = (await screen.findByText('Dış ajanlı deney')).closest('li')!
     within(row)
       .getByRole('button', { name: /Başlat/ })
       .click()
     const alert = await within(row).findByRole('alert')
     expect(alert).toHaveTextContent(/Başlatılamadı: .+/)
     // The reason lives in the 422's fields, not in its generic detail.
-    expect(alert).toHaveTextContent(/araştırma verisini bozar/)
+    expect(alert).toHaveTextContent(/dış \(MCP\) ajanlar/)
   })
 
   it('features a run without LLM agents with its best agent', async () => {

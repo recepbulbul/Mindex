@@ -73,6 +73,9 @@ function ForumView({ id }: { id: string }) {
   const forum = useForum(id)
   const agents = useAgents()
   const [sender, setSender] = useState('')
+  const [regime, setRegime] = useState<Regime | ''>('')
+  const [q, setQ] = useState('')
+  const deferredQ = useDeferredValue(q)
   const [onlyFlagged, setOnlyFlagged] = useState(false)
   const nameOf = (aid: string) => agents.data?.find((a) => a.id === aid)?.name ?? aid
 
@@ -94,17 +97,26 @@ function ForumView({ id }: { id: string }) {
   if (forum.data.messages.length === 0)
     return (
       <Card>
-        <EmptyState icon={<MessagesSquare />} title="Forum kapalı">
-          Bu deney koşulunda (C0/C1) forum kapalı.
+        <EmptyState icon={<MessagesSquare />} title="Forumda mesaj yok">
+          Forum yalnızca C2 ve C3 koşullarında açıktır; bir gün yazılan mesaj ertesi günden itibaren
+          okunur.
         </EmptyState>
       </Card>
     )
 
   const { messages, trust } = forum.data
   const senders = [...new Set(messages.map((m) => m.senderId))]
-  const shown = messages
-    .filter((m) => (!sender || m.senderId === sender) && (!onlyFlagged || m.flagged))
-    .slice(0, 100)
+  const needle = deferredQ.trim().toLocaleLowerCase('tr')
+  const matching = messages.filter(
+    (m) =>
+      (!sender || m.senderId === sender) &&
+      (!regime || m.regime === regime) &&
+      (!onlyFlagged || m.flagged) &&
+      (!needle ||
+        m.content.toLocaleLowerCase('tr').includes(needle) ||
+        m.asset.toLocaleLowerCase('tr').includes(needle)),
+  )
+  const shown = matching.slice(0, 100)
   const avgTrust = (sid: string) => {
     const xs = trust.filter((t) => t.trusteeId === sid)
     return xs.length ? xs.reduce((s, t) => s + t.score, 0) / xs.length : null
@@ -117,7 +129,7 @@ function ForumView({ id }: { id: string }) {
           title="Mesaj akışı"
           description="Mesajlar güvenilmeyen veri olarak işlenir; talimat içerenler filtrelenir (OWASP LLM01)."
           action={
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
                 <input
                   type="checkbox"
@@ -126,6 +138,19 @@ function ForumView({ id }: { id: string }) {
                 />
                 Yalnızca filtrelenenler
               </label>
+              <Select
+                aria-label="Mesaj rejimi"
+                value={regime}
+                onChange={(e) => setRegime(e.target.value as Regime | '')}
+                className="h-8 w-36 text-xs"
+              >
+                <option value="">Tüm rejimler</option>
+                {(Object.keys(REGIME_LABEL) as Regime[]).map((r) => (
+                  <option key={r} value={r}>
+                    {REGIME_LABEL[r]}
+                  </option>
+                ))}
+              </Select>
               <Select
                 aria-label="Gönderen"
                 value={sender}
@@ -142,6 +167,20 @@ function ForumView({ id }: { id: string }) {
             </div>
           }
         />
+        <div className="relative mb-3">
+          <Search className="pointer-events-none absolute top-2.5 left-2.5 size-4 text-muted-foreground" />
+          <Input
+            aria-label="Mesajlarda ara"
+            placeholder="Mesajlarda ara (örn. ASSET_A, momentum)…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            className="pl-8"
+          />
+        </div>
+        <p className="mb-2 eyebrow" aria-live="polite">
+          {matching.length} mesaj
+          {matching.length > shown.length && ` · ilk ${shown.length} gösteriliyor`}
+        </p>
         <div
           role="region"
           tabIndex={0}
@@ -168,8 +207,14 @@ function ForumView({ id }: { id: string }) {
                     />
                     <span className="font-medium">{nameOf(m.senderId)}</span>
                     {w !== null && (
-                      <span className="num text-muted-foreground">güven {formatNum(w)}</span>
+                      <span
+                        className="num text-muted-foreground"
+                        title="Diğer ajanların gönderene ortalama güveni (C3'te tavsiyenin ağırlığı)"
+                      >
+                        güven {formatNum(w)}
+                      </span>
                     )}
+                    <RegimeBadge regime={m.regime} />
                     <Badge
                       tone={
                         m.stance === 'bullish' ? 'up' : m.stance === 'bearish' ? 'down' : 'neutral'
@@ -209,6 +254,11 @@ function ForumView({ id }: { id: string }) {
               )
             })}
           </ul>
+          {shown.length === 0 && (
+            <EmptyState icon={<Search />} title="Eşleşen mesaj yok">
+              Filtreleri gevşetin.
+            </EmptyState>
+          )}
         </div>
       </Card>
 
