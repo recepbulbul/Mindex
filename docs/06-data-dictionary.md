@@ -40,11 +40,21 @@ Tabloları oluşturan SQL komutları (DDL): [`db/schema.sql`](db/schema.sql). T�
 | fear_greed | smallint | E | 0–100 | Crypto Fear & Greed endeksi |
 | funding_rate | numeric(12,8) | E | | Perpetual funding oranı (yalnızca gözlem özelliği) |
 
+## studies
+| Alan | Tip | Boş? | Kısıt / varsayılan | Açıklama |
+|---|---|:-:|---|---|
+| id | uuid | H | PK | |
+| owner_id | uuid | H | FK → users, RESTRICT | Çalışmayı kuran araştırmacı |
+| name | text | H | 3–80 karakter | |
+| config | jsonb | H | | `StudyCreate`: dönem, varlıklar, ajanlar, seed'ler, `smoke`, maliyetler |
+| created_at | timestamptz | H | now() | |
+
 ## experiments
 | Alan | Tip | Boş? | Kısıt / varsayılan | Açıklama |
 |---|---|:-:|---|---|
 | id | uuid | H | PK | |
 | owner_id | uuid | H | FK → users, RESTRICT | Deneyi kuran araştırmacı |
+| study_id | uuid | E | FK → studies, SET NULL | Deneyin ait olduğu çalışma (koşul × seed grubu) |
 | name | text | H | 3–120 karakter | |
 | mode | experiment_mode | H | `replay` \| `live` | Geçmiş veri tekrarı veya canlı paper-trading |
 | condition | experiment_condition | H | C0, C1, C1_NO_REGIME, C2, C3 | Ablasyon koşulu |

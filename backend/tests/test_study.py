@@ -164,6 +164,7 @@ def finished_study(
     sessions: Callable[[], Session],
     settings: Settings,
     jobs: ListQueue,
+    db_session: Session,
 ) -> dict[str, Any]:
     study = _create(api, researcher, smoke=True)
     res = api.get(f"/api/studies/{study['id']}/comparison", headers=researcher)
@@ -172,6 +173,7 @@ def finished_study(
     runner = fake_runner(sessions, settings)
     for experiment_id in jobs.jobs:
         runner(experiment_id)
+    db_session.expire_all()  # the API shares this session; the runner wrote through others
     return api.get(f"/api/studies/{study['id']}", headers=researcher).json()
 
 
@@ -231,13 +233,17 @@ def test_partial_comparison_uses_completed_runs_only(
     sessions: Callable[[], Session],
     settings: Settings,
     jobs: ListQueue,
+    db_session: Session,
 ) -> None:
     study = _create(api, researcher, smoke=True)
     api.post(f"/api/studies/{study['id']}/start", headers=researcher)
     runner = fake_runner(sessions, settings)
     runner(jobs.jobs[0])  # C0 only
     runner.run(jobs.jobs[4], max_days=3)  # C3 stopped half-way: not completed
-    comp = api.get(f"/api/studies/{study['id']}/comparison", headers=researcher).json()
+    db_session.expire_all()
+    res = api.get(f"/api/studies/{study['id']}/comparison", headers=researcher)
+    assert res.status_code == 200, res.text
+    comp = res.json()
     assert comp["complete"] is False
     assert [c["condition"] for c in comp["conditions"]] == ["C0"]
     assert comp["differences"] == []

@@ -10,6 +10,9 @@ import type {
   Memory,
   Regime,
   Report,
+  Study,
+  StudyComparison,
+  StudyCreate,
   Timeline,
   TrustHistoryPoint,
   TrustScore,
@@ -24,6 +27,9 @@ export const keys = {
   forum: (id: string) => ['experiments', id, 'forum'] as const,
   memories: (id: string, f: MemoryFilter) => ['experiments', id, 'memories', f] as const,
   report: (id: string) => ['experiments', id, 'report'] as const,
+  studies: ['studies'] as const,
+  study: (id: string) => ['studies', id] as const,
+  comparison: (id: string) => ['studies', id, 'comparison'] as const,
 }
 
 export const useAgents = () =>
@@ -135,5 +141,62 @@ export const useStartExperiment = () => {
   return useMutation({
     mutationFn: (id: string) => api.post<Experiment>(`/experiments/${id}/start`),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.experiments }),
+  })
+}
+
+// ---------------------------------------------------------------- studies (#54)
+
+export const useStudies = () =>
+  useQuery({
+    queryKey: keys.studies,
+    queryFn: () => api.get<Study[]>('/studies'),
+    refetchInterval: (q) =>
+      q.state.data?.some((s) => ACTIVE.includes(s.status)) ? POLL_MS : false,
+  })
+
+/** Polls while a run is active; when the study settles, its comparison is refetched. */
+export function useStudy(id: string) {
+  const qc = useQueryClient()
+  const query = useQuery({
+    queryKey: keys.study(id),
+    queryFn: () => api.get<Study>(`/studies/${id}`),
+    refetchInterval: (q) =>
+      q.state.data && ACTIVE.includes(q.state.data.status) ? POLL_MS : false,
+  })
+  const done = query.data?.runs.filter((r) => r.status === 'completed').length
+  useEffect(() => {
+    if (done !== undefined) void qc.invalidateQueries({ queryKey: keys.comparison(id) })
+  }, [id, done, qc])
+  return query
+}
+
+export const useStudyComparison = (id: string, enabled = true) =>
+  useQuery({
+    queryKey: keys.comparison(id),
+    queryFn: () => api.get<StudyComparison>(`/studies/${id}/comparison`),
+    enabled,
+    retry: false, // 409 until a run has completed: not an error worth retrying
+  })
+
+export const useCreateStudy = () => {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: StudyCreate) => api.post<Study>('/studies', body),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.studies })
+      void qc.invalidateQueries({ queryKey: keys.experiments })
+    },
+  })
+}
+
+export const useStartStudy = () => {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.post<Study>(`/studies/${id}/start`),
+    onSuccess: (_, id) => {
+      void qc.invalidateQueries({ queryKey: keys.study(id) })
+      void qc.invalidateQueries({ queryKey: keys.studies })
+      void qc.invalidateQueries({ queryKey: keys.experiments })
+    },
   })
 }

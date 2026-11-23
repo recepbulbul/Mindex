@@ -25,12 +25,15 @@ export type ResponseChecks = [
   Expect<Fits<G.ReportOut, T.Report>>,
   Expect<Fits<G.MemoryOut, T.Memory>>,
   Expect<Fits<G.ForumOut, ForumData>>,
+  Expect<Fits<G.StudyOut, T.Study>>,
+  Expect<Fits<G.StudyComparisonOut, T.StudyComparison>>,
 ]
 
 export type RequestChecks = [
   Expect<Fits<T.LoginRequest, G.LoginRequest>>,
   Expect<Fits<T.RegisterRequest, G.RegisterRequest>>,
   Expect<Fits<T.ExperimentCreate, G.ExperimentCreate>>,
+  Expect<Fits<T.StudyCreate, G.StudyCreate>>,
 ]
 
 export type EnumChecks = [
@@ -47,6 +50,7 @@ export type EnumChecks = [
 type Res = G.ApiResponses
 type Body = G.ApiRequestBodies
 const E = '/api/experiments/{experiment_id}'
+const S = '/api/studies/{study_id}'
 
 export type EndpointChecks = [
   Expect<Fits<Res['GET /api/health'], T.Health>>,
@@ -65,6 +69,12 @@ export type EndpointChecks = [
   Expect<Fits<Res[`GET ${typeof E}/report`], T.Report>>,
   Expect<Fits<Res[`GET ${typeof E}/memories`], T.Memory[]>>,
   Expect<Fits<Res[`GET ${typeof E}/forum`], ForumData>>,
+  Expect<Fits<Res['GET /api/studies'], T.Study[]>>,
+  Expect<Fits<Res['POST /api/studies'], T.Study>>,
+  Expect<Fits<Res[`GET ${typeof S}`], T.Study>>,
+  Expect<Fits<Res[`POST ${typeof S}/start`], T.Study>>,
+  Expect<Fits<Res[`GET ${typeof S}/comparison`], T.StudyComparison>>,
+  Expect<Fits<T.StudyCreate, Body['POST /api/studies']>>,
   Expect<Fits<T.LoginRequest, Body['POST /api/auth/login']>>,
   Expect<Fits<T.RegisterRequest, Body['POST /api/auth/register']>>,
   Expect<Fits<T.ExperimentCreate, Body['POST /api/experiments']>>,

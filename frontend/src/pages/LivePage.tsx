@@ -57,10 +57,22 @@ export default function LivePage() {
   const [cursor, setCursor] = useState<number | null>(null)
   const [playing, setPlaying] = useState(false)
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(5)
+  // While a run is queued or running the cursor follows each new day; moving it by hand
+  // (scrubber, play, rewind) lets go, "Canlıya dön" or "Sona git" follows again.
+  const [follow, setFollow] = useState(true)
 
   const lastIndex = (timeline.data?.days.length ?? 1) - 1
-  // Live experiments open at the latest tick; replays open at day 30 so there is history to see.
-  const at = cursor ?? (experiment.data?.mode === 'live' ? lastIndex : Math.min(30, lastIndex))
+  // A run seen running stays on its last day when it finishes (unless the user let go);
+  // a run opened after it finished starts at day 30 like any replay.
+  const [sawActive, setSawActive] = useState(false)
+  if (isActive && !sawActive) setSawActive(true)
+  const following = follow && (isActive || sawActive)
+  // Running runs and live experiments open at the latest day; finished replays at day 30 so
+  // there is history to see.
+  const at = following
+    ? lastIndex
+    : (cursor ?? (experiment.data?.mode === 'live' ? lastIndex : Math.min(30, lastIndex)))
+  const letGo = () => setFollow(false)
 
   // Playback stops by itself at the last day; the interval lives as long as playback does,
   // not one tick (it used to be recreated on every step because it depended on `at`).
@@ -262,6 +274,7 @@ export default function LivePage() {
                   aria-label={isPlaying ? 'Duraklat' : 'Oynat'}
                   onClick={() => {
                     // Playback continues from the day on screen.
+                    letGo()
                     setCursor(at)
                     setPlaying(!isPlaying)
                   }}
@@ -275,6 +288,7 @@ export default function LivePage() {
                   variant="ghost"
                   aria-label="Başa sar"
                   onClick={() => {
+                    letGo()
                     setPlaying(false)
                     setCursor(0)
                   }}
@@ -286,6 +300,7 @@ export default function LivePage() {
                   variant="ghost"
                   aria-label="Sona git"
                   onClick={() => {
+                    setFollow(true)
                     setPlaying(false)
                     setCursor(lastIndex)
                   }}
@@ -329,7 +344,10 @@ export default function LivePage() {
                   min={0}
                   max={lastIndex}
                   value={at}
-                  onChange={(e) => setCursor(Number(e.target.value))}
+                  onChange={(e) => {
+                    letGo()
+                    setCursor(Number(e.target.value))
+                  }}
                   aria-label="Simülasyon günü"
                   className="scrubber relative w-full"
                 />
@@ -338,6 +356,17 @@ export default function LivePage() {
                 {formatDate(view.day)} · <span className="text-foreground">gün {at + 1}</span>/
                 {lastIndex + 1}
               </span>
+              {isActive &&
+                (following ? (
+                  <span role="status" className="flex items-center gap-1.5 text-xs text-up">
+                    <span className="size-1.5 animate-pulse rounded-full bg-up" aria-hidden />
+                    Canlı takip
+                  </span>
+                ) : (
+                  <Button size="sm" variant="ghost" onClick={() => setFollow(true)}>
+                    Canlıya dön
+                  </Button>
+                ))}
             </div>
           </section>
           <section className="order-3 mt-6 border-t pt-5 xl:order-none">

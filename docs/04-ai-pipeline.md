@@ -124,6 +124,17 @@ Kod: `backend/src/mindex/domain/forum.py` (saf fonksiyonlar), `backend/src/minde
 - **Look-ahead testi:** İki C3 koşusu, kesim gününden sonra fiyatları farklı iki anlık görüntüyle koşulur. Kesim gününe kadarki mesajlar, okumalar, hükümler ve güven sayaçları birebir aynıdır (testte o güne kadar hem doğrulanan hem çürüyen tavsiye ve hareket etmiş güven vardır); sonrası farklıdır.
 - **Akış 2'den sapma:** [Akış 2](03-flows.md#akış-2--llm-ajan-karar-döngüsü-nf2-nf3) içerik filtresini okuma anında ve "talimat kalıplarını ayıklayan" bir adım olarak çizer. Uygulamada filtre yazma anında çalışır ve işaretli mesajı ayıklamak yerine tümüyle dışarıda bırakır: kısmen temizlenmiş bir saldırı metni yine yönlendirici olabilir, işaretin kalıcı olması ise arayüzde ve analizde görünmesini sağlar.
 
+## Çalışma ve koşul karşılaştırması
+
+Kod: `backend/src/mindex/services/study.py`, `backend/src/mindex/evaluation/bootstrap.py`, uçlar `/studies`, CLI `mindex study create|start|status`.
+
+- **Çalışma (study):** Aynı dönemi, ajanları, varlıkları ve maliyetleri paylaşan, her koşul (C0, C1, C1′, C2, C3) × her seed deneylerinin grubudur (`studies` tablosu, `experiments.study_id`). Deneyler sıradan deneylerdir; koşucu, sürdürme ve okuma uçları değişmeden çalışır. Test penceresine değen dönem, LLM ajanı olmayan ajan seti ve koşucunun çalıştıramayacağı ajanlar oluşturma anında reddedilir (hepsi ya da hiçbiri).
+- **Smoke:** `--smoke` (API'de `smoke: true`) dönemi başlangıçtan itibaren 14 güne indirir ve yalnızca ilk seed'i tutar: tam koşudan önce bütün koşulların uçtan uca çalıştığını görmek için.
+- **Başlatma:** Taslak ya da başarısız koşular seed seed kuyruğa alınır (önce bir seed'in bütün koşulları); yarıda kalan tam çalışma bile her seed için tam bir koşul seti verir. CLI `start` koşuları aynı süreçte sırayla koşturur; kesilirse aynı komut kaldığı yerden sürdürür.
+- **Metrikler:** Her koşul için, tamamlanan koşularındaki LLM ajanlarının ortalaması: Sharpe, MDD, toplam getiri, sürü korelasyonu (koşu başına) ve ders tutarlılığı. Ders tutarlılığı, şemaya uyan bütün post-mortem denemelerinden sayısal denetimi geçenlerin oranıdır. Ret öncesinde ölçülür ve koşu sırasında günlük işlemde `config.lesson_checks`'e yazılır. C0'da yoktur.
+- **Güven aralığı:** Günlük getiriler üzerinde dairesel blok bootstrap (Politis ve Romano, 1992) uygulanır. Blok uzunluğu `round(n^(1/3))` gündür (doğrulama yarıyılında 6), yeniden örnekleme 2000'dir ve üreteç sabit seed'lidir, bu yüzden aynı veri aynı aralığı verir. Aynı gün indeksleri bütün koşulların bütün serilerine uygulanır: ajanlar arası bağımlılık korunur ve iki koşulun farkı eşleştirilmiş bir istatistik olur. Farklar ablasyonun her adımı için verilir: C1−C0 (hafıza), C1−C1′ (rejim bonusu), C2−C1 (forum), C3−C2 (güven ağırlığı), C3−C0 (hepsi). Aralığı 0'ı içermeyen fark anlamlı sayılır. Az seed'le aralıklar günler üzerinden gelir; seed'ler arası değişkenlik ancak birden çok seed'le ölçülür.
+- **Rapor:** Bir çalışmanın deneyinin `Report.conditions` alanı çalışmanın karşılaştırma tablosudur.
+
 ## Look-ahead bias protokolü
 
 Look-ahead bias (geleceği görme hatası), modelin karar anında henüz bilinmemesi gereken bilgiye erişmesidir. LLM'ler internetten toplanan verilerle eğitildiği için geçmiş fiyatları ezberlemiş olabilir; bu durumda test sonuçları gerçekçi olmaz. Aşağıdaki dört kural bunu önler. Uygulamadaki karşılığı: [test setinin ayrılması](08-data-pipeline-baseline.md#2-test-setinin-ayrılması-look-ahead-protokolü).

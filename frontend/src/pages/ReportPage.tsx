@@ -1,8 +1,8 @@
 import { Download, Printer } from 'lucide-react'
 import { useMemo } from 'react'
-import { useParams } from 'react-router'
+import { Link, useParams } from 'react-router'
 import { useAgents, useExperiment, useReport, useTimeline } from '@/api/queries'
-import { CONDITION_LABELS, type ConditionSummary } from '@/api/types'
+import { ConditionComparison } from '@/components/condition-comparison'
 import { MultiLineChart } from '@/components/charts/charts'
 import { ExperimentActions } from '@/app/ExperimentLayout'
 import { AgentAvatar } from '@/components/identity'
@@ -150,82 +150,16 @@ export default function ReportPage() {
         </section>
       </div>
 
-      {r.conditions.length > 0 && <ConditionComparison conditions={r.conditions} />}
+      {r.conditions.length > 0 && (
+        <ConditionComparison className="mt-4" conditions={r.conditions} />
+      )}
+      {experiment.data?.studyId && (
+        <p className="mt-3 text-sm print:hidden">
+          <Link to={`/studies/${experiment.data.studyId}`} className="text-primary underline">
+            Bu deneyin çalışması: tüm koşullar, seed'ler ve farkların güven aralıkları
+          </Link>
+        </p>
+      )}
     </>
-  )
-}
-
-function ConditionComparison({ conditions }: { conditions: ConditionSummary[] }) {
-  const c0 = conditions.find((c) => c.condition === 'C0')
-  const lo = Math.min(0, ...conditions.map((c) => c.sharpeCiLow))
-  const hi = Math.max(...conditions.map((c) => c.sharpeCiHigh))
-  const pos = (v: number) => `${((v - lo) / (hi - lo || 1)) * 100}%`
-
-  return (
-    <Card className="mt-4">
-      <CardHeader
-        title="Koşul karşılaştırması (C0–C3 × 5 seed)"
-        description="LLM ajanlarının ortalaması. Prototipte aralık = 5 seed min–maks; gerçek raporda blok bootstrap %95 GA."
-      />
-      <Table>
-        <thead>
-          <tr>
-            <th>Koşul</th>
-            <th className="w-1/3">Sharpe (ort. ve aralık)</th>
-            <th className="text-right">vs C0</th>
-            <th className="text-right">MDD</th>
-            <th className="text-right">Getiri</th>
-            <th className="text-right">Sürü kor.</th>
-            <th className="text-right">Ders tutarlılığı</th>
-          </tr>
-        </thead>
-        <tbody>
-          {conditions.map((c) => {
-            const vsC0 = c0 && c0.sharpeMean !== 0 ? c.sharpeMean / c0.sharpeMean - 1 : null
-            return (
-              <tr key={c.condition}>
-                <td className="whitespace-nowrap">{CONDITION_LABELS[c.condition]}</td>
-                <td>
-                  <div className="flex items-center gap-2">
-                    <div
-                      className="relative h-5 flex-1"
-                      role="img"
-                      aria-label={`Sharpe ${formatNum(c.sharpeMean)}, aralık ${formatNum(c.sharpeCiLow)}–${formatNum(c.sharpeCiHigh)}`}
-                    >
-                      <div
-                        className="absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-primary/25"
-                        style={{
-                          left: pos(c.sharpeCiLow),
-                          right: `calc(100% - ${pos(c.sharpeCiHigh)})`,
-                        }}
-                      />
-                      <div
-                        className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary ring-2 ring-card"
-                        style={{ left: pos(c.sharpeMean) }}
-                      />
-                    </div>
-                    <span className="w-10 text-right text-xs num">{formatNum(c.sharpeMean)}</span>
-                  </div>
-                </td>
-                <td
-                  className={cn('text-right num', vsC0 !== null && vsC0 >= 0.15 ? 'text-up' : '')}
-                >
-                  {c.condition === 'C0' || vsC0 === null ? '—' : formatPct(vsC0)}
-                </td>
-                <td className="text-right num">{formatPct(-c.maxDrawdown)}</td>
-                <td className="text-right num">{formatPct(c.totalReturn)}</td>
-                <td className="text-right num">{formatNum(c.herdCorrelation)}</td>
-                <td className="text-right num">
-                  {c.lessonConsistency === null ? '—' : formatPct(c.lessonConsistency)}
-                </td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </Table>
-      <p className="mt-3 border-t pt-3 text-xs text-muted-foreground">
-        Nicel hedef: C3 Sharpe ortalamasında C0'a göre ≥ %15 iyileşme.
-      </p>
-    </Card>
   )
 }

@@ -1,4 +1,4 @@
-import { FlaskConical, LogOut, Plus, type LucideIcon } from 'lucide-react'
+import { FlaskConical, Layers, LogOut, Plus, type LucideIcon } from 'lucide-react'
 import { Link, NavLink, Outlet } from 'react-router'
 import { useExperiments } from '@/api/queries'
 import type { Experiment } from '@/api/types'
@@ -72,6 +72,7 @@ export function Layout() {
   const workspace: NavItem[] = [
     { to: '/experiments', label: 'Tüm deneyler', icon: FlaskConical, end: true },
     ...(isResearcher ? [{ to: '/experiments/new', label: 'Yeni deney', icon: Plus }] : []),
+    { to: '/studies', label: 'Çalışmalar', icon: Layers },
   ]
   const roleLabel = isResearcher ? 'Araştırmacı' : 'İzleyici'
 
