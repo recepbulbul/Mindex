@@ -22,11 +22,11 @@ from mindex.db.models import (
     Condition,
     ExperimentMode,
     ExperimentStatus,
-    Stance,
     TradeSide,
     UserRole,
 )
 from mindex.domain.decision import Asset
+from mindex.domain.forum import Stance
 from mindex.domain.regime import Regime
 
 
@@ -367,6 +367,7 @@ class ForumMessageOut(ApiModel):
     content: str
     asset: Asset
     stance: Stance
+    regime: Regime  # the market regime of the day it was posted (filter, #13)
     flagged: bool
     verified: bool | None
 

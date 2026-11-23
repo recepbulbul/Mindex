@@ -4,6 +4,7 @@ Differences from the reference DDL, all deliberate:
 - `agents.slug`: the stable id the API and `BaseAgent.agent_id` use (`buy-hold-btc`).
 - `experiments.checkpoint`: the simulator's `SimState` JSON, so a run resumes bit for bit (NF2).
 - `memories.day`: the day a lesson became known; retrieval only returns earlier lessons.
+- `forum_messages.verified_on`: the day advice was judged, so trust can be replayed per day.
 - No `prices` table: prices stay in the Parquet snapshots for now.
 - Constraint names follow `NAMING_CONVENTION`, so later migrations can address them.
 """
@@ -35,6 +36,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY, CITEXT, JSONB, TSVECTOR, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from mindex.domain.forum import Stance
 from mindex.domain.regime import Regime
 
 EMBEDDING_DIM = 1024  # Qwen3-Embedding-0.6B
@@ -85,12 +87,6 @@ class AgentKindDb(enum.StrEnum):
 class TradeSide(enum.StrEnum):
     BUY = "buy"
     SELL = "sell"
-
-
-class Stance(enum.StrEnum):
-    BULLISH = "bullish"
-    BEARISH = "bearish"
-    NEUTRAL = "neutral"
 
 
 def _values(members: type[enum.StrEnum]) -> list[str]:
@@ -331,6 +327,7 @@ class ForumMessageRow(Base):
     stance: Mapped[Stance] = mapped_column(_enum(Stance, "forum_stance"))
     flagged: Mapped[bool] = mapped_column(server_default=text("false"))
     verified: Mapped[bool | None]
+    verified_on: Mapped[date | None]  # the day the verdict was reached (trust history)
 
 
 class DecisionForumRead(Base):
