@@ -216,18 +216,27 @@ def experiment_market(exp: Experiment, settings: Settings) -> tuple[MarketData, 
 
 REGIME_SOURCE = "regime_source"  # `config` keys the runner adds (not part of the user's form)
 REGIME_SHA256 = "regime_sha256"
+REGIME_LABELING = "regime_labeling"
 ERROR = "error"  # why the last run failed; cleared by the next start
 MAX_ERROR_CHARS = 500
 
 
 def regime_provenance(settings: Settings) -> dict[str, str | None]:
     """Where an experiment's regime labels come from, recorded in its `config` (NF5): the
-    HMM artefact's SHA-256 (as `RegimeModel.save` returns it), or the explicit placeholder."""
+    HMM artefact's SHA-256 (as `RegimeModel.save` returns it) and the labeling method stored
+    in it, or the explicit placeholder. The labeling is read from the artefact only (there is
+    no separate setting that could disagree with it)."""
     path = settings.regime_model_path
     if path is None:
-        return {REGIME_SOURCE: "placeholder", REGIME_SHA256: None}
-    digest = hashlib.sha256(path.read_text(encoding="utf-8").encode()).hexdigest()
-    return {REGIME_SOURCE: "hmm", REGIME_SHA256: digest}
+        return {REGIME_SOURCE: "placeholder", REGIME_SHA256: None, REGIME_LABELING: None}
+    from mindex.regime.hmm import RegimeModel
+
+    raw = path.read_text(encoding="utf-8")
+    return {
+        REGIME_SOURCE: "hmm",
+        REGIME_SHA256: hashlib.sha256(raw.encode()).hexdigest(),
+        REGIME_LABELING: str(RegimeModel.from_json(raw).labeling),
+    }
 
 
 POSTMORTEM_VERSION = "postmortem_prompt_version"  # more `config` keys, for memory conditions
@@ -265,12 +274,13 @@ def memory_provenance(settings: Settings, memory: bool) -> dict[str, str | None]
 
 
 def regime_labels(market: MarketData, settings: Settings) -> list[Regime]:
-    """The HMM's filtered (no look-ahead) label per day, or the placeholder without a model."""
+    """The HMM's filtered (no look-ahead) label per day, on the features of the artefact's own
+    labeling, or the placeholder without a model."""
     if settings.regime_model_path is None:
         return [PLACEHOLDER_REGIME] * len(market)
-    from mindex.regime.hmm import RegimeModel, regime_features
+    from mindex.regime.hmm import RegimeModel
 
-    return RegimeModel.load(settings.regime_model_path).label(regime_features(market))
+    return RegimeModel.load(settings.regime_model_path).label_market(market)
 
 
 # ---------------------------------------------------------------- agents

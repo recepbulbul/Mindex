@@ -481,6 +481,7 @@ def test_placeholder_regimes_are_marked_in_config(
     assert exp is not None
     assert exp.config["regime_source"] == "placeholder"
     assert exp.config["regime_sha256"] is None
+    assert exp.config["regime_labeling"] is None
     # The runner's keys do not leak into the user's configuration or its YAML.
     got = api.get(f"/api/experiments/{finished}", headers=viewer).json()
     assert got["agentIds"] == CONFIG["agentIds"]
@@ -511,6 +512,7 @@ def test_hmm_regimes_are_recorded_and_pinned(
     exp = db_session.get(Experiment, exp_id)
     assert exp is not None
     assert (exp.config["regime_source"], exp.config["regime_sha256"]) == ("hmm", digest)
+    assert exp.config["regime_labeling"] == "momentum"
     t = api.get(f"/api/experiments/{exp_id}/timeline", headers=researcher).json()
     start = market.index_of(START)
     assert t["regimes"][:10] == [str(r) for r in labels[start : start + 10]]
