@@ -26,6 +26,7 @@ from mindex.agents.llm import (
     DECISION_V1,
     DECISION_V2,
     DECISION_V3,
+    DECISION_V4,
     LESSONS_PROMPT,
     PERSONAS,
     SYSTEM_PROMPT,
@@ -1195,7 +1196,7 @@ def test_c0_and_c1_differ_only_by_the_lessons(
     for exp_id in (c0, c1):
         exp = db_session.get(Experiment, exp_id)
         assert exp is not None
-        assert exp.prompt_version == DECISION_V3
+        assert exp.prompt_version == DECISION_V4
 
     assert _recalled(db_session, c0, "llm-momentum") == []
     got = _recalled(db_session, c1, "llm-momentum")
@@ -1435,6 +1436,7 @@ def test_a_stored_decision_v1_experiment_still_runs_the_v1_prompt(
         (DECISION_V1, {"condition": "C1"}, "hafızayı bilmez"),
         (DECISION_V2, {"condition": "C3"}, "forumu bilmez"),
         (DECISION_V1, {"condition": "C2"}, "forumu bilmez"),
+        (DECISION_V3, {"condition": "C3"}, "eski (paylaşımlı)"),
         ("decision-v0", {}, "prompt'uyla kaydedilmiş"),
     ],
 )

@@ -87,7 +87,7 @@ def test_create_makes_every_condition_for_every_seed(
         select(Experiment).where(Experiment.study_id == uuid.UUID(study["id"]))
     ).all()
     assert len(exps) == 10
-    assert {e.prompt_version for e in exps} == {"decision-v3"}
+    assert {e.prompt_version for e in exps} == {"decision-v4"}
     assert {(e.start_date, e.end_date) for e in exps} == {(START, date(2025, 11, 20))}
     one = api.get(f"/api/experiments/{runs[0]['experimentId']}", headers=researcher).json()
     assert one["studyId"] == study["id"]

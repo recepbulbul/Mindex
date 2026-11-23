@@ -6,13 +6,17 @@ Pure functions; the runner binds them to the database (`mindex.forum.store`).
   are dropped, whitespace collapses, `<` and `>` go (so a post cannot forge the
   `<forum_post>` delimiters), real coin names become the experiment's `ASSET_x` codes and the
   text is cut to `POST_MAX_CHARS`.
-- `injection_flags`: a simple pattern filter; a flagged post is stored (`flagged`) but never
-  shown to another agent.
-- `weigh`: the share of attention each read post gets and the weighted net stance per asset.
-  C2 gives every sender the same weight, C3 the reader's Beta trust in the sender. Shares are
-  exact fractions, rounded once, so equal trust at any level yields C2's numbers bit for bit.
+- `injection_flags`: a simple pattern filter, run on the text as written and as it would be
+  stored (`screen`); a flagged post is stored (`flagged`) but never shown to another agent. A
+  post that is empty once cleaned is dropped.
+- `weigh` (decision-v4): each read post's absolute weight `w` and the mean weighted stance per
+  asset, `sum(w * stance) / n`. C2 gives every sender w = 1/2, C3 the reader's Beta trust in the
+  sender, so trust matters even for a lone post (decision-v3 normalised the weights per asset,
+  which made a single post weigh 1 whatever its sender's record). Exact fractions, rounded once:
+  with neutral trust (no verdict yet, w = 1/2) C3 equals C2 bit for bit.
 - `verdict`: whether advice held, from the close of its own day `j` and of `j + HORIZON_DAYS`
-  only, read through the `MarketView` of the day it is checked (no look-ahead).
+  only, read through the `MarketView` of the day it is checked (no look-ahead). An exactly
+  unchanged close proves neither direction and is not judged.
 """
 
 import re
@@ -31,7 +35,7 @@ HORIZON_DAYS = 5  # advice is judged on the close five days after it was posted
 WINDOW_DAYS = 3  # a decision reads posts of the previous three days ...
 MAX_READS = 8  # ... at most this many, newest first
 POST_MAX_CHARS = 280
-FILTER_VERSION = "forum-filter-v1"
+FILTER_VERSION = "forum-filter-v2"
 EQUAL_WEIGHT = Fraction(1, 2)  # C2: every sender alike (the Beta prior's 0.5)
 # Reads happen before the advice is judged, so every reader of a post is known at its verdict.
 assert WINDOW_DAYS < HORIZON_DAYS  # noqa: S101
@@ -67,7 +71,9 @@ _TICKERS = "|".join(a.value.lower() for a in Asset if a is not Asset.SOL)
 REAL_NAMES = re.compile(
     rf"\b(?:(?i:{_TICKERS})\w*"
     rf"|SOL\w*|(?i:sol)[/_-]?(?i:{_QUOTES})\b"
-    r"|(?i:bitcoin|ether|solana|ripple|binance)\w*)"
+    r"|(?i:bitcoin|ether|solana|ripple|binance)\w*"
+    r"|(?i:b\s+t\s+c|e\s+t\s+h|x\s+r\s+p|b\s+n\s+b)\b)"  # spelled out: "B T C"
+    "|\u20bf"  # the bitcoin sign
 )
 UNKNOWN_ASSET = "ASSET_?"  # a real coin outside the experiment has no code
 
@@ -84,7 +90,11 @@ _INJECTION: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
             r"(önceki|yukarıdaki|tüm|bütün)\s.{0,30}"
             r"(talimat|kural|komut|yönerge)\w*.{0,30}(yok\s*say|unut|görmezden|uyma)",
         ),
-        ("override-tr2", r"(talimat|kural|yönerge)\w*\s.{0,20}(yok\s*say|unut|görmezden gel)"),
+        (
+            "override-tr2",
+            r"(talimat|kural|yönerge)\w*\s.{0,20}(yok\s*say|unut|görmezden gel|boş\s*ver)",
+        ),
+        ("new-rule-tr", r"\byeni\s+(kural|talimat|yönerge|görev)\w*\s*:"),
         (
             "system",
             r"\b(system|developer)\s*(prompt|message|instruction)|sistem\s*(talimat|mesaj|prompt|komut)",
@@ -124,7 +134,9 @@ def injection_flags(text: str) -> list[str]:
 
 
 def _asset_named(word: str) -> Asset | None:
-    low = word.lower()
+    if word == "\u20bf":
+        return Asset.BTC
+    low = "".join(word.lower().split())  # "B T C" -> "btc"
     return next((asset for name, asset in _NAMES if low.startswith(name)), None)
 
 
@@ -151,9 +163,15 @@ class CleanPost:
     flags: tuple[str, ...]
 
 
-def screen(text: str, codes: Mapping[Asset, str]) -> CleanPost:
-    flags = injection_flags(text)
-    return CleanPost(sanitise(text, codes), bool(flags), tuple(flags))
+def screen(text: str, codes: Mapping[Asset, str]) -> CleanPost | None:
+    """The stored form and its flags, or None when nothing is left to post. The patterns run
+    on the text as written and as stored, so removing `<` `>` cannot unmask an instruction
+    ("ig<nore all previous instructions")."""
+    content = sanitise(text, codes)
+    if not content:
+        return None
+    flags = sorted(set(injection_flags(text)) | set(injection_flags(content)))
+    return CleanPost(content, bool(flags), tuple(flags))
 
 
 # ------------------------------------------------------------------ weights (C2 / C3)
@@ -181,23 +199,28 @@ class ForumRead:
 
 @dataclass(frozen=True, slots=True)
 class Weighed:
-    shares: tuple[float, ...]  # per read, sums to 1 (before rounding)
-    consensus: dict[Asset, float]  # weighted net stance per asset in [-1, 1]
-    weights: tuple[float, ...]  # the raw weight w per read (stored in decision_forum_reads)
+    shown: tuple[float, ...]  # the weight w per read, as the prompt shows it
+    consensus: dict[Asset, float]  # mean of w * stance per asset, in (-1, 1)
+    weights: tuple[float, ...]  # w per read, stored in decision_forum_reads
 
 
 def weigh(reads: Sequence[ForumRead], *, by_trust: bool, digits: int = 3) -> Weighed:
-    """Shares and consensus from exact fractions, rounded once: equal weights give the same
-    floats whatever their common value, so C3 with equal trust equals C2."""
+    """Absolute weights and the per-asset mean of `w * stance` (decision-v4).
+
+    Not normalised by the weights: a lone post from a distrusted sender (w = 0.09) moves the
+    consensus far less than one from a trusted sender (w = 0.91), where a normalised share
+    would be 1 for both. Exact fractions, rounded once."""
     ws = [r.weight(by_trust=by_trust) for r in reads]
-    total = sum(ws, Fraction(0))
-    shares = tuple(round(float(w / total), digits) for w in ws) if total else ()
     consensus: dict[Asset, float] = {}
     for asset in sorted({r.asset for r in reads}):
         mine = [(w, r) for w, r in zip(ws, reads, strict=True) if r.asset == asset]
         net = sum((w * SIGN[r.stance] for w, r in mine), Fraction(0))
-        consensus[asset] = round(float(net / sum((w for w, _ in mine), Fraction(0))), digits)
-    return Weighed(shares, consensus, tuple(round(float(w), 4) for w in ws))
+        consensus[asset] = round(float(net / len(mine)), digits)
+    return Weighed(
+        tuple(round(float(w), digits) for w in ws),
+        consensus,
+        tuple(round(float(w), 4) for w in ws),
+    )
 
 
 def read_order(reads: Sequence[ForumRead]) -> list[ForumRead]:
@@ -218,4 +241,6 @@ def verdict(view: MarketView, posted_at: int, asset: Asset, stance: Stance) -> b
         return None
     closes = view.closes(asset, view.t - posted_at + 1)  # closes[0] is day `posted_at`
     change = closes[HORIZON_DAYS] / closes[0] - 1
+    if change == 0:
+        return None  # an unchanged close proves neither direction
     return change > 0 if stance is Stance.BULLISH else change < 0

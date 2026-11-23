@@ -66,7 +66,7 @@ Tabloları oluşturan SQL komutları (DDL): [`db/schema.sql`](db/schema.sql). T�
 | slippage_bps | numeric(6,2) | H | 5, 0–100 | Kayma (baz puan) |
 | config | jsonb | H | | Tam yapılandırma; YAML dışa aktarımının kaynağı (F2) |
 | model_version | text | H | | Örn. `qwen3.5-9b-q4_k_m@sha256:…` (NF5) |
-| prompt_version | text | H | | Örn. `decision-v3` (NF5) |
+| prompt_version | text | H | | Örn. `decision-v4` (NF5) |
 | last_checkpoint_day | date | E | | Kaldığı yerden sürdürme noktası (NF2) |
 | checkpoint | jsonb | E | | O günkü simülatör durumu (`SimState`); koşu aynı sonuçla sürer (NF2) |
 | created_at | timestamptz | H | `now()` | |

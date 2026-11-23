@@ -13,7 +13,7 @@ write a post-mortem lesson that passes the numeric consistency check (dated the 
 so it is usable from the next day on). The lesson is part of the day's transaction, so a
 resumed run recalls and writes exactly what an uninterrupted run would.
 
-C2 and C3 add the forum to C1 (`decision-v3`): before the agents decide on day `t`, advice
+C2 and C3 add the forum to C1 (`decision-v4`): before the agents decide on day `t`, advice
 whose five-day horizon ended by `t` is judged on closes up to `t` and the readers' Beta trust in
 its senders is updated; each LLM agent then reads the filtered posts of the previous days (C2:
 every sender weighs the same; C3: by the reader's trust) and may post one view inside its
@@ -55,7 +55,7 @@ from sqlalchemy.orm import Session
 from mindex.agents.base import BaseAgent
 from mindex.agents.llm import (
     DECISION_V1,
-    DECISION_V3,
+    FORUM_VERSION,
     MEMORY_VERSIONS,
     PROMPT_VERSIONS,
     ChatClient,
@@ -327,9 +327,10 @@ def runnable_errors(
                 f"Deney {exp.prompt_version} prompt'uyla kaydedilmiş; bu sunucu "
                 f"{', '.join(PROMPT_VERSIONS)} çalıştırır."
             )
-        elif exp.condition in FORUM_CONDITIONS and exp.prompt_version != DECISION_V3:
+        elif exp.condition in FORUM_CONDITIONS and exp.prompt_version != FORUM_VERSION:
             errors["promptVersion"] = (
-                f"{exp.prompt_version} forumu bilmez; C2 ve C3 koşulları {DECISION_V3} ister."
+                f"{exp.prompt_version} forumu bilmez ya da güveni eski (paylaşımlı) biçimde "
+                f"ağırlıklar; C2 ve C3 koşulları {FORUM_VERSION} ister. Deneyi yeniden oluşturun."
             )
         elif exp.prompt_version not in MEMORY_VERSIONS and exp.condition in MEMORY_CONDITIONS:
             errors["promptVersion"] = (

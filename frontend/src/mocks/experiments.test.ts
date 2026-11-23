@@ -226,7 +226,7 @@ describe('mock contract alignment with the backend', () => {
   it('writes plain decimals PyYAML reads as numbers, and the backend prompt version', async () => {
     signIn('researcher')
     const exp = await create(CONFIG)
-    expect(exp.promptVersion).toBe('decision-v3')
+    expect(exp.promptVersion).toBe('decision-v4')
     const yaml = experimentToYaml({ ...exp, commissionRate: 1e-7 })
     expect(yaml).toContain('  commission_rate: 0.0000001\n')
   })
