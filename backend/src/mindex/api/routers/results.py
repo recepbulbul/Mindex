@@ -2,10 +2,12 @@
 
 Shapes follow `frontend/src/api/types.ts`. Equity, decisions and trades come from the rows the
 runner commits each day; report metrics come from the simulator checkpoint (full float
-precision, the numbers `mindex baseline` reports). Until the forum exists (P6) its endpoint
-returns empty lists, and the report's `conditions` stays empty (the multi-seed condition
-comparison is P9). Regimes are the labels the run stored; a run without a regime model is marked
-`regime_source: "placeholder"` in its `config` and shows "sideways" on every day.
+precision, the numbers `mindex baseline` reports). The forum endpoint returns the posts, the
+current trust counts and the trust history replayed from the verdict days (`verified_on`); it
+is empty outside C2/C3. The report's `conditions` stays empty (the multi-seed condition
+comparison is the study's). Regimes are the labels the run stored; a run without a regime
+model is marked `regime_source: "placeholder"` in its `config` and shows "sideways" on every
+day.
 """
 
 import json
@@ -29,29 +31,36 @@ from mindex.api.schemas import (
     CounterfactualOut,
     DecisionOut,
     EquityPoint,
+    ForumMessageOut,
     ForumOut,
     MemoryOut,
     MemoryRef,
     ReportOut,
     TimelineOut,
     TradeOut,
+    TrustHistoryPoint,
+    TrustScoreOut,
 )
 from mindex.config import Settings
 from mindex.data.snapshot import DataQualityError
 from mindex.db.models import (
     AgentKindDb,
     AgentRow,
+    DecisionForumRead,
     DecisionMemory,
     DecisionRow,
     Experiment,
     ExperimentStatus,
+    ForumMessageRow,
     MemoryRow,
     PortfolioSnapshot,
     TradeRow,
+    TrustScoreRow,
 )
 from mindex.domain.decision import Asset
 from mindex.domain.metrics import herd_correlation
 from mindex.domain.regime import Regime
+from mindex.domain.trust import BetaTrust
 from mindex.evaluation.report import BENCHMARK_ID, differences, summarise
 from mindex.memory.store import MemoryStore
 from mindex.services.runner import (
@@ -217,7 +226,9 @@ def _regimes(
     return out
 
 
-def _decision_out(r: DecisionRow, agent_id: str, refs: list[MemoryRef]) -> DecisionOut:
+def _decision_out(
+    r: DecisionRow, agent_id: str, refs: list[MemoryRef], forum_ids: list[str]
+) -> DecisionOut:
     # Held days have no confidence or rationale in the database; the contract wants values.
     return DecisionOut(
         id=str(r.id),
@@ -231,7 +242,7 @@ def _decision_out(r: DecisionRow, agent_id: str, refs: list[MemoryRef]) -> Decis
         held_position=r.held_position,
         latency_ms=r.latency_ms or 0,
         memories=refs,
-        forum_message_ids=[],  # forum reads are recorded from P6 on
+        forum_message_ids=forum_ids,
     )
 
 
@@ -239,7 +250,8 @@ def _decision_out(r: DecisionRow, agent_id: str, refs: list[MemoryRef]) -> Decis
 def agent_detail(
     experiment_id: str, agent_id: str, session: SessionDep, settings: SettingsDep, _: CurrentUser
 ) -> AgentDetailOut:
-    """One agent's equity and decisions (newest first); trust lists stay empty until P6."""
+    """One agent's equity and decisions (newest first), with the trust it gives and receives
+    on the forum (C2/C3; empty in other conditions)."""
     exp = _started(session, experiment_id, draft_status=status.HTTP_404_NOT_FOUND)
     ea = next((x for x in exp.agents if x.agent.slug == agent_id), None)
     if ea is None:
@@ -258,16 +270,44 @@ def agent_detail(
         .order_by(DecisionMemory.score.desc())
     ):
         refs[link.decision_id].append(MemoryRef(id=str(link.memory_id), score=float(link.score)))
+    reads: dict[uuid.UUID, list[str]] = defaultdict(list)
+    for decision_id, message_id in session.execute(
+        select(DecisionForumRead.decision_id, DecisionForumRead.forum_message_id)
+        .where(DecisionForumRead.decision_id.in_([r.id for r in rows]))
+        .order_by(DecisionForumRead.weight.desc(), DecisionForumRead.forum_message_id)
+    ):
+        reads[decision_id].append(str(message_id))
+    trust = _trust(session, exp)
     return AgentDetailOut(
         agent=_agent_out(ea.agent, settings),
         equity=[
             EquityPoint(day=s.day, equity=float(s.equity))
             for s in _snapshots(session, [ea.id])[ea.id]
         ],
-        decisions=[_decision_out(r, agent_id, refs[r.id]) for r in rows],
-        trust_given=[],
-        trust_received=[],
+        decisions=[_decision_out(r, agent_id, refs[r.id], reads[r.id]) for r in rows],
+        trust_given=[t for t in trust if t.truster_id == agent_id],
+        trust_received=[t for t in trust if t.trustee_id == agent_id],
     )
+
+
+def _slugs(exp: Experiment) -> dict[uuid.UUID, str]:
+    return {ea.id: ea.agent.slug for ea in exp.agents}
+
+
+def _trust(session: SessionDep, exp: Experiment) -> list[TrustScoreOut]:
+    slug_of = _slugs(exp)
+    rows = session.scalars(select(TrustScoreRow).where(TrustScoreRow.truster_id.in_(list(slug_of))))
+    out = [
+        TrustScoreOut(
+            truster_id=slug_of[r.truster_id],
+            trustee_id=slug_of[r.trustee_id],
+            confirmed=r.confirmed,
+            refuted=r.refuted,
+            score=BetaTrust(r.confirmed, r.refuted).score,
+        )
+        for r in rows
+    ]
+    return sorted(out, key=lambda t: (t.truster_id, t.trustee_id))
 
 
 def _metrics(agent_id: str, kind: str, book: AgentBook) -> AgentMetrics:
@@ -366,6 +406,90 @@ def _memory_out(m: MemoryRow, agent_id: str) -> MemoryOut:
 
 @router.get("/{experiment_id}/forum")
 def forum(experiment_id: str, session: SessionDep, _: CurrentUser) -> ForumOut:
-    """Empty until the forum (C2/C3) is built in P6; the shape is already the final one."""
-    _started(session, experiment_id, draft_status=status.HTTP_404_NOT_FOUND)
-    return ForumOut(messages=[], trust=[], trust_history=[])
+    """Posts (newest first), the current trust matrix and its history (C2/C3)."""
+    exp = _started(session, experiment_id, draft_status=status.HTTP_404_NOT_FOUND)
+    slug_of = _slugs(exp)
+    rows = list(
+        session.scalars(select(ForumMessageRow).where(ForumMessageRow.experiment_id == exp.id))
+    )
+    rows.sort(key=lambda m: (m.day, slug_of[m.sender_id], m.asset or ""), reverse=True)
+    regimes = {
+        (ea_id, day): regime
+        for ea_id, day, regime in session.execute(
+            select(DecisionRow.experiment_agent_id, DecisionRow.day, DecisionRow.regime).where(
+                DecisionRow.experiment_agent_id.in_(list(slug_of))
+            )
+        )
+    }
+    messages = [
+        ForumMessageOut(
+            id=str(m.id),
+            sender_id=slug_of[m.sender_id],
+            day=m.day,
+            content=m.content,
+            asset=Asset(m.asset),
+            stance=m.stance,
+            regime=regimes.get((m.sender_id, m.day)) or PLACEHOLDER_REGIME,
+            flagged=m.flagged,
+            verified=m.verified,
+        )
+        for m in rows
+        if m.asset is not None
+    ]
+    trust = _trust(session, exp)
+    return ForumOut(
+        messages=messages,
+        trust=trust,
+        trust_history=_trust_history(session, exp, slug_of, trust),
+    )
+
+
+def _trust_history(
+    session: SessionDep,
+    exp: Experiment,
+    slug_of: dict[uuid.UUID, str],
+    trust: list[TrustScoreOut],
+) -> list[TrustHistoryPoint]:
+    """Mean trust the other forum members place in each member, replayed from the verdicts:
+    one point per member at the start and on every verdict day."""
+    members = sorted({t.truster_id for t in trust})
+    if not members:
+        return []
+    verdicts = session.execute(
+        select(
+            ForumMessageRow.verified_on,
+            ForumMessageRow.sender_id,
+            ForumMessageRow.verified,
+            DecisionRow.experiment_agent_id,
+        )
+        .join(DecisionForumRead, DecisionForumRead.forum_message_id == ForumMessageRow.id)
+        .join(DecisionRow, DecisionRow.id == DecisionForumRead.decision_id)
+        .where(ForumMessageRow.experiment_id == exp.id, ForumMessageRow.verified_on.is_not(None))
+        .distinct()
+    ).all()
+    by_day: dict[date, list[tuple[str, str, bool]]] = defaultdict(list)
+    for day, sender, held, reader in verdicts:
+        assert day is not None  # noqa: S101 (filtered above)
+        assert held is not None  # noqa: S101
+        by_day[day].append((slug_of[reader], slug_of[sender], held))
+    counts = {(a, b): BetaTrust() for a in members for b in members if a != b}
+
+    def points(day: date) -> list[TrustHistoryPoint]:
+        return [
+            TrustHistoryPoint(
+                day=day,
+                trustee_id=m,
+                score=round(
+                    sum(counts[(o, m)].score for o in members if o != m) / (len(members) - 1), 4
+                ),
+            )
+            for m in members
+            if len(members) > 1
+        ]
+
+    out = points(exp.start_date)
+    for day in sorted(by_day):
+        for reader, sender, held in by_day[day]:
+            counts[(reader, sender)] = counts[(reader, sender)].update(advice_was_correct=held)
+        out.extend(points(day))
+    return out
