@@ -51,8 +51,17 @@ export interface CandleOut {
 
 export type Condition = 'C0' | 'C1' | 'C1_NO_REGIME' | 'C2' | 'C3'
 
+export interface ConditionDifference {
+  condition: Condition
+  baseline: Condition
+  sharpeDiff: number
+  ciLow: number
+  ciHigh: number
+}
+
 export interface ConditionSummary {
   condition: Condition
+  runs: number
   sharpeMean: number
   sharpeCiLow: number
   sharpeCiHigh: number
@@ -121,6 +130,7 @@ export interface ExperimentOut {
   promptVersion: string
   createdAt: string
   error?: string | null
+  studyId?: string | null
 }
 
 export type ExperimentStatus = 'draft' | 'queued' | 'running' | 'paused' | 'completed' | 'failed'
@@ -203,6 +213,52 @@ export interface ReportOut {
 
 export type Stance = 'bullish' | 'bearish' | 'neutral'
 
+export interface StudyComparisonOut {
+  studyId: string
+  complete: boolean
+  days: number
+  blockLength: number
+  resamples: number
+  conditions: ConditionSummary[]
+  differences: ConditionDifference[]
+}
+
+export interface StudyCreate {
+  name: string
+  startDate: string
+  endDate: string
+  assets: Asset[]
+  agentIds: string[]
+  seeds: number[]
+  smoke?: boolean
+  commissionRate?: number
+  slippageBps?: number
+}
+
+export interface StudyOut {
+  id: string
+  name: string
+  startDate: string
+  endDate: string
+  assets: Asset[]
+  agentIds: string[]
+  seeds: number[]
+  smoke: boolean
+  commissionRate: number
+  slippageBps: number
+  status: ExperimentStatus
+  createdAt: string
+  runs: StudyRunOut[]
+}
+
+export interface StudyRunOut {
+  experimentId: string
+  condition: Condition
+  seed: number
+  status: ExperimentStatus
+  lastDay: string | null
+}
+
 export interface TimelineOut {
   experimentId: string
   days: string[]
@@ -264,6 +320,11 @@ export interface ApiResponses {
   'POST /api/experiments/{experiment_id}/start': ExperimentOut
   'GET /api/experiments/{experiment_id}/timeline': TimelineOut
   'GET /api/health': Health
+  'GET /api/studies': StudyOut[]
+  'POST /api/studies': StudyOut
+  'GET /api/studies/{study_id}': StudyOut
+  'GET /api/studies/{study_id}/comparison': StudyComparisonOut
+  'POST /api/studies/{study_id}/start': StudyOut
 }
 
 /** JSON request body of each operation. */
@@ -272,4 +333,5 @@ export interface ApiRequestBodies {
   'POST /api/auth/register': RegisterRequest
   'POST /api/experiments': ExperimentCreate
   'PATCH /api/experiments/{experiment_id}': ExperimentUpdate
+  'POST /api/studies': StudyCreate
 }
