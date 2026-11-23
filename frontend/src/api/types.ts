@@ -270,7 +270,7 @@ export interface ConditionSummary {
   sharpeCiHigh: number
   maxDrawdown: number
   totalReturn: number
-  herdCorrelation: number
+  herdCorrelation: number | null // null: fewer than two LLM agents in every run
   lessonConsistency: number | null
   // Mean sender weight w the agents read the forum with (per run, then over runs); null
   // without a forum (C0, C1, C1′). C2 is always 0.5; C3's level shows how much of C3 − C2 is
@@ -282,7 +282,7 @@ export interface Report {
   experimentId: string
   agents: AgentMetrics[]
   benchmark: AgentMetrics
-  herdCorrelation: number
+  herdCorrelation: number | null // null below two LLM agents (nothing to correlate)
   conditions: ConditionSummary[]
 }
 

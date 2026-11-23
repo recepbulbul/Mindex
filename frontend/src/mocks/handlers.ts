@@ -104,18 +104,18 @@ function metricsFor(sim: Simulation, agentId: string): AgentMetrics {
   }
 }
 
-function llmHerd(sim: Simulation) {
-  const series = sim.runs
-    .filter((r) => r.agent.kind === 'llm')
-    .map((r) =>
-      r.weights.slice(1).map((w, i) => {
-        const prev = r.weights[i]!
-        return (
-          Object.values(w).reduce((s, x) => s + x, 0) -
-          Object.values(prev).reduce((s, x) => s + x, 0)
-        )
-      }),
-    )
+// Like the backend: nothing to correlate below two LLM agents.
+function llmHerd(sim: Simulation): number | null {
+  const llm = sim.runs.filter((r) => r.agent.kind === 'llm')
+  if (llm.length < 2) return null
+  const series = llm.map((r) =>
+    r.weights.slice(1).map((w, i) => {
+      const prev = r.weights[i]!
+      return (
+        Object.values(w).reduce((s, x) => s + x, 0) - Object.values(prev).reduce((s, x) => s + x, 0)
+      )
+    }),
+  )
   return herdCorrelation(series)
 }
 
@@ -316,7 +316,8 @@ function conditionSummaries(exp: Experiment): ConditionSummary[] {
       sharpeCiHigh: sharpes.at(-1)!,
       maxDrawdown: mean((x) => x.mdd),
       totalReturn: mean((x) => x.ret),
-      herdCorrelation: mean((x) => x.herd),
+      // Like the backend: null when no run has two LLM agents to correlate.
+      herdCorrelation: perSeed.every((x) => x.herd === null) ? null : mean((x) => x.herd ?? 0),
       lessonConsistency: condition === 'C0' ? null : 0.9 + (mean((x) => x.lessons) % 7) / 100,
       meanForumWeight: mockForumWeight(condition),
     }
@@ -407,7 +408,7 @@ function studyComparison(study: Study): StudyComparison | null {
       sharpe: avg((x) => x.sharpe),
       mdd: avg((x) => x.maxDrawdown),
       ret: avg((x) => x.totalReturn),
-      herd: m.length >= 2 ? llmHerd(sim) : 0,
+      herd: llmHerd(sim),
       days: sim.days.length - 1,
     }
   })
@@ -428,7 +429,9 @@ function studyComparison(study: Study): StudyComparison | null {
         sharpeCiHigh: Math.max(...sharpes),
         maxDrawdown: mean(rows.map((r) => r.mdd)),
         totalReturn: mean(rows.map((r) => r.ret)),
-        herdCorrelation: mean(rows.map((r) => r.herd)),
+        herdCorrelation: rows.every((r) => r.herd === null)
+          ? null
+          : mean(rows.flatMap((r) => (r.herd === null ? [] : [r.herd]))),
         lessonConsistency: condition === 'C0' ? null : 0.92,
         meanForumWeight: mockForumWeight(condition),
       },

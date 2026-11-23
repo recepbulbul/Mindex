@@ -84,7 +84,10 @@ export default function ReportPage() {
           value={mddReduction === null ? '—' : formatPct(mddReduction)}
           tone={mddReduction !== null && mddReduction >= 0.3 ? 'up' : 'down'}
         />
-        <Stat label="Sürü korelasyonu (LLM)" value={formatNum(r.herdCorrelation)} />
+        <Stat
+          label="Sürü korelasyonu (LLM)"
+          value={r.herdCorrelation === null ? '—' : formatNum(r.herdCorrelation)}
+        />
       </StatGrid>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">

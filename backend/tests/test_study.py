@@ -70,8 +70,11 @@ def _create(api: TestClient, headers: dict[str, str], **over: Any) -> dict[str, 
 
 
 def fake_runner(sessions: Callable[[], Session], settings: Settings) -> ExperimentRunner:
-    chat = ForumChat()
-    return ExperimentRunner(sessions, settings, lambda exp: chat, HashEmbedder())
+    """Seed-sensitive fake model: runs of different seeds give different results, so a
+    comparison that mixed seeds would show."""
+    return ExperimentRunner(
+        sessions, settings, lambda exp: ForumChat(seed=exp.seed), HashEmbedder()
+    )
 
 
 # ------------------------------------------------------------------ create and start
@@ -426,7 +429,10 @@ def test_differences_pair_only_the_seeds_both_conditions_completed(
     assert [(d["condition"], d["baseline"], d["seeds"]) for d in comp["differences"]] == [
         ("C3", "C0", 1)
     ]
-    paired = _llm_sharpe(api, researcher, str(c3_s1)) - _llm_sharpe(api, researcher, str(c0_s1))
+    # Not vacuous: the two C0 seeds differ, so mixing them would change the difference.
+    c0_one, c0_two = (_llm_sharpe(api, researcher, str(j)) for j in (c0_s1, c0_s2))
+    assert abs(c0_one - c0_two) > 0.05
+    paired = _llm_sharpe(api, researcher, str(c3_s1)) - c0_one
     assert comp["differences"][0]["sharpeDiff"] == pytest.approx(paired)
     # The report carries the same per-condition completeness.
     report = api.get(f"/api/experiments/{c0_s1}/report", headers=researcher).json()
@@ -525,3 +531,73 @@ def test_mean_forum_weight_per_condition(
     assert rows["C3"]["meanForumWeight"] == pytest.approx(
         float(sum(weights)) / len(weights), abs=1e-6
     )
+
+
+def test_herd_correlation_is_null_below_two_llm_agents(
+    api: TestClient,
+    researcher: dict[str, str],
+    sessions: Callable[[], Session],
+    settings: Settings,
+    jobs: ListQueue,
+    db_session: Session,
+) -> None:
+    study = _create(api, researcher, smoke=True, agentIds=["buy-hold-btc", "llm-momentum"])
+    api.post(f"/api/studies/{study['id']}/start", headers=researcher)
+    runner = fake_runner(sessions, settings)
+    for job in jobs.jobs:
+        runner(job)
+    db_session.expire_all()
+    comp = api.get(f"/api/studies/{study['id']}/comparison", headers=researcher).json()
+    assert {c["herdCorrelation"] for c in comp["conditions"]} == {None}  # not 0: "no herding"
+
+
+def test_queueing_claims_in_sql_and_never_requeues_a_run_finished_meanwhile(
+    api: TestClient,
+    researcher: dict[str, str],
+    sessions: Callable[[], Session],
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Between listing a study's runs and queueing them, another worker may finish one. The
+    claim is a conditional UPDATE, so that run stays completed and is not handed out again."""
+    study = _create(api, researcher, smoke=True)
+    first = uuid.UUID(study["runs"][0]["experimentId"])
+    mine = sessions()
+    row = mine.get(Study, uuid.UUID(study["id"]))
+    assert row is not None
+    stale = mindex.services.study.study_runs(mine, row)  # all five drafts, as listed
+    other = sessions()
+    done = other.get(Experiment, first)
+    assert done is not None
+    done.status = ExperimentStatus.COMPLETED  # finished by someone else meanwhile
+    other.commit()
+
+    def listed(*_: object) -> list[Experiment]:
+        return stale
+
+    monkeypatch.setattr(mindex.services.study, "study_runs", listed)
+    queued = mindex.services.study.queue_study(mine, settings, row)
+    assert first not in queued
+    assert len(queued) == 4
+    check = sessions()
+    status = check.get(Experiment, first)
+    assert status is not None
+    assert status.status is ExperimentStatus.COMPLETED
+
+
+def test_cli_tables_a_study_with_one_llm_agent(
+    cli_env: Session, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Herd correlation is null below two LLM agents; `start` and `status` print a dash."""
+    create = ["study", "create", "--owner", "hoca@mindex.dev", "--smoke", "--assets", "BTC", "ETH"]
+    cli.main([*create, "--agents", "buy-hold-btc", "llm-momentum"])
+    study = cli_env.scalar(select(Study))
+    assert study is not None
+    cli.main(["study", "start", str(study.id)])
+    started = capsys.readouterr().out
+    cli.main(["study", "status", str(study.id)])
+    status = capsys.readouterr().out
+    for out in (started, status):
+        rows = [line for line in out.splitlines() if line.startswith(("C0    ", "C3    "))]
+        assert len(rows) == 2
+        assert all("  —  " in row for row in rows)

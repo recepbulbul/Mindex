@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { api, ApiError, tokenStore } from '@/api/client'
-import type { Experiment, ExperimentCreate } from '@/api/types'
+import type { Experiment, ExperimentCreate, Report } from '@/api/types'
 import { signIn } from '@/test/render'
 import { setMockExperiment } from './handlers'
 import { experimentToYaml } from './yaml'
@@ -279,5 +279,17 @@ describe('mock start mirrors the backend runner', () => {
     })
     setMockExperiment(exp.id, { status: 'paused' })
     expect(await failure(api.post(`/experiments/${exp.id}/start`))).toMatchObject({ status: 409 })
+  })
+})
+
+describe('herd correlation below two LLM agents', () => {
+  it('is null in the mock report, like the backend', async () => {
+    signIn('researcher')
+    const exp = await create({ ...CONFIG, agentIds: ['buy-hold-btc', 'llm-momentum'] })
+    await api.post(`/experiments/${exp.id}/start`)
+    const report = await api.get<Report>(`/experiments/${exp.id}/report`)
+    expect(report.herdCorrelation).toBeNull()
+    expect(report.conditions.length).toBeGreaterThan(0)
+    expect(report.conditions.every((c) => c.herdCorrelation === null)).toBe(true)
   })
 })

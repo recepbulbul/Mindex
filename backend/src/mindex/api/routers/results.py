@@ -366,7 +366,8 @@ def report(
         for ea in links
         if ea.agent.kind is AgentKindDb.LLM
     ]
-    herd = herd_correlation(llm) if len(llm) >= 2 and len(llm[0]) >= 2 else 0.0
+    # Nothing to correlate below two LLM agents; 0 would read as "no herding".
+    herd = herd_correlation(llm) if len(llm) >= 2 and len(llm[0]) >= 2 else None
     return ReportOut(
         experiment_id=str(exp.id),
         agents=agents,

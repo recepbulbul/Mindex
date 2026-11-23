@@ -94,7 +94,9 @@ export function ConditionComparison({
                 </td>
                 <td className="text-right num">{formatPct(-c.maxDrawdown)}</td>
                 <td className="text-right num">{formatPct(c.totalReturn)}</td>
-                <td className="text-right num">{formatNum(c.herdCorrelation)}</td>
+                <td className="text-right num">
+                  {c.herdCorrelation === null ? '—' : formatNum(c.herdCorrelation)}
+                </td>
                 <td className="text-right num">
                   {c.lessonConsistency === null ? '—' : formatPct(c.lessonConsistency)}
                 </td>

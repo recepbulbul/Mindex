@@ -71,11 +71,14 @@ class ForumChat(MemoryChat):
     """Decisions lean on the forum's consensus; every answer carries a post. Momentum follows
     the 7-day move, mean reversion bets against it (so its advice fails on the trending asset
     and trust diverges), risk-averse posts neutral views, a real coin name and, now and then,
-    an injection attempt."""
+    an injection attempt. An even, non-zero `seed` stays out of ASSET_B, so runs of different
+    seeds differ as a sampling model's would (Sharpe ignores a mere change of scale); seed 0
+    leaves the behaviour unchanged."""
 
-    def __init__(self, **kw: Any) -> None:
+    def __init__(self, *, seed: int = 0, **kw: Any) -> None:
         super().__init__(**kw)
         self.decision_calls = 0
+        self.skip = "ASSET_B" if seed and seed % 2 == 0 else None
 
     def complete(self, messages: list[dict[str, str]], *, schema: Mapping[str, Any]) -> str:
         system, user = messages[0]["content"], json.loads(messages[1]["content"])
@@ -89,7 +92,7 @@ class ForumChat(MemoryChat):
         allocations: list[dict[str, Any]] = []
         for code, f in sorted(user["assets"].items()):
             base = 0.3 if (f["return_7d_pct"] or 0.0) > 0 else 0.05
-            w = max(0.0, base + 0.15 * consensus.get(code, 0.0))
+            w = 0.0 if code == self.skip else max(0.0, base + 0.15 * consensus.get(code, 0.0))
             allocations.append({"asset": code, "weight": round(w, 4)})
         reply: dict[str, Any] = {
             "allocations": allocations,
