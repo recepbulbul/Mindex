@@ -8,9 +8,11 @@ export const CONDITIONS = ['C0', 'C1', 'C1_NO_REGIME', 'C2', 'C3'] as const
 export type Condition = (typeof CONDITIONS)[number]
 
 // The decision prompt the server stamps on new experiments (agents/llm.py `PROMPT_VERSION`).
-// `decision-v3` adds the forum in C2/C3 and is `decision-v2` byte for byte elsewhere;
-// `decision-v1` (the C0 baseline) and `decision-v2` stay runnable for experiments stored with them.
-export const PROMPT_VERSION = 'decision-v3'
+// `decision-v4` adds the forum in C2/C3 with absolute sender weights (#57) and is
+// `decision-v2` byte for byte elsewhere, as is `decision-v3` (whose per-asset shares made a
+// lone post weigh 1; C2/C3 stored with it are refused). v1 (the C0 baseline), v2 and v3 stay
+// runnable outside the forum for experiments stored with them.
+export const PROMPT_VERSION = 'decision-v4'
 
 export const CONDITION_LABELS: Record<Condition, string> = {
   C0: 'C0 · Hafızasız',
@@ -89,12 +91,12 @@ export interface Experiment {
 //   The server stamps `modelVersion` / `promptVersion` with what it will run.
 // POST /experiments/:id/start: LLM agents run in every condition. C0 has no memory;
 //   C1 / C1_NO_REGIME / C2 / C3 recall the agent's own lessons before each decision and write
-//   post-mortem lessons when a position closes; C2 / C3 add the forum (`decision-v3`): posts of
+//   post-mortem lessons when a position closes; C2 / C3 add the forum (`decision-v4`): posts of
 //   the previous days, weighted equally (C2) or by the reader's Beta trust in the sender (C3).
 //   A run recalls only lessons learned on an earlier day; each decision's recalled
 //   lessons come back as `Decision.memories`, the forum posts it read as `forumMessageIds`.
 //   An experiment stored with an older prompt is refused with 422 + fields.promptVersion when
-//   that prompt cannot serve its condition (decision-v1 has no memory, only v3 has the forum).
+//   that prompt cannot serve its condition (decision-v1 has no memory, only v4 has the forum).
 // PATCH /experiments/:id (200, ExperimentUpdate): drafts only (409 otherwise); the merged
 //   configuration is validated as a whole, with the same rules as create.
 // DELETE /experiments/:id (204): draft, completed or failed only (409 while queued/running/paused).
