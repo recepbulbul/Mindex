@@ -78,6 +78,7 @@ export interface Experiment {
   promptVersion: string
   createdAt: string
   error?: string | null // why the last run failed (status "failed"); a new start clears it
+  studyId?: string | null // the study it belongs to, if any
 }
 
 // Experiment management (F2). Reads need a session and are open to every user; creating needs
@@ -158,8 +159,8 @@ export interface AgentRun {
 //   experiment asset (not all five). `regimes` are the labels the run decided with: the HMM's
 //   (its SHA-256 is pinned in the experiment's stored config) or, without a regime model, the
 //   placeholder 'sideways' on every day (stored as `regime_source: "placeholder"`).
-// GET /experiments/:id/report: 409 before the first checkpoint; `conditions` is [] until the
-//   multi-seed comparison (P9).
+// GET /experiments/:id/report: 409 before the first checkpoint; `conditions` is the study's
+//   comparison for an experiment in a study (once one of its runs completed), [] otherwise.
 // GET /experiments/:id/forum: C2/C3 runs' posts (newest first), the current trust matrix and its
 //   history; empty lists in other conditions. A post written on day t is read from t+1 on and
 //   judged on the close of t+5 (`verified`, null until then and for neutral stances); posts the
@@ -255,8 +256,12 @@ export interface AgentMetrics {
   trades: number
 }
 
+// One condition of a study, over its completed runs: means over runs and LLM agents; the
+// Sharpe CI is a circular block bootstrap over days (StudyComparison). `lessonConsistency`:
+// share of schema-valid post-mortem lessons that passed the numeric check (null in C0).
 export interface ConditionSummary {
   condition: Condition
+  runs: number
   sharpeMean: number
   sharpeCiLow: number
   sharpeCiHigh: number
@@ -283,4 +288,67 @@ export interface Health {
 export interface ApiErrorBody {
   detail: string
   fields?: Record<string, string>
+}
+
+// Studies (#54): one comparison of the conditions. A study is the experiments that share a
+// period, agents, assets and costs: every condition (CONDITIONS) × every seed, created and
+// queued together. Reads need a session; create and start need the researcher role (start:
+// the study's owner). The period may not touch the sealed test window (422 + fields), and the
+// agents must include an LLM agent (the comparison is about them).
+// POST /studies (201): `smoke` cuts the period to SMOKE_DAYS days from `startDate` and keeps
+//   only the first seed: a short check of every condition before the full run.
+// POST /studies/:id/start: queues every draft or failed run (seed by seed, all conditions of
+//   a seed first); 422 + fields when the runner cannot run them.
+// GET /studies/:id/comparison: per condition over its completed runs; 409 before any run of
+//   the study has completed. `Report.conditions` of a study's experiment is this table.
+export const SMOKE_DAYS = 14
+export const MAX_SEEDS = 10
+
+export interface StudyCreate {
+  name: string
+  startDate: string
+  endDate: string
+  assets: Asset[]
+  agentIds: string[]
+  seeds: number[] // distinct, 1..MAX_SEEDS of them
+  smoke: boolean
+  commissionRate: number
+  slippageBps: number
+}
+
+export interface StudyRun {
+  experimentId: string
+  condition: Condition
+  seed: number
+  status: ExperimentStatus
+  lastDay: string | null // the last checkpointed day
+}
+
+export interface Study extends StudyCreate {
+  id: string
+  // draft: nothing started · queued/running: some run is · failed: a run failed and none is
+  // active · completed: every run completed.
+  status: ExperimentStatus
+  createdAt: string
+  runs: StudyRun[] // seed, then condition (CONDITIONS order)
+}
+
+// Difference of the mean Sharpe of LLM agents, `condition` − `baseline`, with its block-
+// bootstrap 95% CI (the same resampled days for both conditions).
+export interface ConditionDifference {
+  condition: Condition
+  baseline: Condition
+  sharpeDiff: number
+  ciLow: number
+  ciHigh: number
+}
+
+export interface StudyComparison {
+  studyId: string
+  complete: boolean // every run of the study has completed
+  days: number // daily returns per run that were compared
+  blockLength: number // circular block bootstrap: block length in days ...
+  resamples: number // ... and number of resamples (seeded, so the CI is reproducible)
+  conditions: ConditionSummary[] // conditions with at least one completed run
+  differences: ConditionDifference[] // C1−C0, C1−C1′, C2−C1, C3−C2, C3−C0 when both exist
 }

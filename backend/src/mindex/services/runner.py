@@ -230,6 +230,18 @@ def regime_provenance(settings: Settings) -> dict[str, str | None]:
     return {REGIME_SOURCE: "hmm", REGIME_SHA256: digest}
 
 
+# Post-mortem attempts of the run so far that matched the lesson schema (`valid`) and of those
+# the ones that passed the numeric check (`consistent`): the lesson consistency rate of
+# docs/04-ai-pipeline.md, measured before rejection. Updated in the day's transaction.
+LESSON_CHECKS = "lesson_checks"
+
+
+def lesson_consistency(config: Mapping[str, Any]) -> tuple[int, int]:
+    """(valid, consistent) post-mortem attempts a run has recorded so far."""
+    checks = cast(dict[str, int], config.get(LESSON_CHECKS) or {})
+    return checks.get("valid", 0), checks.get("consistent", 0)
+
+
 POSTMORTEM_VERSION = "postmortem_prompt_version"  # more `config` keys, for memory conditions
 EMBEDDING_MODEL = "embedding_model"
 
@@ -665,6 +677,15 @@ class ExperimentRunner:
                 source_trade_id=fill_ids.get(trip.fills[-1]),
             )
             valid = [a for a in result.attempts if a.schema_valid]
+            if not result.llm_unavailable:
+                seen, passed = lesson_consistency(exp.config)
+                exp.config = {
+                    **exp.config,
+                    LESSON_CHECKS: {
+                        "valid": seen + len(valid),
+                        "consistent": passed + sum(a.consistent for a in valid),
+                    },
+                }
             log.info(
                 "postmortem_stats",
                 experiment_id=str(exp.id),

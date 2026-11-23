@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from mindex import __version__
 from mindex.api import errors
-from mindex.api.routers import agents, auth, experiments, results
+from mindex.api.routers import agents, auth, experiments, results, studies
 from mindex.api.schemas import ApiErrorBody, ExperimentUpdate, Health
 from mindex.config import get_settings
 from mindex.db.session import get_session, get_sessionmaker
@@ -84,7 +84,13 @@ def create_app(**kwargs: object) -> FastAPI:
     )
     errors.install(app)
     app.include_router(health_router, prefix=API_PREFIX)
-    for router in (auth.router, agents.router, experiments.router, results.router):
+    for router in (
+        auth.router,
+        agents.router,
+        experiments.router,
+        results.router,
+        studies.router,
+    ):
         app.include_router(router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
     _with_schema_only_models(app)
     return app

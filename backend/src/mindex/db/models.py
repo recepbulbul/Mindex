@@ -4,6 +4,7 @@ Differences from the reference DDL, all deliberate:
 - `agents.slug`: the stable id the API and `BaseAgent.agent_id` use (`buy-hold-btc`).
 - `experiments.checkpoint`: the simulator's `SimState` JSON, so a run resumes bit for bit (NF2).
 - `memories.day`: the day a lesson became known; retrieval only returns earlier lessons.
+- `studies` + `experiments.study_id`: the condition x seed groups of a comparison.
 - `forum_messages.verified_on`: the day advice was judged, so trust can be replayed per day.
 - No `prices` table: prices stay in the Parquet snapshots for now.
 - Constraint names follow `NAMING_CONVENTION`, so later migrations can address them.
@@ -134,6 +135,20 @@ class AssetRow(Base):
     quote: Mapped[str] = mapped_column(server_default="USDT")
 
 
+class Study(Base):
+    """A comparison of the conditions: experiments that share period, agents, assets and costs
+    (every condition x every seed). `config` is the `StudyCreate` the researcher chose."""
+
+    __tablename__ = "studies"
+    __table_args__ = (CheckConstraint("length(name) BETWEEN 3 AND 80", name="name_length"),)
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"))
+    name: Mapped[str]
+    config: Mapped[dict[str, Any]]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
 class Experiment(Base):
     __tablename__ = "experiments"
     __table_args__ = (
@@ -144,10 +159,14 @@ class Experiment(Base):
         CheckConstraint("end_date IS NULL OR end_date > start_date", name="period_order"),
         Index("experiments_owner_idx", "owner_id"),
         Index("experiments_status_idx", "status"),
+        Index("experiments_study_idx", "study_id"),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"))
+    study_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("studies.id", ondelete="SET NULL")
+    )
     name: Mapped[str]
     mode: Mapped[ExperimentMode] = mapped_column(_enum(ExperimentMode, "experiment_mode"))
     condition: Mapped[Condition] = mapped_column(_enum(Condition, "experiment_condition"))
