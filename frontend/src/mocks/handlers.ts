@@ -310,6 +310,7 @@ function conditionSummaries(exp: Experiment): ConditionSummary[] {
     return {
       condition,
       runs: SEEDS.length,
+      complete: true,
       sharpeMean: mean((x) => x.sharpe),
       sharpeCiLow: sharpes[0]!,
       sharpeCiHigh: sharpes.at(-1)!,
@@ -415,6 +416,9 @@ function studyComparison(study: Study): StudyComparison | null {
       {
         condition,
         runs: rows.length,
+        complete: runs
+          .filter((e) => e.condition === condition)
+          .every((e) => e.status === 'completed'),
         sharpeMean: mean(sharpes),
         sharpeCiLow: Math.min(...sharpes),
         sharpeCiHigh: Math.max(...sharpes),
@@ -436,6 +440,7 @@ function studyComparison(study: Study): StudyComparison | null {
       {
         condition,
         baseline,
+        seeds: diffs.length,
         sharpeDiff: mean(diffs),
         ciLow: Math.min(...diffs),
         ciHigh: Math.max(...diffs),

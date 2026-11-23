@@ -14,9 +14,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 import mindex.services.runner
+import mindex.services.study
 from mindex import cli
 from mindex.config import Settings
 from mindex.db.models import Experiment, ExperimentStatus, Study, User, UserRole
+from mindex.evaluation.bootstrap import bootstrap_sharpe
 from mindex.memory.embedder import HashEmbedder
 from mindex.services.runner import ExperimentRunner, lesson_consistency
 from mindex.services.study import CONDITIONS
@@ -149,10 +151,11 @@ def test_start_queues_seed_by_seed_and_only_for_the_owner(
     assert started.status_code == 200, started.text
     assert started.json()["status"] == "queued"
     assert [str(j) for j in jobs.jobs] == [r["experimentId"] for r in study["runs"]]
-    # Nothing left to start: a second start queues nothing.
+    # Starting again submits the runs still queued once more (after a killed process they
+    # would never run otherwise); the runner's lock and status check make a repeat harmless.
     again = api.post(f"/api/studies/{study['id']}/start", headers=researcher)
     assert again.status_code == 200
-    assert len(jobs.jobs) == 10
+    assert jobs.jobs[10:] == jobs.jobs[:10]
 
 
 # ------------------------------------------------------------------ comparison
@@ -376,3 +379,117 @@ def test_cli_start_stops_at_a_failed_run(
     out = capsys.readouterr().out
     assert "[1/5]" in out
     assert "[2/5]" not in out  # it stopped at the first failure
+
+
+# ------------------------------------------------------------------ review of #58 (Fable)
+
+
+def _llm_sharpe(api: TestClient, headers: dict[str, str], experiment_id: str) -> float:
+    agents = api.get(f"/api/experiments/{experiment_id}/report", headers=headers).json()["agents"]
+    llm = [a["sharpe"] for a in agents if a["agentId"].startswith("llm-")]
+    return sum(llm) / len(llm)
+
+
+def test_differences_pair_only_the_seeds_both_conditions_completed(
+    api: TestClient,
+    researcher: dict[str, str],
+    sessions: Callable[[], Session],
+    settings: Settings,
+    jobs: ListQueue,
+    db_session: Session,
+) -> None:
+    """A partial study: C0 has seeds 1 and 2, C3 only seed 1. C3 - C0 must compare seed 1
+    with seed 1, not C3's one seed with C0's two."""
+    end = (START + timedelta(days=14)).isoformat()
+    study = _create(api, researcher, seeds=[1, 2], endDate=end)
+    api.post(f"/api/studies/{study['id']}/start", headers=researcher)
+    runner = fake_runner(sessions, settings)
+    c0_s1, c3_s1, c0_s2 = jobs.jobs[0], jobs.jobs[4], jobs.jobs[5]
+    for job in (c0_s1, c3_s1, c0_s2):
+        runner(job)
+    db_session.expire_all()
+    comp = api.get(f"/api/studies/{study['id']}/comparison", headers=researcher).json()
+    assert comp["complete"] is False
+    rows = {c["condition"]: c for c in comp["conditions"]}
+    assert (rows["C0"]["runs"], rows["C0"]["complete"]) == (2, True)
+    assert (rows["C3"]["runs"], rows["C3"]["complete"]) == (1, False)
+    # Only pairs with a common completed seed; C1, C1', C2 have none.
+    assert [(d["condition"], d["baseline"], d["seeds"]) for d in comp["differences"]] == [
+        ("C3", "C0", 1)
+    ]
+    paired = _llm_sharpe(api, researcher, str(c3_s1)) - _llm_sharpe(api, researcher, str(c0_s1))
+    assert comp["differences"][0]["sharpeDiff"] == pytest.approx(paired)
+    # The report carries the same per-condition completeness.
+    report = api.get(f"/api/experiments/{c0_s1}/report", headers=researcher).json()
+    assert [c["complete"] for c in report["conditions"]] == [True, False]
+
+
+def test_the_comparison_is_cached_until_a_run_changes(
+    api: TestClient,
+    researcher: dict[str, str],
+    finished_study: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+    real = bootstrap_sharpe
+
+    def counting(*args: Any, **kwargs: Any) -> Any:
+        nonlocal calls
+        calls += 1
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(mindex.services.study, "bootstrap_sharpe", counting)
+    url = f"/api/studies/{finished_study['id']}/comparison"
+    first = api.get(url, headers=researcher).json()
+    after_first = calls
+    assert api.get(url, headers=researcher).json() == first
+    report = f"/api/experiments/{_run(finished_study, 'C0')}/report"
+    assert api.get(report, headers=researcher).json()["conditions"] == first["conditions"]
+    assert calls == after_first  # served from the cache, not resampled again
+
+
+def test_report_of_a_mismatched_study_is_409_not_500(
+    api: TestClient,
+    researcher: dict[str, str],
+    finished_study: dict[str, Any],
+    db_session: Session,
+) -> None:
+    exp = db_session.get(Experiment, uuid.UUID(_run(finished_study, "C2")))
+    assert exp is not None
+    exp.end_date = date(2025, 10, 12)
+    db_session.commit()
+    res = api.get(f"/api/experiments/{_run(finished_study, 'C0')}/report", headers=researcher)
+    assert res.status_code == 409
+    assert "çalışmanınkinden farklı" in res.json()["detail"]
+
+
+def test_cli_start_again_resumes_the_runs_a_failure_left_queued(
+    cli_env: Session,
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """'The same command resumes': after a failure, a second `study start` runs the failed
+    run from its checkpoint and every run the first one left queued."""
+
+    def down(s: Callable[[], Session], _: Settings) -> ExperimentRunner:
+        chat = DownChat(down_from_day=3)
+        return ExperimentRunner(s, settings, lambda exp: chat, HashEmbedder())
+
+    def working(s: Callable[[], Session], _: Settings) -> ExperimentRunner:
+        return fake_runner(s, settings)
+
+    create = ["study", "create", "--owner", "hoca@mindex.dev", "--smoke"]
+    cli.main([*create, "--assets", "BTC", "ETH", "--agents", *AGENTS])
+    study = cli_env.scalar(select(Study))
+    assert study is not None
+    monkeypatch.setattr(mindex.services.runner, "ExperimentRunner", down)
+    with pytest.raises(SystemExit, match="failed"):
+        cli.main(["study", "start", str(study.id)])
+    capsys.readouterr()
+    monkeypatch.setattr(mindex.services.runner, "ExperimentRunner", working)
+    cli.main(["study", "start", str(study.id)])
+    assert "5 deney kuyrukta" in capsys.readouterr().out
+    cli_env.expire_all()
+    statuses = cli_env.scalars(select(Experiment.status).where(Experiment.study_id == study.id))
+    assert set(statuses) == {ExperimentStatus.COMPLETED}

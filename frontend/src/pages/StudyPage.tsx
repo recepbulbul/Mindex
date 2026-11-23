@@ -80,7 +80,10 @@ export default function StudyPage() {
           )}
           <ConditionComparison conditions={comparison.data.conditions} />
           {comparison.data.differences.length > 0 && (
-            <ConditionDifferences differences={comparison.data.differences} />
+            <ConditionDifferences
+              differences={comparison.data.differences}
+              complete={comparison.data.complete}
+            />
           )}
           <p className="text-xs text-muted-foreground">
             {comparison.data.days} günlük getiri, {comparison.data.blockLength} günlük bloklar,{' '}

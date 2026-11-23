@@ -2,6 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { api, ApiError } from '@/api/client'
 import type { Study, StudyComparison, StudyCreate } from '@/api/types'
+import { setMockExperiment } from '@/mocks/handlers'
 import { renderApp, signIn } from '@/test/render'
 
 const BODY: StudyCreate = {
@@ -146,5 +147,32 @@ describe('study screens (#14)', () => {
     const link = await screen.findByRole('link', { name: /Bu deneyin çalışması/ })
     expect(link).toHaveAttribute('href', `/studies/${study.id}`)
     expect(screen.getByText(/Koşul karşılaştırması \(5 koşul, 5 koşu\)/)).toBeInTheDocument()
+  })
+})
+
+describe('an incomplete study gives no verdict (#58 review)', () => {
+  it('pairs only common seeds and shows "eksik" instead of a verdict', async () => {
+    signIn('researcher')
+    const study = await api.post<Study>('/studies', BODY) // seeds 1 and 2
+    await api.post(`/studies/${study.id}/start`)
+    const c3Seed2 = study.runs.find((r) => r.condition === 'C3' && r.seed === 2)!
+    setMockExperiment(c3Seed2.experimentId, { status: 'failed' })
+
+    const comparison = await api.get<StudyComparison>(`/studies/${study.id}/comparison`)
+    expect(comparison.complete).toBe(false)
+    const c3 = comparison.conditions.find((c) => c.condition === 'C3')!
+    expect([c3.runs, c3.complete]).toEqual([1, false])
+    const c3c0 = comparison.differences.find((d) => d.condition === 'C3' && d.baseline === 'C0')!
+    expect(c3c0.seeds).toBe(1) // seed 1 only: C0's seed 2 has no C3 partner
+    expect(comparison.differences.find((d) => d.condition === 'C1')!.seeds).toBe(2)
+
+    renderApp(`/studies/${study.id}`)
+    const diffs = (await screen.findByText('Koşul farkları')).closest('section')!
+    const rows = within(diffs).getAllByRole('row').slice(1)
+    expect(rows.every((r) => r.textContent?.endsWith('eksik'))).toBe(true)
+    const table = screen.getByText(/Koşul karşılaştırması/).closest('section')!
+    const c3Row = within(table).getByText('C3 · Güven ağırlıklı forum').closest('tr')!
+    expect(c3Row).toHaveTextContent('(eksik)')
+    expect(within(c3Row).getAllByText('eksik').length).toBeGreaterThan(0) // vs C0
   })
 })

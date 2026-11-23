@@ -328,6 +328,7 @@ class AgentMetrics(ApiModel):
 class ConditionSummary(ApiModel):
     condition: Condition
     runs: int  # completed runs (seeds) the row is computed from
+    complete: bool  # every run of this condition in the study has completed
     sharpe_mean: float
     sharpe_ci_low: float
     sharpe_ci_high: float
@@ -469,8 +470,11 @@ class StudyOut(ApiModel):
 
 
 class ConditionDifference(ApiModel):
+    """Over the seeds both conditions completed (`seeds`); never mixes unpaired runs."""
+
     condition: Condition
     baseline: Condition
+    seeds: int
     sharpe_diff: float
     ci_low: float
     ci_high: float

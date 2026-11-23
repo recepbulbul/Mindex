@@ -8,8 +8,9 @@ float precision, as the report does) and their recorded post-mortem checks.
 
 import json
 import uuid
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import timedelta
 from statistics import fmean
 from typing import cast
@@ -46,7 +47,7 @@ from mindex.db.models import (
     Study,
 )
 from mindex.domain.metrics import herd_correlation
-from mindex.evaluation.bootstrap import bootstrap_sharpe
+from mindex.evaluation.bootstrap import RESAMPLES, bootstrap_sharpe
 from mindex.evaluation.report import daily_returns, differences, summarise
 from mindex.services.runner import (
     STARTABLE,
@@ -56,6 +57,9 @@ from mindex.services.runner import (
 )
 from mindex.sim.engine import SimState
 
+# Draft or failed runs are (re)queued; queued or running ones a stopped command left behind
+# are run again from their checkpoint.
+RESUMABLE = (*STARTABLE, ExperimentStatus.QUEUED, ExperimentStatus.RUNNING)
 CONDITIONS = tuple(Condition)  # C0, C1, C1_NO_REGIME, C2, C3: each run of a seed, in order
 # Each ablation step on its own, and the whole: memory, regime bonus, forum, trust, all.
 PAIRS: tuple[tuple[Condition, Condition], ...] = (
@@ -196,16 +200,20 @@ def study_out(session: Session, study: Study) -> StudyOut:
 
 def queue_study(session: Session, settings: Settings, study: Study) -> list[uuid.UUID]:
     """Mark every draft or failed run `queued` (failed ones resume from their checkpoint) and
-    return them in run order; the caller submits them to a queue or runs them. Refused as a
+    return them, with the runs already queued or running, in run order: a command that stopped
+    (a failed run, a killed process) leaves those behind, and starting again picks them up.
+    Running one twice is harmless: the runner's advisory lock lets one worker run it and a
+    finished run is not rerun. The caller submits them to a queue or runs them. Refused as a
     whole (422) when the runner cannot run one of them."""
-    runs = [e for e in study_runs(session, study) if e.status in STARTABLE]
+    runs = [e for e in study_runs(session, study) if e.status in RESUMABLE]
     for exp in runs:
         errors = runnable_errors(exp, [ea.agent for ea in agent_rows(exp)], settings)
         if errors:
             raise invalid(errors, NOT_RUNNABLE)
     for exp in runs:
-        exp.status = ExperimentStatus.QUEUED
-        exp.config = user_config_with_runner_keys(exp)
+        if exp.status in STARTABLE:
+            exp.status = ExperimentStatus.QUEUED
+            exp.config = user_config_with_runner_keys(exp)
     session.commit()
     return [e.id for e in runs]
 
@@ -228,20 +236,74 @@ def _summary_inputs(exp: Experiment) -> tuple[list[list[float]], list[tuple[floa
     return series, risk, herd
 
 
+@dataclass(frozen=True, slots=True)
+class _Run:
+    """One completed run's inputs to the comparison."""
+
+    condition: Condition
+    seed: int
+    series: list[list[float]]  # daily returns per LLM agent
+    risk: list[tuple[float, float]]  # (max drawdown, total return) per LLM agent
+    herd: float
+    checks: tuple[int, int]  # (valid, consistent) post-mortem attempts
+
+
+# Bootstrapping 2000 resamples per request is the slow part: results are kept per study and
+# per state of its runs (any status, checkpoint or configuration change gives a new key).
+_CACHE: OrderedDict[tuple[object, ...], StudyComparisonOut] = OrderedDict()
+CACHE_SIZE = 32
+
+
+def _signature(
+    study: Study, runs: Sequence[Experiment], resamples: int | None
+) -> tuple[object, ...]:
+    return (
+        study.id,
+        resamples,
+        tuple(
+            (
+                e.id,
+                e.status,
+                e.last_checkpoint_day,
+                e.start_date,
+                e.end_date,
+                tuple(e.assets),
+                tuple(agent_ids(e)),
+                lesson_consistency(e.config),
+            )
+            for e in runs
+        ),
+    )
+
+
 def compare(
     session: Session, study: Study, *, resamples: int | None = None
 ) -> StudyComparisonOut | None:
-    """The condition table over the completed runs; None before any run has completed."""
+    """The condition table over the completed runs; None before any run has completed.
+
+    Each difference uses only the seeds both conditions completed, so a partial study never
+    compares C3's k seeds with C0's k + 1. Cached per state of the study's runs."""
     runs = study_runs(session, study)
+    key = _signature(study, runs, resamples)
+    if key in _CACHE:
+        _CACHE.move_to_end(key)
+        return _CACHE[key]
+    result = _compare(study, runs, resamples)
+    if result is not None:
+        _CACHE[key] = result
+        while len(_CACHE) > CACHE_SIZE:
+            _CACHE.popitem(last=False)
+    return result
+
+
+def _compare(
+    study: Study, runs: Sequence[Experiment], resamples: int | None
+) -> StudyComparisonOut | None:
     done = [e for e in runs if e.status is ExperimentStatus.COMPLETED and e.checkpoint is not None]
     if not done:
         return None
-    series: dict[Condition, list[list[float]]] = defaultdict(list)
-    risk: dict[Condition, list[tuple[float, float]]] = defaultdict(list)
-    herds: dict[Condition, list[float]] = defaultdict(list)
-    checks: dict[Condition, list[tuple[int, int]]] = defaultdict(list)
-    count: dict[Condition, int] = defaultdict(int)
     cfg = StudyCreate.model_validate(study.config)
+    by_condition: dict[Condition, list[_Run]] = defaultdict(list)
     for exp in done:
         if (exp.start_date, exp.end_date, exp.assets, agent_ids(exp)) != (
             cfg.start_date,
@@ -253,37 +315,62 @@ def compare(
                 f"{exp.id}: dönem, varlık ya da ajanlar çalışmanınkinden farklı"
             )
         s, r, h = _summary_inputs(exp)
-        series[exp.condition] += s
-        risk[exp.condition] += r
-        herds[exp.condition].append(h)
-        checks[exp.condition].append(lesson_consistency(exp.config))
-        count[exp.condition] += 1
-    groups = {str(c): rows for c, rows in series.items()}
-    boot = bootstrap_sharpe(
-        groups,
-        [(str(a), str(b)) for a, b in PAIRS],
-        **({} if resamples is None else {"resamples": resamples}),
-    )
+        by_condition[exp.condition].append(
+            _Run(exp.condition, exp.seed, s, r, h, lesson_consistency(exp.config))
+        )
+    n = RESAMPLES if resamples is None else resamples
+
+    def series(rows: Sequence[_Run]) -> list[list[float]]:
+        return [x for run in rows for x in run.series]
+
+    boot = bootstrap_sharpe({str(c): series(rows) for c, rows in by_condition.items()}, resamples=n)
     conditions: list[ConditionSummary] = []
     for c in CONDITIONS:
-        if c not in series:
+        rows = by_condition.get(c)
+        if not rows:
             continue
         est = boot.sharpe[str(c)]
-        valid = sum(v for v, _ in checks[c])
-        consistent = sum(k for _, k in checks[c])
+        valid = sum(r.checks[0] for r in rows)
+        consistent = sum(r.checks[1] for r in rows)
         conditions.append(
             ConditionSummary(
                 condition=c,
-                runs=count[c],
+                runs=len(rows),
+                complete=all(
+                    e.status is ExperimentStatus.COMPLETED for e in runs if e.condition is c
+                ),
                 sharpe_mean=est.value,
                 sharpe_ci_low=est.ci_low,
                 sharpe_ci_high=est.ci_high,
-                max_drawdown=fmean(m for m, _ in risk[c]),
-                total_return=fmean(t for _, t in risk[c]),
-                herd_correlation=fmean(herds[c]),
+                max_drawdown=fmean(m for r in rows for m, _ in r.risk),
+                total_return=fmean(t for r in rows for _, t in r.risk),
+                herd_correlation=fmean(r.herd for r in rows),
                 lesson_consistency=(
                     None if c is Condition.C0 or valid == 0 else consistent / valid
                 ),
+            )
+        )
+    differences: list[ConditionDifference] = []
+    for a, b in PAIRS:
+        seeds = {r.seed for r in by_condition.get(a, [])} & {
+            r.seed for r in by_condition.get(b, [])
+        }
+        if not seeds:
+            continue
+        paired = bootstrap_sharpe(
+            {str(c): series([r for r in by_condition[c] if r.seed in seeds]) for c in (a, b)},
+            [(str(a), str(b))],
+            resamples=n,
+        )
+        d = paired.differences[(str(a), str(b))]
+        differences.append(
+            ConditionDifference(
+                condition=a,
+                baseline=b,
+                seeds=len(seeds),
+                sharpe_diff=d.value,
+                ci_low=d.ci_low,
+                ci_high=d.ci_high,
             )
         )
     return StudyComparisonOut(
@@ -293,16 +380,7 @@ def compare(
         block_length=boot.block,
         resamples=boot.resamples,
         conditions=conditions,
-        differences=[
-            ConditionDifference(
-                condition=Condition(a),
-                baseline=Condition(b),
-                sharpe_diff=d.value,
-                ci_low=d.ci_low,
-                ci_high=d.ci_high,
-            )
-            for (a, b), d in boot.differences.items()
-        ],
+        differences=differences,
     )
 
 

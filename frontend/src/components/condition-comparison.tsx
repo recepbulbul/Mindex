@@ -5,7 +5,7 @@ import { cn, formatNum, formatPct } from '@/lib/utils'
 
 const CI_NOTE = USING_MOCKS
   ? 'Prototipte aralık = seed min–maks; gerçek sunucuda blok bootstrap %95 GA.'
-  : 'Aralık: günler üzerinde dairesel blok bootstrap %95 GA.'
+  : 'Aralık: günler üzerinde dairesel blok bootstrap %95 GA; günlerin değişkenliğini gösterir, seed’ler arası değişkenliği değil.'
 
 /** Mean Sharpe of LLM agents per condition with its interval, plus the other study metrics. */
 export function ConditionComparison({
@@ -42,12 +42,17 @@ export function ConditionComparison({
         </thead>
         <tbody>
           {conditions.map((c) => {
-            // A ratio to a negative or zero C0 Sharpe has no meaning (the differences table has it).
-            const vsC0 = c0 && c0.sharpeMean > 0 ? c.sharpeMean / c0.sharpeMean - 1 : null
+            // Only between complete conditions (the same seeds on both sides); a ratio to a
+            // negative or zero C0 Sharpe has no meaning (the differences table has it).
+            const paired = c.complete && c0?.complete === true
+            const vsC0 = paired && c0 && c0.sharpeMean > 0 ? c.sharpeMean / c0.sharpeMean - 1 : null
             return (
               <tr key={c.condition}>
                 <td className="whitespace-nowrap">{CONDITION_LABELS[c.condition]}</td>
-                <td className="text-right num">{c.runs}</td>
+                <td className="text-right num">
+                  {c.runs}
+                  {!c.complete && <span className="text-muted-foreground"> (eksik)</span>}
+                </td>
                 <td>
                   <div className="flex items-center gap-2">
                     <div
@@ -73,7 +78,13 @@ export function ConditionComparison({
                 <td
                   className={cn('text-right num', vsC0 !== null && vsC0 >= 0.15 ? 'text-up' : '')}
                 >
-                  {c.condition === 'C0' || vsC0 === null ? '—' : formatPct(vsC0)}
+                  {c.condition === 'C0'
+                    ? '—'
+                    : !paired
+                      ? 'eksik'
+                      : vsC0 === null
+                        ? '—'
+                        : formatPct(vsC0)}
                 </td>
                 <td className="text-right num">{formatPct(-c.maxDrawdown)}</td>
                 <td className="text-right num">{formatPct(c.totalReturn)}</td>
@@ -102,18 +113,26 @@ const STEP: Record<string, string> = {
 }
 
 /** Paired differences of the mean Sharpe; an interval that excludes 0 is called out. */
-export function ConditionDifferences({ differences }: { differences: ConditionDifference[] }) {
+/** Paired differences; while the study is incomplete no verdict is given ("eksik"). */
+export function ConditionDifferences({
+  differences,
+  complete,
+}: {
+  differences: ConditionDifference[]
+  complete: boolean
+}) {
   return (
     <Card>
       <CardHeader
         title="Koşul farkları"
-        description="Sharpe farkı ve %95 GA; iki koşul aynı yeniden örneklenmiş günlerde karşılaştırılır. Aralık 0'ı içermiyorsa fark anlamlı sayılır."
+        description="Sharpe farkı ve %95 GA, yalnızca iki koşulun da tamamladığı ortak seed'ler üzerinden; iki koşul aynı yeniden örneklenmiş günlerde karşılaştırılır. Aralık 0'ı içermiyorsa fark anlamlı sayılır; çalışma tamamlanmadan hüküm verilmez."
       />
       <Table>
         <thead>
           <tr>
             <th>Fark</th>
             <th>Ölçtüğü</th>
+            <th className="text-right">Ortak seed</th>
             <th className="text-right">ΔSharpe</th>
             <th className="text-right">%95 GA</th>
             <th className="text-right">Sonuç</th>
@@ -121,7 +140,7 @@ export function ConditionDifferences({ differences }: { differences: ConditionDi
         </thead>
         <tbody>
           {differences.map((d) => {
-            const significant = d.ciLow > 0 || d.ciHigh < 0
+            const significant = complete && (d.ciLow > 0 || d.ciHigh < 0)
             return (
               <tr key={`${d.condition}-${d.baseline}`}>
                 <td className="whitespace-nowrap">
@@ -131,6 +150,7 @@ export function ConditionDifferences({ differences }: { differences: ConditionDi
                 <td className="text-muted-foreground">
                   {STEP[`${d.condition}-${d.baseline}`] ?? ''}
                 </td>
+                <td className="text-right num">{d.seeds}</td>
                 <td
                   className={cn(
                     'text-right num',
@@ -143,7 +163,9 @@ export function ConditionDifferences({ differences }: { differences: ConditionDi
                 <td className="text-right num whitespace-nowrap">
                   [{formatNum(d.ciLow)}, {formatNum(d.ciHigh)}]
                 </td>
-                <td className="text-right">{significant ? 'anlamlı' : 'belirsiz'}</td>
+                <td className="text-right">
+                  {!complete ? 'eksik' : significant ? 'anlamlı' : 'belirsiz'}
+                </td>
               </tr>
             )
           })}

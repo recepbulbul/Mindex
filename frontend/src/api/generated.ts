@@ -54,6 +54,7 @@ export type Condition = 'C0' | 'C1' | 'C1_NO_REGIME' | 'C2' | 'C3'
 export interface ConditionDifference {
   condition: Condition
   baseline: Condition
+  seeds: number
   sharpeDiff: number
   ciLow: number
   ciHigh: number
@@ -62,6 +63,7 @@ export interface ConditionDifference {
 export interface ConditionSummary {
   condition: Condition
   runs: number
+  complete: boolean
   sharpeMean: number
   sharpeCiLow: number
   sharpeCiHigh: number

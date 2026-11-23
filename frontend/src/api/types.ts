@@ -262,6 +262,7 @@ export interface AgentMetrics {
 export interface ConditionSummary {
   condition: Condition
   runs: number
+  complete: boolean // every run of this condition in the study has completed
   sharpeMean: number
   sharpeCiLow: number
   sharpeCiHigh: number
@@ -335,9 +336,12 @@ export interface Study extends StudyCreate {
 
 // Difference of the mean Sharpe of LLM agents, `condition` − `baseline`, with its block-
 // bootstrap 95% CI (the same resampled days for both conditions).
+// Computed only over the seeds both conditions have completed (`seeds` of them); a pair
+// without a common completed seed is left out.
 export interface ConditionDifference {
   condition: Condition
   baseline: Condition
+  seeds: number
   sharpeDiff: number
   ciLow: number
   ciHigh: number
@@ -350,5 +354,5 @@ export interface StudyComparison {
   blockLength: number // circular block bootstrap: block length in days ...
   resamples: number // ... and number of resamples (seeded, so the CI is reproducible)
   conditions: ConditionSummary[] // conditions with at least one completed run
-  differences: ConditionDifference[] // C1−C0, C1−C1′, C2−C1, C3−C2, C3−C0 when both exist
+  differences: ConditionDifference[] // C1−C0, C1−C1′, C2−C1, C3−C2, C3−C0 with a common seed
 }

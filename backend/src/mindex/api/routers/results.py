@@ -74,7 +74,7 @@ from mindex.services.runner import (
     experiment_market,
     load_market,
 )
-from mindex.services.study import compare
+from mindex.services.study import StudyMismatchError, compare
 from mindex.sim.engine import AgentBook, ExecutionCosts, SimState, Simulator
 from mindex.sim.market import MarketData
 
@@ -382,7 +382,10 @@ def _study_conditions(session: SessionDep, exp: Experiment) -> list[ConditionSum
     if exp.study_id is None:
         return []
     study = session.get(Study, exp.study_id)
-    result = None if study is None else compare(session, study)
+    try:
+        result = None if study is None else compare(session, study)
+    except StudyMismatchError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from None
     return [] if result is None else result.conditions
 
 
