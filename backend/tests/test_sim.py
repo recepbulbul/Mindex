@@ -204,3 +204,34 @@ def test_rebalance_never_emits_zero_quantity_fills() -> None:
     assert fills == []
     assert after == portfolio
     assert all(f.quantity > 0 for f in fills)
+
+
+def test_rebalance_skips_buys_scaled_down_to_dust() -> None:
+    """Same shape as above but with float residue left in cash (#61): the buy passes the 0.1 %
+    threshold before scaling, then cash scales it to ~1e-13 units, which `trades.quantity`
+    (numeric(28, 10)) rounds to 0. A buy must clear the threshold after scaling too."""
+    prices = {Asset.BTC: 100_000.0, Asset.ETH: 4_000.0, Asset.SOL: 200.0, Asset.XRP: 1.9053522}
+    third = 1 / 3
+    portfolio = Portfolio(
+        3.4e-13, {Asset.BTC: third * 0.1, Asset.ETH: third * 2.5, Asset.SOL: third * 50}
+    )
+    targets = {
+        Asset.BTC: third - 0.0009,
+        Asset.ETH: third - 0.0009,
+        Asset.SOL: third - 0.0009,
+        Asset.XRP: 0.0027,
+    }
+    after, fills = rebalance(portfolio, targets, prices, ExecutionCosts(), date(2025, 12, 23))
+    assert fills == []
+    assert after == portfolio
+
+
+def test_rebalance_keeps_buys_scaled_down_by_costs() -> None:
+    """All cash, one full-size buy: fees and slippage scale it down a little, far above the
+    threshold, so it still fills."""
+    prices = {Asset.BTC: 100.0}
+    after, fills = rebalance(
+        Portfolio(1000.0), {Asset.BTC: 1.0}, prices, ExecutionCosts(), date(2025, 1, 2)
+    )
+    assert [f.side for f in fills] == [Side.BUY]
+    assert after.cash == pytest.approx(0.0, abs=1e-9)
