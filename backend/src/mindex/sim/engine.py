@@ -105,9 +105,11 @@ def rebalance(
     scale = min(1.0, cash / needed) if needed > 0 else 0.0
     for asset, delta in buys.items():
         price = prices[asset] * unit_cost
-        qty = delta * scale / prices[asset]
-        if qty <= 0:  # no cash at all (sells below the threshold): nothing to fill
+        # Little or no cash (sells below the threshold): a buy scaled under the threshold is
+        # not filled either. Float residue in cash would otherwise buy ~1e-13 units (#61).
+        if delta * scale <= min_trade:
             continue
+        qty = delta * scale / prices[asset]
         fee = qty * price * costs.commission_rate
         cash -= qty * price + fee
         holdings[asset] = holdings.get(asset, 0.0) + qty
