@@ -27,6 +27,21 @@ DB gerektiren testler (`@pytest.mark.db`) veritabanı yoksa atlanır; bu durumda
 | Frontend lint/biçim | `npm run lint` (oxlint + Prettier) |
 | Frontend tip | `npm run typecheck` |
 | Frontend test | `npm test` (Vitest + Testing Library + MSW) |
+| Frontend uçtan uca | `npm run e2e` (Playwright, Chromium) |
+
+### Uçtan uca testler (Playwright)
+
+Testler `frontend/e2e/` altındadır ve MSW sahte API'sine karşı koşar: backend, veritabanı ya da LLM gerekmez. Playwright, Vite geliştirme sunucusunu sahte modda 5183 portunda kendisi başlatır (5173'teki `npm run dev` etkilenmez).
+
+```bash
+cd frontend
+npx playwright install chromium   # bir kez: tarayıcıyı indirir
+npm run e2e                       # tüm senaryolar
+npx playwright test e2e/auth.spec.ts --headed   # tek dosya, tarayıcı görünür
+npx playwright test --ui          # etkileşimli kip
+```
+
+Kapsanan akışlar: giriş/çıkış ve rol denetimi, deney listesi ve canlı borsa, forum ve hafıza tarayıcı, rapor ve CSV dışa aktarımı, çalışmalar ve koşul karşılaştırması. Sahte veri sekmede tutulur; tam sayfa yüklemesi (`page.goto`) veriyi başlangıç durumuna döndürür. CI'daki `Frontend E2E (Playwright)` işi aynı komutu koşar ve başarısızlıkta raporu (`playwright-report`) artifact olarak yükler.
 
 ## Claude Code kurulumu (bir kez)
 
