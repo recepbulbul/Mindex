@@ -27,6 +27,7 @@ from mindex.db.models import (
     User,
     UserRole,
 )
+from mindex.domain.forum import FILTER_VERSION
 from mindex.evaluation.bootstrap import bootstrap_sharpe
 from mindex.memory.embedder import HashEmbedder
 from mindex.services.runner import ExperimentRunner, lesson_consistency
@@ -531,6 +532,26 @@ def test_mean_forum_weight_per_condition(
     assert rows["C3"]["meanForumWeight"] == pytest.approx(
         float(sum(weights)) / len(weights), abs=1e-6
     )
+
+
+def test_forum_filter_version_per_condition(
+    api: TestClient, viewer: dict[str, str], finished_study: dict[str, Any], db_session: Session
+) -> None:
+    """#57: the comparison names the filter each forum run's posts were screened with, so runs
+    screened by different versions are not compared unnoticed."""
+    url = f"/api/studies/{finished_study['id']}/comparison"
+    rows = {c["condition"]: c for c in api.get(url, headers=viewer).json()["conditions"]}
+    for c in ("C0", "C1", "C1_NO_REGIME"):
+        assert rows[c]["forumFilters"] == []  # no forum
+    assert rows["C2"]["forumFilters"] == rows["C3"]["forumFilters"] == [FILTER_VERSION]
+    # A run screened by an older filter shows as such (and is not served from the cache).
+    c2 = db_session.get(Experiment, uuid.UUID(_run(finished_study, "C2")))
+    assert c2 is not None
+    c2.config = {**c2.config, "forum": {**c2.config["forum"], "filter": "forum-filter-v2"}}
+    db_session.commit()
+    rows = {c["condition"]: c for c in api.get(url, headers=viewer).json()["conditions"]}
+    assert rows["C2"]["forumFilters"] == ["forum-filter-v2"]
+    assert rows["C3"]["forumFilters"] == [FILTER_VERSION]
 
 
 def test_herd_correlation_is_null_below_two_llm_agents(

@@ -4,8 +4,9 @@ Pure functions; the runner binds them to the database (`mindex.forum.store`).
 
 - `sanitise`: what a post may say. Unicode is normalised (NFKC), control and format characters
   are dropped, whitespace collapses, `<` and `>` go (so a post cannot forge the
-  `<forum_post>` delimiters), real coin names become the experiment's `ASSET_x` codes and the
-  text is cut to `POST_MAX_CHARS`.
+  `<forum_post>` delimiters), absolute prices become `[fiyat]` (`PRICES`), real coin names
+  become the experiment's `ASSET_x` codes (`REAL_NAMES`) and the text is cut to
+  `POST_MAX_CHARS`.
 - `injection_flags`: a simple pattern filter, run on the text as written and as it would be
   stored (`screen`); a flagged post is stored (`flagged`) but never shown to another agent. A
   post that is empty once cleaned is dropped.
@@ -35,7 +36,9 @@ HORIZON_DAYS = 5  # advice is judged on the close five days after it was posted
 WINDOW_DAYS = 3  # a decision reads posts of the previous three days ...
 MAX_READS = 8  # ... at most this many, newest first
 POST_MAX_CHARS = 280
-FILTER_VERSION = "forum-filter-v2"
+# Covers everything `screen` does to a post (patterns and anonymisation). v3: Turkish patterns
+# typed without Turkish letters, "Sol" / "s o l" / "B.T.C" as names, absolute prices masked.
+FILTER_VERSION = "forum-filter-v3"
 EQUAL_WEIGHT = Fraction(1, 2)  # C2: every sender alike (the Beta prior's 0.5)
 # Reads happen before the advice is judged, so every reader of a post is known at its verdict.
 assert WINDOW_DAYS < HORIZON_DAYS  # noqa: S101
@@ -68,13 +71,34 @@ _NAMES: tuple[tuple[str, Asset], ...] = (
 )
 _QUOTES = "usdt|usdc|busd|usd|try|eur|btc|eth"
 _TICKERS = "|".join(a.value.lower() for a in Asset if a is not Asset.SOL)
+# "sol" is also Turkish for "left". Unlike the lesson check, which rejects a whole lesson, a
+# wrong guess here only swaps one word, while a missed name tells the reader which coin
+# `ASSET_x` is. So the word on its own ("Sol güçlü", "sol'a girdim") is the coin, except
+# before a direction noun ("sol taraf", "sol üst köşe", "sol omuz") or after "sağ ve".
+# Suffixed forms without an apostrophe ("solda", "sola", "soldan") are the direction, as a
+# coin's suffix takes one; all capitals ("SOLDA") is the coin.
+_LEFT = r"taraf|omuz|köşe|kenar|eksen|(?:üst|alt|yan)(?:t[ae]|d[ae])?(?:n|ki)?\b|el\b"
+_GAP = r"[\s._-]+"  # between the letters of a spelled-out ticker: "B T C", "b.t.c", "e-t-h"
+_SPELLED = "|".join(_GAP.join(a.value.lower()) for a in Asset)
 REAL_NAMES = re.compile(
     rf"\b(?:(?i:{_TICKERS})\w*"
     rf"|SOL\w*|(?i:sol)[/_-]?(?i:{_QUOTES})\b"
+    rf"|(?<!(?i:sağ ve ))(?i:sol)(?!\w)(?!\s(?i:{_LEFT}))"
     r"|(?i:bitcoin|ether|solana|ripple|binance)\w*"
-    r"|(?i:b\s+t\s+c|e\s+t\s+h|x\s+r\s+p|b\s+n\s+b)\b)"  # spelled out: "B T C"
+    rf"|(?i:{_SPELLED})\b)"
     "|\u20bf"  # the bitcoin sign
 )
+# A price level identifies the asset and the period as a name does ("65000 dolar"). Masked:
+# an amount with a currency ("$65,000", "65 bin dolar", "0.52 USDT") and any bare number of
+# four or more digits ("65000", "97.500"; the prompt's own data has none: percentages,
+# indices and day counts are shorter). Percentages ("%1500") and decimals ("0.125") stay.
+_NUM = r"\d+(?:[.,]\d+)*(?:\s?(?i:k|bin|milyon|milyar)\b)?"
+_CURRENCY = r"(?:[$€₺]|(?i:dolar\w*|lira\w*|usdt?\b|usdc\b|tl\b|euro?\b))"
+PRICES = re.compile(
+    rf"(?<![%\w.,])(?:[$€₺]\s?{_NUM}|{_NUM}\s?{_CURRENCY}"
+    r"|(?:[1-9]\d{0,2}(?:[.,]\d{3})+|\d{4,})(?:[.,]\d+)?(?!\d|\s?%))"
+)
+PRICE_MASK = "[fiyat]"
 UNKNOWN_ASSET = "ASSET_?"  # a real coin outside the experiment has no code
 
 _INJECTION: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
@@ -87,14 +111,15 @@ _INJECTION: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
         ),
         (
             "override-tr",
-            r"(önceki|yukarıdaki|tüm|bütün)\s.{0,30}"
-            r"(talimat|kural|komut|yönerge)\w*.{0,30}(yok\s*say|unut|görmezden|uyma)",
+            r"([öo]nceki|yukar[ıi]daki|t[üu]m|b[üu]t[üu]n)\s.{0,30}"
+            r"(talimat|kural|komut|y[öo]nerge)\w*.{0,30}(yok\s*say|unut|g[öo]rmezden|uyma)",
         ),
         (
             "override-tr2",
-            r"(talimat|kural|yönerge)\w*\s.{0,20}(yok\s*say|unut|görmezden gel|boş\s*ver)",
+            r"(talimat|kural|y[öo]nerge)\w*\s.{0,20}"
+            r"(yok\s*say|unut|g[öo]rmezden gel|bo[şs]\s*ver)",
         ),
-        ("new-rule-tr", r"\byeni\s+(kural|talimat|yönerge|görev)\w*\s*:"),
+        ("new-rule-tr", r"\byeni\s+(kural|talimat|y[öo]nerge|g[öo]rev)\w*\s*:"),
         (
             "system",
             r"\b(system|developer)\s*(prompt|message|instruction)|sistem\s*(talimat|mesaj|prompt|komut)",
@@ -136,7 +161,7 @@ def injection_flags(text: str) -> list[str]:
 def _asset_named(word: str) -> Asset | None:
     if word == "\u20bf":
         return Asset.BTC
-    low = "".join(word.lower().split())  # "B T C" -> "btc"
+    low = re.sub(_GAP, "", word.lower())  # "B T C" -> "btc"
     return next((asset for name, asset in _NAMES if low.startswith(name)), None)
 
 
@@ -153,7 +178,7 @@ def anonymise_names(text: str, codes: Mapping[Asset, str]) -> str:
 def sanitise(text: str, codes: Mapping[Asset, str]) -> str:
     """The stored (and shown) form of a post: plain, anonymised and at most POST_MAX_CHARS."""
     plain = _plain(text).replace("<", "").replace(">", "")
-    return anonymise_names(plain, codes)[:POST_MAX_CHARS].strip()
+    return anonymise_names(PRICES.sub(PRICE_MASK, plain), codes)[:POST_MAX_CHARS].strip()
 
 
 @dataclass(frozen=True, slots=True)

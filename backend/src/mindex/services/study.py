@@ -54,6 +54,7 @@ from mindex.evaluation.bootstrap import RESAMPLES, bootstrap_sharpe
 from mindex.evaluation.report import daily_returns, differences, summarise
 from mindex.services.runner import (
     ACTIVE,
+    FORUM_SETTINGS,
     STARTABLE,
     agent_rows,
     lesson_consistency,
@@ -267,6 +268,7 @@ class _Run:
     herd: float | None  # None below two LLM agents
     checks: tuple[int, int]  # (valid, consistent) post-mortem attempts
     forum_weight: float | None  # mean sender weight w the run's decisions read (None: no reads)
+    forum_filter: str | None  # the filter version its posts were screened with (None: no forum)
 
 
 # Bootstrapping 2000 resamples per request is the slow part: results are kept per study and
@@ -291,6 +293,7 @@ def _signature(
                 tuple(e.assets),
                 tuple(agent_ids(e)),
                 lesson_consistency(e.config),
+                _forum_filter(e),
             )
             for e in runs
         ),
@@ -315,6 +318,12 @@ def compare(
         while len(_CACHE) > CACHE_SIZE:
             _CACHE.popitem(last=False)
     return result
+
+
+def _forum_filter(exp: Experiment) -> str | None:
+    """The filter version a forum run recorded when it started (`forum_provenance`)."""
+    forum = cast(dict[str, str] | None, exp.config.get(FORUM_SETTINGS))
+    return None if forum is None else forum["filter"]
 
 
 def _forum_weights(session: Session, runs: Sequence[Experiment]) -> dict[uuid.UUID, float]:
@@ -360,6 +369,7 @@ def _compare(
                 h,
                 lesson_consistency(exp.config),
                 forum_weights.get(exp.id),
+                _forum_filter(exp),
             )
         )
     n = RESAMPLES if resamples is None else resamples
@@ -396,6 +406,7 @@ def _compare(
                     None if c is Condition.C0 or valid == 0 else consistent / valid
                 ),
                 mean_forum_weight=fmean(read) if read else None,
+                forum_filters=sorted({r.forum_filter for r in rows if r.forum_filter is not None}),
             )
         )
     differences: list[ConditionDifference] = []

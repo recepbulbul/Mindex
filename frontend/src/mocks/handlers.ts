@@ -320,6 +320,7 @@ function conditionSummaries(exp: Experiment): ConditionSummary[] {
       herdCorrelation: perSeed.every((x) => x.herd === null) ? null : mean((x) => x.herd ?? 0),
       lessonConsistency: condition === 'C0' ? null : 0.9 + (mean((x) => x.lessons) % 7) / 100,
       meanForumWeight: mockForumWeight(condition),
+      forumFilters: mockForumFilters(condition),
     }
   })
 }
@@ -358,6 +359,8 @@ function studyRuns(study: Study): Experiment[] {
 
 // C2 reads everyone at 1/2; the mock's C3 at a typical learned level.
 const mockForumWeight = (c: Condition) => (c === 'C2' ? 0.5 : c === 'C3' ? 0.56 : null)
+// The backend's domain/forum.py FILTER_VERSION, recorded per forum run.
+const mockForumFilters = (c: Condition) => (c === 'C2' || c === 'C3' ? ['forum-filter-v3'] : [])
 
 function studyStatus(runs: Experiment[]): ExperimentStatus {
   const s = new Set(runs.map((e) => e.status))
@@ -434,6 +437,7 @@ function studyComparison(study: Study): StudyComparison | null {
           : mean(rows.flatMap((r) => (r.herd === null ? [] : [r.herd]))),
         lessonConsistency: condition === 'C0' ? null : 0.92,
         meanForumWeight: mockForumWeight(condition),
+        forumFilters: mockForumFilters(condition),
       },
     ]
   })

@@ -20,6 +20,7 @@ export function ConditionComparison({
   const lo = Math.min(0, ...conditions.map((c) => c.sharpeCiLow))
   const hi = Math.max(...conditions.map((c) => c.sharpeCiHigh))
   const pos = (v: number) => `${((v - lo) / (hi - lo || 1)) * 100}%`
+  const filters = [...new Set(conditions.flatMap((c) => c.forumFilters))].sort()
 
   return (
     <Card className={className}>
@@ -110,6 +111,13 @@ export function ConditionComparison({
       </Table>
       <p className="mt-3 border-t pt-3 text-xs text-muted-foreground">
         Nicel hedef: C3 Sharpe ortalamasında C0'a göre ≥ %15 iyileşme.
+        {filters.length > 0 && (
+          <span title="Forum gönderilerinin süzüldüğü güvenilmeyen metin filtresinin sürümü">
+            {' '}
+            Forum filtresi: {filters.join(', ')}
+            {filters.length > 1 && ' (koşular farklı sürümlerle süzülmüş)'}.
+          </span>
+        )}
       </p>
     </Card>
   )

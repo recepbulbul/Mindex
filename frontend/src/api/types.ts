@@ -276,6 +276,10 @@ export interface ConditionSummary {
   // without a forum (C0, C1, C1′). C2 is always 0.5; C3's level shows how much of C3 − C2 is
   // the forum's overall weight rather than telling senders apart.
   meanForumWeight: number | null
+  // Versions of the untrusted-text filter the runs' posts were screened with
+  // (`config.forum.filter`, e.g. "forum-filter-v3"), sorted; [] without a forum. More than
+  // one, here or across C2 and C3: the runs did not see the forum through the same filter.
+  forumFilters: string[]
 }
 
 export interface Report {

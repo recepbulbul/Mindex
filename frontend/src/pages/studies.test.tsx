@@ -88,6 +88,14 @@ describe('studies in the mock (contract of /studies)', () => {
       0.5,
       0.56,
     ])
+    // The filter the forum runs were screened with (#57); none without a forum.
+    expect(comparison.conditions.map((c) => c.forumFilters)).toEqual([
+      [],
+      [],
+      [],
+      ['forum-filter-v3'],
+      ['forum-filter-v3'],
+    ])
     expect(comparison.differences.map((d) => `${d.condition}-${d.baseline}`)).toEqual([
       'C1-C0',
       'C1-C1_NO_REGIME',
@@ -119,6 +127,7 @@ describe('study screens (#14)', () => {
     ).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /Başlat/ }))
     expect(await screen.findByText(/Koşul karşılaştırması \(5 koşul, 5 koşu\)/)).toBeInTheDocument()
+    expect(screen.getByText(/Forum filtresi: forum-filter-v3\./)).toBeInTheDocument()
     const diffs = screen.getByText('Koşul farkları').closest('section')!
     expect(within(diffs).getByText('güven ağırlığı')).toBeInTheDocument()
     expect(within(diffs).getByText('hepsi birlikte')).toBeInTheDocument()
