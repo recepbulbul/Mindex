@@ -56,9 +56,10 @@ uv run mindex serve --reload        # API + deney koşucusu: http://127.0.0.1:80
 | `mindex.postmortem` | Kapanan pozisyon için karşı-olgusal PnL tablosu (gerçek / girmemek / yarım / zarar-kes) ve sayısal tutarlılık denetimli ders yazımı (`postmortem-v1`, P5) |
 | `mindex.api` | FastAPI uygulaması, `{detail, fields}` hata zarfı, `/api/health` (P4); `/agents`, `/experiments` CRUD + YAML, sonuç uçları (P5) |
 | `mindex.services.runner` | Süreç içi deney koşucusu: `JobQueue` + `InProcessQueue`, gün sonu checkpoint, yeniden başlatmada sürdürme (NF2) |
-| `mindex.cli` | `mindex fetch-data | baseline | bench-llm | train-hmm | regime-report | train-ppo | create-user | serve` |
+| `mindex.mcp` | Dış ajanlar için MCP sunucusu (F9): `get_market_data`, `get_portfolio`, `place_order`; ajan başına token; bellekte sıra tabanlı oturum (`ArenaSession`) |
+| `mindex.cli` | `mindex fetch-data | baseline | bench-llm | train-hmm | regime-report | train-ppo | create-user | serve | mcp serve | mcp token` |
 
-Ayrıntılar: [docs/08-data-pipeline-baseline.md](../docs/08-data-pipeline-baseline.md). Sonraki haftalarda: `mindex.mcp`.
+Ayrıntılar: [docs/08-data-pipeline-baseline.md](../docs/08-data-pipeline-baseline.md). MCP sunucusu: [docs/02-architecture.md](../docs/02-architecture.md#mcp-sunucusu-f9-nf3).
 
 ## Deney koşucusu
 
@@ -66,6 +67,6 @@ Ayrıntılar: [docs/08-data-pipeline-baseline.md](../docs/08-data-pipeline-basel
 
 - Fiyatlar `MINDEX_SNAPSHOT_DIR` (varsayılan `data/snapshots`) Parquet anlık görüntüsünden okunur; dokunulan her bölme `ensure_readable`'dan geçer, test bölmesi okunmaz.
 - LLM ajanları `MINDEX_LLM_BASE_URL` llama-server'ına deneyin `model_version` ve `seed` değeriyle bağlanır; testlerde sahte `ChatClient`.
-- Henüz koşturulmayanlar (başlatmada 422): canlı mod, MCP misafir ajanı, eğitilmiş model yoksa PPO (`MINDEX_PPO_MODEL_DIR`), C0 dışı koşullarda LLM ajanları.
+- Henüz koşturulmayanlar (başlatmada 422): canlı mod, MCP misafir ajanı (MCP sunucusu ayrı bir oturumda çalışır, deneye katılım yok), eğitilmiş model yoksa PPO (`MINDEX_PPO_MODEL_DIR`), C0 dışı koşullarda LLM ajanları.
 - Kuyruk süreç içidir: API'yi **tek süreçle** çalıştırın (birden fazla worker aynı deneyi sürdürmeye çalışır); çok süreçli kuyruk İP6–7'de Redis Streams ile gelir.
 - Rejim: `MINDEX_REGIME_MODEL_PATH` (`mindex train-hmm` çıktısı) yoksa her gün `sideways` yer tutucusudur. Etiketleme yöntemi (`labeling`) yalnızca artefakttan okunur, ayrı bir ayarı yoktur; deneyin `config`'ine `regime_source`, `regime_sha256` ve `regime_labeling` yazılır. Eski (v2) artefakt açık bir hatayla reddedilir: yeniden eğitin. Yöntemler ve tanı: [docs/04-ai-pipeline.md](../docs/04-ai-pipeline.md#rejim-modeli).
