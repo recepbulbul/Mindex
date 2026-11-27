@@ -27,7 +27,13 @@ import structlog
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mindex.agents.base import AgentKind, BaseAgent
-from mindex.domain.decision import Asset, Decision, DecisionResult, decide_with_retries
+from mindex.domain.decision import (
+    Asset,
+    Decision,
+    DecisionResult,
+    FailureKind,
+    decide_with_retries,
+)
 from mindex.domain.forum import HORIZON_DAYS, POST_MAX_CHARS, ForumRead, Stance, weigh
 from mindex.sim.engine import ExecutionCosts, Observation
 from mindex.sim.market import MarketView
@@ -428,6 +434,7 @@ class LLMAgent(BaseAgent):
         self.last_reads: tuple[ForumRead, ...] = ()  # forum posts the latest decision read
         self.last_weights: tuple[float, ...] = ()  # ... and the weight w of each
         self.last_post: PostOut | None = None  # the post of the latest accepted answer
+        self.last_failures: tuple[FailureKind, ...] = ()  # why its failed attempts failed
 
     def decide(self, obs: Observation) -> Decision | None:
         codes = anonymise(obs.view.assets)
@@ -465,6 +472,7 @@ class LLMAgent(BaseAgent):
         result: DecisionResult = decide_with_retries(generate, max_retries=self.max_retries)
         # Only the accepted attempt speaks; a held position posts nothing.
         self.last_post = posts[-1] if posts and result.decision is not None else None
+        self.last_failures = result.failures
         self.stats.attempts.append(result.attempts)
         if result.held_position:
             self.stats.holds += 1
@@ -478,5 +486,6 @@ class LLMAgent(BaseAgent):
             posted=self.last_post is not None,
             attempts=result.attempts,
             held_position=result.held_position,
+            failures=[str(kind) for kind in result.failures],
         )
         return result.decision

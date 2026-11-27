@@ -1,7 +1,13 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { api, ApiError } from '@/api/client'
-import type { Study, StudyComparison, StudyCreate } from '@/api/types'
+import {
+  FAILURE_KINDS,
+  type Report,
+  type Study,
+  type StudyComparison,
+  type StudyCreate,
+} from '@/api/types'
 import { setMockExperiment } from '@/mocks/handlers'
 import { renderApp, signIn } from '@/test/render'
 
@@ -96,10 +102,20 @@ describe('studies in the mock (contract of /studies)', () => {
       'C3-C0',
     ])
     // The report of each of its experiments shows the study's table (#14).
-    const report = await api.get<{ conditions: unknown }>(
-      `/experiments/${study.runs[0]!.experimentId}/report`,
-    )
+    const report = await api.get<Report>(`/experiments/${study.runs[0]!.experimentId}/report`)
     expect(report.conditions).toEqual(comparison.conditions)
+    // Failed decision attempts by kind (NF2): the run's own in its report, and each condition's
+    // as the sum over its runs.
+    expect(Object.keys(report.decisionFailures).sort()).toEqual([...FAILURE_KINDS].sort())
+    const c0 = await Promise.all(
+      study.runs
+        .filter((r) => r.condition === 'C0')
+        .map((r) => api.get<Report>(`/experiments/${r.experimentId}/report`)),
+    )
+    const summed = comparison.conditions[0]!.decisionFailures
+    for (const kind of FAILURE_KINDS)
+      expect(summed[kind]).toBe(c0.reduce((s, r) => s + (r.decisionFailures[kind] ?? 0), 0))
+    expect(Object.values(summed).reduce((s, n) => s + n, 0)).toBeGreaterThan(0)
   })
 })
 

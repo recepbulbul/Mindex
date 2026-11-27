@@ -6,6 +6,7 @@ Differences from the reference DDL, all deliberate:
 - `memories.day`: the day a lesson became known; retrieval only returns earlier lessons.
 - `studies` + `experiments.study_id`: the condition x seed groups of a comparison.
 - `forum_messages.verified_on`: the day advice was judged, so trust can be replayed per day.
+- `decisions.failures`: why each failed decision attempt failed (NF2).
 - No `prices` table: prices stay in the Parquet snapshots for now.
 - Constraint names follow `NAMING_CONVENTION`, so later migrations can address them.
 """
@@ -241,6 +242,8 @@ class DecisionRow(Base):
     regime: Mapped[Regime | None] = mapped_column(_enum(Regime, "market_regime"))
     attempts: Mapped[int] = mapped_column(SmallInteger, server_default=text("1"))
     held_position: Mapped[bool] = mapped_column(server_default=text("false"))
+    # `FailureKind` of each failed attempt, in order; empty for rows written before 0005.
+    failures: Mapped[list[str]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     latency_ms: Mapped[int | None] = mapped_column(Integer)
     trace_id: Mapped[str | None]
 

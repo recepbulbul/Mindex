@@ -80,6 +80,7 @@ erDiagram
         market_regime regime
         smallint attempts
         bool held_position
+        jsonb failures "deneme başına hata nedeni"
         int latency_ms
         text trace_id "Langfuse"
     }

@@ -72,6 +72,7 @@ export interface ConditionSummary {
   herdCorrelation: number | null
   lessonConsistency: number | null
   meanForumWeight: number | null
+  decisionFailures: Partial<Record<FailureKind, number>>
 }
 
 export interface CounterfactualOut {
@@ -91,6 +92,7 @@ export interface DecisionOut {
   regime: Regime
   attempts: number
   heldPosition: boolean
+  failures: FailureKind[]
   latencyMs: number
   memories: MemoryRef[]
   forumMessageIds: string[]
@@ -150,6 +152,8 @@ export interface ExperimentUpdate {
   commissionRate?: number | null
   slippageBps?: number | null
 }
+
+export type FailureKind = 'invalid_json' | 'schema_violation' | 'portfolio_violation'
 
 export interface ForumMessageOut {
   id: string
@@ -211,6 +215,7 @@ export interface ReportOut {
   agents: AgentMetrics[]
   benchmark: AgentMetrics
   herdCorrelation: number | null
+  decisionFailures: Partial<Record<FailureKind, number>>
   conditions: ConditionSummary[]
 }
 

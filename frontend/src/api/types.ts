@@ -183,6 +183,25 @@ export interface MemoryRef {
   score: number
 }
 
+// Why one attempt at a daily LLM decision failed (NF2). `invalid_json`: the answer is not JSON
+// (e.g. cut off); `schema_violation`: JSON that does not fit the decision schema;
+// `portfolio_violation`: fits the schema but breaks a portfolio rule (weights sum above 1, an
+// asset listed twice). An unreachable or timed-out LLM server is not a kind: it stops the run
+// (which resumes from its checkpoint) instead of recording a held day.
+export type FailureKind = 'invalid_json' | 'schema_violation' | 'portfolio_violation'
+export const FAILURE_KINDS: FailureKind[] = [
+  'invalid_json',
+  'schema_violation',
+  'portfolio_violation',
+]
+export const FAILURE_LABELS: Record<FailureKind, string> = {
+  invalid_json: 'geçersiz JSON',
+  schema_violation: 'şema ihlali',
+  portfolio_violation: 'portföy kuralı',
+}
+// Failed decision attempts by kind; the server sends every kind (0 when there were none).
+export type FailureCounts = Partial<Record<FailureKind, number>>
+
 export interface Decision {
   id: string
   agentId: string
@@ -193,6 +212,9 @@ export interface Decision {
   regime: Regime
   attempts: number
   heldPosition: boolean
+  // Why each failed attempt failed, in order: empty for a first-try answer, `attempts - 1`
+  // long after a retry that worked, `attempts` long when the position was held.
+  failures: FailureKind[]
   latencyMs: number
   memories: MemoryRef[]
   forumMessageIds: string[]
@@ -276,6 +298,7 @@ export interface ConditionSummary {
   // without a forum (C0, C1, C1′). C2 is always 0.5; C3's level shows how much of C3 − C2 is
   // the forum's overall weight rather than telling senders apart.
   meanForumWeight: number | null
+  decisionFailures: FailureCounts // summed over the condition's completed runs
 }
 
 export interface Report {
@@ -283,6 +306,7 @@ export interface Report {
   agents: AgentMetrics[]
   benchmark: AgentMetrics
   herdCorrelation: number | null // null below two LLM agents (nothing to correlate)
+  decisionFailures: FailureCounts // this run's failed decision attempts, all LLM agents
   conditions: ConditionSummary[]
 }
 

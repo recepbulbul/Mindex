@@ -59,11 +59,36 @@ class Decision(BaseModel):
         return {a.asset: a.weight for a in self.allocations}
 
 
+class FailureKind(StrEnum):
+    """Why one attempt at a decision failed (NF2): the ways `parse_decision` rejects an answer.
+
+    An unreachable or timed-out LLM server is not among them: that is not a model answer, so
+    the client's `LLMUnavailableError` propagates and stops the run instead of using up an
+    attempt (see `LLMAgent.decide`).
+    """
+
+    INVALID_JSON = "invalid_json"  # not JSON at all: garbage, empty or cut off
+    SCHEMA_VIOLATION = "schema_violation"  # JSON that does not fit the `Decision` fields
+    PORTFOLIO_VIOLATION = "portfolio_violation"  # fits, but weights sum above 1 or an asset repeats
+
+
+def classify_failure(exc: ValidationError) -> FailureKind:
+    kinds = {e["type"] for e in exc.errors(include_url=False, include_context=False)}
+    if "json_invalid" in kinds:
+        return FailureKind.INVALID_JSON
+    # `Decision._check_portfolio` is the only source of `value_error`, and Pydantic runs it
+    # only after every field passed.
+    if kinds == {"value_error"}:
+        return FailureKind.PORTFOLIO_VIOLATION
+    return FailureKind.SCHEMA_VIOLATION
+
+
 @dataclass(frozen=True, slots=True)
 class DecisionResult:
     decision: Decision | None
     attempts: int
     errors: tuple[str, ...]
+    failures: tuple[FailureKind, ...]  # one per failed attempt, in order
 
     @property
     def held_position(self) -> bool:
@@ -78,9 +103,13 @@ def parse_decision(raw: str) -> Decision:
 def decide_with_retries(generate: Callable[[int], str], *, max_retries: int = 2) -> DecisionResult:
     """Call `generate(attempt)` until it yields a valid Decision or retries run out."""
     errors: list[str] = []
+    failures: list[FailureKind] = []
     for attempt in range(max_retries + 1):
         try:
-            return DecisionResult(parse_decision(generate(attempt)), attempt + 1, tuple(errors))
+            return DecisionResult(
+                parse_decision(generate(attempt)), attempt + 1, tuple(errors), tuple(failures)
+            )
         except ValidationError as exc:
             errors.append(f"attempt {attempt + 1}: {exc.error_count()} validation error(s)")
-    return DecisionResult(None, max_retries + 1, tuple(errors))
+            failures.append(classify_failure(exc))
+    return DecisionResult(None, max_retries + 1, tuple(errors), tuple(failures))

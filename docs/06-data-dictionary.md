@@ -101,6 +101,7 @@ Tabloları oluşturan SQL komutları (DDL): [`db/schema.sql`](db/schema.sql). T�
 | regime | market_regime | E | bull \| bear \| sideways | HMM'in o günkü rejim etiketi |
 | attempts | smallint | H | 1–3 | Kaç denemede geçerli JSON alındı |
 | held_position | boolean | H | false | Tüm denemeler başarısız → pozisyon korundu (NF2) |
+| failures | jsonb | H | `[]`; dizi | Başarısız her denemenin nedeni, deneme sırasıyla (NF2): `invalid_json` (yanıt JSON değil ya da yarıda kesilmiş), `schema_violation` (JSON karar şemasına uymuyor), `portfolio_violation` (şemaya uyuyor ama ağırlık toplamı > 1 ya da aynı varlık iki kez). İlk denemede geçerli kararda boş; yeniden denemeyle geçerli kararda `attempts − 1`, pozisyon korunduysa `attempts` eleman. LLM sunucusuna erişilememesi ya da zaman aşımı burada yer almaz: deneme sayılmaz, koşu durur ve checkpoint'ten sürer. 0005 göçünden önce yazılan satırlarda boştur |
 | latency_ms | integer | E | ≥ 0 | Karar çağrısı süresi (NF1 p95 hedefi) |
 | trace_id | text | E | | Langfuse izi (NF4) |
 

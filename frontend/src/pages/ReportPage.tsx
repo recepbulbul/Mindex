@@ -18,7 +18,7 @@ import {
   StatGrid,
   Table,
 } from '@/components/ui/primitives'
-import { reportToCsv } from '@/lib/report'
+import { formatFailures, reportToCsv } from '@/lib/report'
 import { agentColor } from '@/lib/identity'
 import { cn, formatNum, formatPct } from '@/lib/utils'
 
@@ -141,6 +141,11 @@ export default function ReportPage() {
                 ))}
             </tbody>
           </Table>
+          {llm.length > 0 && (
+            <p className="mt-3 border-t pt-3 text-xs text-muted-foreground">
+              Başarısız karar denemeleri: {formatFailures(r.decisionFailures)}
+            </p>
+          )}
         </Card>
 
         <section className="stage">

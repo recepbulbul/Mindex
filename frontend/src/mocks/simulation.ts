@@ -1,5 +1,6 @@
 import {
   ASSETS,
+  FAILURE_KINDS,
   type Asset,
   type AgentRun,
   type Condition,
@@ -181,6 +182,11 @@ export function simulate(exp: Experiment): Simulation {
       const turnover = ASSETS.reduce((s, a) => s + Math.abs(target[a] - held[a]), 0)
       const attempts = isLlm ? (rng.chance(0.07) ? (rng.chance(0.3) ? 3 : 2) : 1) : 1
       const heldPosition = attempts === 3 && rng.chance(0.5)
+      // Why each failed attempt failed; no random draw, so the rest of the mock is unchanged.
+      const failures = Array.from(
+        { length: heldPosition ? attempts : attempts - 1 },
+        (_, i) => FAILURE_KINDS[(k + i) % FAILURE_KINDS.length]!,
+      )
 
       if (turnover > REBALANCE_THRESHOLD && !heldPosition) {
         for (const a of ASSETS) {
@@ -242,6 +248,7 @@ export function simulate(exp: Experiment): Simulation {
           regime,
           attempts,
           heldPosition,
+          failures,
           latencyMs: Math.round(2500 + Math.abs(rng.normal()) * 2800),
           memories: hasMemory ? recalled : [],
           forumMessageIds: [],

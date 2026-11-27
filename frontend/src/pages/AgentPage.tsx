@@ -9,7 +9,7 @@ import {
 import { useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { useAgentDetail, useAgents, useForum, useMemories, useReport } from '@/api/queries'
-import type { Decision } from '@/api/types'
+import { FAILURE_LABELS, type Decision } from '@/api/types'
 import { MultiLineChart } from '@/components/charts/charts'
 import { RegimeBadge } from '@/components/common'
 import { AgentAvatar } from '@/components/identity'
@@ -280,6 +280,8 @@ function DecisionRow({
   message: (id: string) => string | undefined
 }) {
   const weights = Object.entries(d.targetWeights)
+  // Why the failed attempts failed; nothing for runs stored before this was recorded.
+  const failed = d.failures.map((k) => FAILURE_LABELS[k]).join(', ') || undefined
   return (
     <li className={cn(expanded && 'bg-white/[0.03]')}>
       <button
@@ -301,12 +303,12 @@ function DecisionRow({
         <span className="flex-1 text-sm leading-relaxed">{d.rationale}</span>
         <span className="flex shrink-0 gap-1">
           {d.heldPosition && (
-            <Badge tone="warn" className="gap-1">
+            <Badge tone="warn" className="gap-1" title={failed}>
               <ShieldAlert className="size-3" /> pozisyon korundu
             </Badge>
           )}
           {d.attempts > 1 && !d.heldPosition && (
-            <Badge tone="neutral" className="gap-1">
+            <Badge tone="neutral" className="gap-1" title={failed}>
               <RotateCw className="size-3" /> {d.attempts}. deneme
             </Badge>
           )}

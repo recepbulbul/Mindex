@@ -86,7 +86,7 @@ from mindex.db.models import (
     TradeRow,
     TradeSide,
 )
-from mindex.domain.decision import Asset, Decision
+from mindex.domain.decision import Asset, Decision, FailureKind
 from mindex.domain.forum import FILTER_VERSION, HORIZON_DAYS, MAX_READS, WINDOW_DAYS, ForumRead
 from mindex.domain.regime import Regime
 from mindex.forum.store import ForumStore
@@ -411,6 +411,7 @@ class Recorded:
     reads: tuple[ForumRead, ...] = ()  # forum posts read for it (C2/C3) ...
     read_weights: tuple[float, ...] = ()  # ... with the sender weight w of each
     post: PostOut | None = None  # what the decision said on the forum
+    failures: tuple[FailureKind, ...] = ()  # why each failed attempt failed
 
 
 class RecordingAgent:
@@ -439,6 +440,7 @@ class RecordingAgent:
                 inner.last_reads,
                 inner.last_weights,
                 inner.last_post,
+                inner.last_failures,
             )
         else:
             self.last = Recorded(decision, dict(obs.weights), 1, latency)
@@ -760,6 +762,7 @@ class ExperimentRunner:
             regime=regime,
             attempts=rec.attempts,
             held_position=d is None,
+            failures=[str(kind) for kind in rec.failures],
             latency_ms=rec.latency_ms,
         )
         session.add(decision)

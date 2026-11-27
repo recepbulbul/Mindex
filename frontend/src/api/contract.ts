@@ -41,6 +41,7 @@ export type EnumChecks = [
   Expect<Same<G.Condition, T.Condition>>,
   Expect<Same<G.ExperimentMode, T.ExperimentMode>>,
   Expect<Same<G.ExperimentStatus, T.ExperimentStatus>>,
+  Expect<Same<G.FailureKind, T.FailureKind>>,
   Expect<Same<G.AgentKindDb, T.AgentKind>>,
   Expect<Same<G.Regime, T.Regime>>,
   Expect<Same<G.Stance, T.Stance>>,

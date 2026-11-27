@@ -25,7 +25,7 @@ from mindex.db.models import (
     TradeSide,
     UserRole,
 )
-from mindex.domain.decision import Asset
+from mindex.domain.decision import Asset, FailureKind
 from mindex.domain.forum import Stance
 from mindex.domain.regime import Regime
 
@@ -290,6 +290,7 @@ class DecisionOut(ApiModel):
     regime: Regime
     attempts: int
     held_position: bool
+    failures: list[FailureKind]  # why each failed attempt failed; [] on a first-try answer
     latency_ms: int
     memories: list[MemoryRef]
     forum_message_ids: list[str]
@@ -337,6 +338,7 @@ class ConditionSummary(ApiModel):
     herd_correlation: float | None  # None: fewer than two LLM agents in every run
     lesson_consistency: float | None
     mean_forum_weight: float | None  # mean w read (per run, then over runs); None without forum
+    decision_failures: dict[FailureKind, int]  # failed attempts by kind, summed over the runs
 
 
 class ReportOut(ApiModel):
@@ -344,6 +346,7 @@ class ReportOut(ApiModel):
     agents: list[AgentMetrics]
     benchmark: AgentMetrics
     herd_correlation: float | None  # None below two LLM agents
+    decision_failures: dict[FailureKind, int]  # this run's failed decision attempts by kind
     conditions: list[ConditionSummary]
 
 

@@ -8,7 +8,7 @@ float precision, as the report does) and their recorded post-mortem checks.
 
 import json
 import uuid
-from collections import OrderedDict, defaultdict
+from collections import Counter, OrderedDict, defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import timedelta
@@ -49,6 +49,7 @@ from mindex.db.models import (
     ExperimentStatus,
     Study,
 )
+from mindex.domain.decision import FailureKind
 from mindex.domain.metrics import herd_correlation
 from mindex.evaluation.bootstrap import RESAMPLES, bootstrap_sharpe
 from mindex.evaluation.report import daily_returns, differences, summarise
@@ -267,6 +268,7 @@ class _Run:
     herd: float | None  # None below two LLM agents
     checks: tuple[int, int]  # (valid, consistent) post-mortem attempts
     forum_weight: float | None  # mean sender weight w the run's decisions read (None: no reads)
+    failures: dict[FailureKind, int]  # failed decision attempts by kind
 
 
 # Bootstrapping 2000 resamples per request is the slow part: results are kept per study and
@@ -309,7 +311,13 @@ def compare(
     if key in _CACHE:
         _CACHE.move_to_end(key)
         return _CACHE[key]
-    result = _compare(study, runs, resamples, _forum_weights(session, runs))
+    result = _compare(
+        study,
+        runs,
+        resamples,
+        _forum_weights(session, runs),
+        decision_failures(session, [e.id for e in runs]),
+    )
     if result is not None:
         _CACHE[key] = result
         while len(_CACHE) > CACHE_SIZE:
@@ -329,11 +337,31 @@ def _forum_weights(session: Session, runs: Sequence[Experiment]) -> dict[uuid.UU
     return {experiment_id: float(mean) for experiment_id, mean in rows}
 
 
+def decision_failures(
+    session: Session, experiment_ids: Sequence[uuid.UUID]
+) -> dict[uuid.UUID, dict[FailureKind, int]]:
+    """Per experiment, its failed decision attempts by kind (`decisions.failures`, NF2); every
+    kind is present, 0 when it never happened."""
+    rows = session.execute(
+        select(ExperimentAgent.experiment_id, DecisionRow.failures)
+        .join(DecisionRow, DecisionRow.experiment_agent_id == ExperimentAgent.id)
+        .where(
+            ExperimentAgent.experiment_id.in_(experiment_ids),
+            func.jsonb_array_length(DecisionRow.failures) > 0,
+        )
+    ).all()
+    counts: dict[uuid.UUID, Counter[str]] = defaultdict(Counter)
+    for experiment_id, failures in rows:
+        counts[experiment_id].update(failures)
+    return {i: {k: counts[i][k] for k in FailureKind} for i in experiment_ids}
+
+
 def _compare(
     study: Study,
     runs: Sequence[Experiment],
     resamples: int | None,
     forum_weights: dict[uuid.UUID, float],
+    failures: dict[uuid.UUID, dict[FailureKind, int]],
 ) -> StudyComparisonOut | None:
     done = [e for e in runs if e.status is ExperimentStatus.COMPLETED and e.checkpoint is not None]
     if not done:
@@ -360,6 +388,7 @@ def _compare(
                 h,
                 lesson_consistency(exp.config),
                 forum_weights.get(exp.id),
+                failures[exp.id],
             )
         )
     n = RESAMPLES if resamples is None else resamples
@@ -396,6 +425,7 @@ def _compare(
                     None if c is Condition.C0 or valid == 0 else consistent / valid
                 ),
                 mean_forum_weight=fmean(read) if read else None,
+                decision_failures={k: sum(r.failures[k] for r in rows) for k in FailureKind},
             )
         )
     differences: list[ConditionDifference] = []
