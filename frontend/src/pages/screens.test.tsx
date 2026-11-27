@@ -250,5 +250,12 @@ describe('report (F8)', () => {
     expect(await screen.findByText('Ajan metrikleri')).toBeInTheDocument()
     expect(screen.getByText(/Koşul karşılaştırması/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /CSV/ })).toBeInTheDocument()
+    // Why LLM decision attempts failed (NF2), for the run and per condition.
+    expect(
+      screen.getByText(
+        /Başarısız karar denemeleri: geçersiz JSON \d+ · şema ihlali \d+ · portföy kuralı \d+/,
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Başarısız deneme' })).toBeInTheDocument()
   })
 })

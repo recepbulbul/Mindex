@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { FAILURE_KINDS } from '@/api/types'
 import { seedExperiments } from './fixtures'
 import { simulate } from './simulation'
 
@@ -54,6 +55,16 @@ describe('mock simulation', () => {
     for (const m of sim.memories) {
       expect(m.counterfactual.skip).toBe(0)
       expect(m.counterfactual.half).toBeCloseTo(m.counterfactual.actual / 2)
+    }
+  })
+
+  it('names why each failed decision attempt failed (NF2)', () => {
+    const sim = simulate(byId('exp-test-c3'))
+    expect(sim.decisions.some((d) => d.failures.length > 0)).toBe(true)
+    for (const d of sim.decisions) {
+      // A held position failed every attempt; otherwise the last attempt was the valid one.
+      expect(d.failures).toHaveLength(d.heldPosition ? d.attempts : d.attempts - 1)
+      for (const kind of d.failures) expect(FAILURE_KINDS).toContain(kind)
     }
   })
 })

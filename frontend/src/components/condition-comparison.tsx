@@ -1,6 +1,7 @@
 import { CONDITION_LABELS, type ConditionDifference, type ConditionSummary } from '@/api/types'
 import { Card, CardHeader, Table } from '@/components/ui/primitives'
 import { USING_MOCKS } from '@/lib/env'
+import { formatFailures, totalFailures } from '@/lib/report'
 import { cn, formatNum, formatPct } from '@/lib/utils'
 
 const CI_NOTE = USING_MOCKS
@@ -43,6 +44,12 @@ export function ConditionComparison({
               title="Forumun okunduğu ortalama gönderen ağırlığı w (C2'de hep 0,5)"
             >
               Ort. forum ağırlığı
+            </th>
+            <th
+              className="text-right"
+              title="LLM karar denemelerinden başarısız olanlar (geçersiz JSON, şema ihlali, portföy kuralı); ayrıntı hücrenin üzerinde"
+            >
+              Başarısız deneme
             </th>
           </tr>
         </thead>
@@ -102,6 +109,9 @@ export function ConditionComparison({
                 </td>
                 <td className="text-right num">
                   {c.meanForumWeight === null ? '—' : formatNum(c.meanForumWeight)}
+                </td>
+                <td className="text-right num" title={formatFailures(c.decisionFailures)}>
+                  {totalFailures(c.decisionFailures)}
                 </td>
               </tr>
             )

@@ -14,6 +14,7 @@ import {
   type ExperimentCreate,
   type ExperimentStatus,
   type ExperimentUpdate,
+  type FailureCounts,
   type Health,
   type LoginRequest,
   type LoginResponse,
@@ -287,6 +288,12 @@ function runnableErrors(exp: Experiment): Record<string, string> | null {
 const SEEDS = [1, 2, 3, 4, 5]
 
 // Mock aggregate over 5 seeds; the backend replaces min/max with a block-bootstrap 95% CI.
+function failureCounts(sims: Simulation[]): FailureCounts {
+  const counts = { invalid_json: 0, schema_violation: 0, portfolio_violation: 0 }
+  for (const sim of sims) for (const d of sim.decisions) for (const k of d.failures) counts[k] += 1
+  return counts
+}
+
 function conditionSummaries(exp: Experiment): ConditionSummary[] {
   if (!exp.agentIds.some((id) => LLM_AGENT_IDS.includes(id))) return []
   return CONDITIONS.map((condition) => {
@@ -302,6 +309,7 @@ function conditionSummaries(exp: Experiment): ConditionSummary[] {
         ret: avg((x) => x.totalReturn),
         herd: llmHerd(sim),
         lessons: sim.memories.length,
+        sim,
       }
     })
     const mean = (f: (x: (typeof perSeed)[number]) => number) =>
@@ -320,6 +328,7 @@ function conditionSummaries(exp: Experiment): ConditionSummary[] {
       herdCorrelation: perSeed.every((x) => x.herd === null) ? null : mean((x) => x.herd ?? 0),
       lessonConsistency: condition === 'C0' ? null : 0.9 + (mean((x) => x.lessons) % 7) / 100,
       meanForumWeight: mockForumWeight(condition),
+      decisionFailures: failureCounts(perSeed.map((x) => x.sim)),
     }
   })
 }
@@ -410,6 +419,7 @@ function studyComparison(study: Study): StudyComparison | null {
       ret: avg((x) => x.totalReturn),
       herd: llmHerd(sim),
       days: sim.days.length - 1,
+      sim,
     }
   })
   const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length
@@ -434,6 +444,7 @@ function studyComparison(study: Study): StudyComparison | null {
           : mean(rows.flatMap((r) => (r.herd === null ? [] : [r.herd]))),
         lessonConsistency: condition === 'C0' ? null : 0.92,
         meanForumWeight: mockForumWeight(condition),
+        decisionFailures: failureCounts(rows.map((r) => r.sim)),
       },
     ]
   })
@@ -776,6 +787,7 @@ export const handlers = [
         'buy-hold-btc',
       ),
       herdCorrelation: llmHerd(sim),
+      decisionFailures: failureCounts([sim]),
       conditions: reportConditions(exp),
     } satisfies Report)
   }),
