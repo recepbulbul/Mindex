@@ -493,6 +493,9 @@ def study_status(study_id: str) -> None:
             f"[{c.sharpe_ci_low:>6.2f}, {c.sharpe_ci_high:>6.2f}]  {c.max_drawdown:>6.1%} "
             f"{c.total_return:>7.1%} {herd:>5}  {lesson}"
         )
+    filters = sorted({f for c in result.conditions for f in c.forum_filters})
+    if filters:
+        print(f"forum filtresi: {', '.join(filters)}")
     for d in result.differences:
         print(
             f"{d.condition} - {d.baseline}: fark Sharpe {d.sharpe_diff:+.2f} "

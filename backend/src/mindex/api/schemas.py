@@ -337,6 +337,7 @@ class ConditionSummary(ApiModel):
     herd_correlation: float | None  # None: fewer than two LLM agents in every run
     lesson_consistency: float | None
     mean_forum_weight: float | None  # mean w read (per run, then over runs); None without forum
+    forum_filters: list[str]  # the runs' `config.forum.filter` versions, sorted; [] without forum
 
 
 class ReportOut(ApiModel):
