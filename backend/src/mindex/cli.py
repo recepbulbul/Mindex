@@ -310,6 +310,38 @@ def serve_api(host: str, port: int, *, reload: bool) -> None:
     )
 
 
+LOOPBACK = ("127.0.0.1", "localhost", "::1")
+
+
+def mcp_token(agent_id: str, days: int) -> None:
+    """Print a token that lets one external agent act on its own portfolio only (NF3)."""
+    from mindex.mcp.auth import issue_agent_token
+
+    print(issue_agent_token(get_settings(), agent_id, timedelta(days=days)))
+
+
+def mcp_app(snapshot: Path, split: Split, agents: Sequence[str], host: str, port: int) -> Any:
+    """The MCP server's ASGI app over a fresh in-memory replay of `split` (never the test set)."""
+    from mindex.config import DEV_JWT_SECRET
+    from mindex.mcp.server import build_server
+    from mindex.mcp.session import ArenaSession
+
+    settings = get_settings()
+    if host not in LOOPBACK and settings.jwt_secret.get_secret_value() == DEV_JWT_SECRET:
+        # Anyone can sign agent tokens with the public placeholder.
+        raise SystemExit("MINDEX_JWT_SECRET ayarlanmadan MCP sunucusu dışarıya açılamaz.")
+    market, start = _market(snapshot, split, unseal=False)
+    session = ArenaSession(market, agents, start=start)
+    server = build_server(session, settings, url=f"http://{host}:{port}")
+    return server.streamable_http_app(json_response=True, stateless_http=True, host=host)
+
+
+def serve_mcp(snapshot: Path, split: Split, agents: Sequence[str], host: str, port: int) -> None:
+    import uvicorn
+
+    uvicorn.run(mcp_app(snapshot, split, agents, host, port), host=host, port=port)
+
+
 def _read_password() -> str:
     if sys.stdin.isatty():
         return getpass.getpass("Parola: ")
@@ -567,6 +599,16 @@ def main(argv: Sequence[str] | None = None) -> None:
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
     serve.add_argument("--reload", action="store_true")
+    mcp = sub.add_parser("mcp", help="Dış ajanlar için MCP sunucusu (F9)")
+    mcp_sub = mcp.add_subparsers(dest="mcp_command", required=True)
+    mcp_serve = mcp_sub.add_parser("serve", help="MCP sunucusunu başlat (streamable HTTP, /mcp)")
+    mcp_serve.add_argument("--host", default="127.0.0.1")
+    mcp_serve.add_argument("--port", type=int, default=8765)
+    mcp_serve.add_argument("--split", type=Split, default=Split.VALIDATION, choices=list(Split))
+    mcp_serve.add_argument("--agents", nargs="+", default=["mcp-guest"], help="oturumun ajanları")
+    mcp_token_cmd = mcp_sub.add_parser("token", help="Bir ajan için erişim token'ı üret")
+    mcp_token_cmd.add_argument("--agent", required=True)
+    mcp_token_cmd.add_argument("--days", type=int, default=7, help="geçerlilik süresi (gün)")
     args = parser.parse_args(argv)
 
     reconfigure = getattr(sys.stdout, "reconfigure", None)
@@ -602,6 +644,11 @@ def main(argv: Sequence[str] | None = None) -> None:
                 study_status(args.study_id)
         elif args.command == "serve":
             serve_api(args.host, args.port, reload=args.reload)
+        elif args.command == "mcp":
+            if args.mcp_command == "token":
+                mcp_token(args.agent, args.days)
+            else:
+                serve_mcp(args.snapshot, args.split, args.agents, args.host, args.port)
         else:
             bench_llm(args.snapshot, args.reports, args.calls, args.prompt, args.lessons)
     except SealedTestSetError as exc:

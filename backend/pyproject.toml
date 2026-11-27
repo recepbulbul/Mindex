@@ -18,6 +18,7 @@ dependencies = [
     "gymnasium>=1.2",
     "hmmlearn>=0.3.3",
     "httpx2>=2.16.2",
+    "mcp>=2.3.0",
     "numpy>=2.2",
     "pgvector>=0.3",
     "polars>=2.1.0",
