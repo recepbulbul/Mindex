@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import structlog
 
 from conftest import synthetic_frame
 from mindex import cli
@@ -30,7 +31,7 @@ from mindex.agents.llm import (
 from mindex.agents.rule import BuyAndHoldAgent, EqualWeightAgent, MovingAverageCrossAgent
 from mindex.config import get_settings
 from mindex.data.splits import Split
-from mindex.domain.decision import Asset, parse_decision
+from mindex.domain.decision import Asset, FailureKind, parse_decision
 from mindex.sim.engine import ExecutionCosts, Observation, Portfolio, Simulator
 from mindex.sim.market import MarketData, MarketView
 
@@ -147,6 +148,7 @@ def test_llm_agent_decides(market: MarketData) -> None:
         "ASSET_B",
     ]
     assert agent.stats.attempts == [1]
+    assert agent.last_failures == ()
     assert PROMPT_VERSION.startswith("decision-v")
 
 
@@ -158,6 +160,31 @@ def test_llm_agent_retries_then_holds(market: MarketData) -> None:
     assert agent.stats.holds == 1
     assert agent.stats.attempts == [3]
     assert len(agent.stats.latencies_ms) == 3
+    assert agent.last_failures == (
+        FailureKind.INVALID_JSON,
+        FailureKind.INVALID_JSON,
+        FailureKind.SCHEMA_VIOLATION,
+    )
+
+
+def test_llm_decision_log_names_why_attempts_failed(market: MarketData) -> None:
+    over = json.dumps(
+        {
+            "allocations": [
+                {"asset": "ASSET_A", "weight": 0.8},
+                {"asset": "ASSET_B", "weight": 0.4},
+            ],
+            "confidence": 0.7,
+            "rationale": "ASSET_A ve ASSET_B birlikte yükseliyor.",
+        }
+    )
+    agent = LLMAgent(FakeChat([over, GOOD]))
+    with structlog.testing.capture_logs() as logs:
+        assert agent.decide(obs(market, 40)) is not None
+    event = next(e for e in logs if e["event"] == "llm_decision")
+    assert event["attempts"] == 2
+    assert event["failures"] == ["portfolio_violation"]
+    assert agent.last_failures == (FailureKind.PORTFOLIO_VIOLATION,)
 
 
 def test_unreachable_llm_stops_instead_of_holding(market: MarketData) -> None:

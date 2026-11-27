@@ -3,8 +3,11 @@
 # Fixtures are imported from test_runner, so parameters of the same name redefine them.
 # ruff: noqa: F811
 
+import json
+import sys
 import uuid
-from collections.abc import Callable
+from collections import Counter
+from collections.abc import Callable, Mapping
 from datetime import date, timedelta
 from typing import Any
 
@@ -583,6 +586,99 @@ def test_queueing_claims_in_sql_and_never_requeues_a_run_finished_meanwhile(
     status = check.get(Experiment, first)
     assert status is not None
     assert status.status is ExperimentStatus.COMPLETED
+
+
+class FlakyChat(ForumChat):
+    """Every fourth decision day the first answer is cut off and the second is leveraged; the
+    third is valid. Post-mortem calls are answered as usual."""
+
+    def __init__(self, **kw: Any) -> None:
+        super().__init__(**kw)
+        self.bad: Counter[str] = Counter()
+
+    def complete(self, messages: list[dict[str, str]], *, schema: Mapping[str, Any]) -> str:
+        system, user = messages[0]["content"], json.loads(messages[1]["content"])
+        key = f"{system}{user.get('day')}"
+        if "assets" in user and user["day"] % 4 == 3 and self.bad[key] < 2:
+            self.bad[key] += 1
+            if self.bad[key] == 1:
+                return '{"allocations": ['
+            codes = sorted(user["assets"])
+            return json.dumps(
+                {
+                    "allocations": [{"asset": c, "weight": 0.8} for c in codes],
+                    "confidence": 0.6,
+                    "rationale": "Kaldıraçlı sahte karar.",
+                }
+            )
+        return super().complete(messages, schema=schema)
+
+
+def flaky_runner(sessions: Callable[[], Session], settings: Settings) -> ExperimentRunner:
+    return ExperimentRunner(
+        sessions, settings, lambda exp: FlakyChat(seed=exp.seed), HashEmbedder()
+    )
+
+
+def _stored_failures(db: Session, experiment_id: str) -> dict[str, int]:
+    rows = db.scalars(
+        select(DecisionRow.failures)
+        .join(ExperimentAgent, ExperimentAgent.id == DecisionRow.experiment_agent_id)
+        .where(ExperimentAgent.experiment_id == uuid.UUID(experiment_id))
+    )
+    counts = Counter(kind for failures in rows for kind in failures)
+    return {k: counts[k] for k in ("invalid_json", "schema_violation", "portfolio_violation")}
+
+
+def test_failed_decision_attempts_are_counted_per_condition(
+    api: TestClient,
+    researcher: dict[str, str],
+    sessions: Callable[[], Session],
+    settings: Settings,
+    jobs: ListQueue,
+    db_session: Session,
+) -> None:
+    """NF2 (#17): the study says how many decision attempts failed and why, per condition
+    (summed over the condition's completed runs), and each run's report says it for the run."""
+    study = _create(api, researcher, seeds=[1, 2], endDate="2025-10-15")
+    api.post(f"/api/studies/{study['id']}/start", headers=researcher)
+    runner = flaky_runner(sessions, settings)
+    for experiment_id in jobs.jobs:
+        runner(experiment_id)
+    db_session.expire_all()
+    comp = api.get(f"/api/studies/{study['id']}/comparison", headers=researcher).json()
+    for row in comp["conditions"]:
+        runs = [r["experimentId"] for r in study["runs"] if r["condition"] == row["condition"]]
+        assert len(runs) == 2
+        per_run = [_stored_failures(db_session, r) for r in runs]
+        assert row["decisionFailures"] == {k: sum(p[k] for p in per_run) for k in per_run[0]}
+        assert row["decisionFailures"]["invalid_json"] > 0
+        assert row["decisionFailures"]["portfolio_violation"] > 0
+        assert row["decisionFailures"]["schema_violation"] == 0
+        report = api.get(f"/api/experiments/{runs[0]}/report", headers=researcher).json()
+        assert report["decisionFailures"] == per_run[0]
+
+
+def test_cli_status_prints_the_failure_kinds(
+    cli_env: Session, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys.modules[__name__], "fake_runner", flaky_runner)
+    create = ["study", "create", "--owner", "hoca@mindex.dev", "--smoke", "--assets", "BTC", "ETH"]
+    cli.main([*create, "--agents", *AGENTS])
+    study = cli_env.scalar(select(Study))
+    assert study is not None
+    cli.main(["study", "start", str(study.id)])
+    capsys.readouterr()
+    cli.main(["study", "status", str(study.id)])
+    out = capsys.readouterr().out
+    assert "geçersiz JSON / şema ihlali / portföy kuralı" in out
+    cli_env.expire_all()
+    stored = _stored_failures(cli_env, str(cli_env.scalars(select(Experiment.id)).first()))
+    assert stored["invalid_json"] > 0
+    cell = f"{stored['invalid_json']}/0/{stored['portfolio_violation']}"
+    rows = [line for line in out.splitlines() if line.startswith(("C0    ", "C3    "))]
+    assert len(rows) == 2
+    assert all(row.rstrip().endswith(cell) for row in rows)
 
 
 def test_cli_tables_a_study_with_one_llm_agent(

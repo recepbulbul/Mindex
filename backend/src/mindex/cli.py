@@ -34,7 +34,7 @@ from mindex.config import get_settings
 from mindex.data import sources
 from mindex.data.snapshot import build_frame, load_split, load_window, write_snapshot
 from mindex.data.splits import FULL_RANGE, SPLITS, SealedTestSetError, Split, ensure_readable
-from mindex.domain.decision import Asset, parse_decision
+from mindex.domain.decision import Asset, FailureKind, parse_decision
 from mindex.evaluation.budget import ComputeBudget, LatencySummary
 from mindex.evaluation.report import check_targets, herd, summarise, to_markdown
 from mindex.logging_config import configure_logging
@@ -483,16 +483,18 @@ def study_status(study_id: str) -> None:
         f"\nKarşılaştırma ({kind}; {result.days} gün, blok {result.block_length}, "
         f"{result.resamples} yeniden örnekleme)"
     )
-    print("koşul          koşu  Sharpe  %95 GA             MDD     getiri  sürü   ders")
+    print("koşul          koşu  Sharpe  %95 GA             MDD     getiri  sürü   ders  hata")
     for c in result.conditions:
         lesson = "-" if c.lesson_consistency is None else f"{c.lesson_consistency:.0%}"
         # Null below two LLM agents: nothing to correlate.
         herd = "—" if c.herd_correlation is None else f"{c.herd_correlation:.2f}"
+        failed = "/".join(str(c.decision_failures[k]) for k in FailureKind)
         print(
             f"{c.condition:<13} {c.runs:>5} {c.sharpe_mean:>7.2f}  "
             f"[{c.sharpe_ci_low:>6.2f}, {c.sharpe_ci_high:>6.2f}]  {c.max_drawdown:>6.1%} "
-            f"{c.total_return:>7.1%} {herd:>5}  {lesson}"
+            f"{c.total_return:>7.1%} {herd:>5}  {lesson:<5} {failed}"
         )
+    print("hata: başarısız karar denemeleri (geçersiz JSON / şema ihlali / portföy kuralı)")
     for d in result.differences:
         print(
             f"{d.condition} - {d.baseline}: fark Sharpe {d.sharpe_diff:+.2f} "

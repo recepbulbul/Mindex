@@ -59,7 +59,7 @@ from mindex.db.models import (
     TradeRow,
     TrustScoreRow,
 )
-from mindex.domain.decision import Asset
+from mindex.domain.decision import Asset, FailureKind
 from mindex.domain.metrics import herd_correlation
 from mindex.domain.regime import Regime
 from mindex.domain.trust import BetaTrust
@@ -74,7 +74,7 @@ from mindex.services.runner import (
     experiment_market,
     load_market,
 )
-from mindex.services.study import StudyMismatchError, compare
+from mindex.services.study import StudyMismatchError, compare, decision_failures
 from mindex.sim.engine import AgentBook, ExecutionCosts, SimState, Simulator
 from mindex.sim.market import MarketData
 
@@ -243,6 +243,7 @@ def _decision_out(
         regime=r.regime or PLACEHOLDER_REGIME,
         attempts=r.attempts,
         held_position=r.held_position,
+        failures=[FailureKind(k) for k in r.failures],
         latency_ms=r.latency_ms or 0,
         memories=refs,
         forum_message_ids=forum_ids,
@@ -373,6 +374,7 @@ def report(
         agents=agents,
         benchmark=_benchmark(exp, settings, state),
         herd_correlation=herd,
+        decision_failures=decision_failures(session, [exp.id])[exp.id],
         conditions=_study_conditions(session, exp),
     )
 

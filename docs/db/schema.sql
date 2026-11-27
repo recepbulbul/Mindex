@@ -123,6 +123,7 @@ CREATE TABLE decisions (
     regime              market_regime,
     attempts            smallint NOT NULL DEFAULT 1 CHECK (attempts BETWEEN 1 AND 3),
     held_position       boolean  NOT NULL DEFAULT false,     -- NF2 güvenli varsayılan uygulandı
+    failures            jsonb    NOT NULL DEFAULT '[]',      -- başarısız denemelerin nedeni, sırayla
     latency_ms          integer CHECK (latency_ms >= 0),
     trace_id            text,                                -- Langfuse trace
     UNIQUE (experiment_agent_id, day)

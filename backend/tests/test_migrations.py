@@ -50,3 +50,52 @@ def test_agent_seed_downgrade_with_experiments(db_engine: Engine) -> None:
             conn.execute(text("DELETE FROM users WHERE id = :o"), {"o": owner})
     with db_engine.connect() as conn:
         assert conn.execute(text("SELECT count(*) FROM agents")).scalar_one() == 9
+
+
+def test_decisions_stored_before_failures_read_as_empty(db_engine: Engine) -> None:
+    """0005 adds `decisions.failures`: a decision written before it (a retried, held one
+    included) has an empty list, and the downgrade drops the column again."""
+    cfg = alembic_config(db_engine.url.render_as_string(hide_password=False))
+    command.downgrade(cfg, "0004")
+    try:
+        with db_engine.begin() as conn:
+            columns = "SELECT column_name FROM information_schema.columns WHERE table_name = :t"
+            assert "failures" not in conn.execute(text(columns), {"t": "decisions"}).scalars().all()
+            owner = conn.execute(
+                text(
+                    "INSERT INTO users (email, password_hash, role) "
+                    "VALUES ('failures@mindex.dev', 'x', 'researcher') RETURNING id"
+                )
+            ).scalar_one()
+            exp = conn.execute(
+                text(
+                    "INSERT INTO experiments (owner_id, name, mode, condition, start_date,"
+                    " end_date, assets, seed, config, model_version, prompt_version) VALUES (:o,"
+                    " 'Eski', 'replay', 'C0', '2025-10-01', '2025-11-01', ARRAY['BTC'], 1, '{}',"
+                    " 'm', 'p') RETURNING id"
+                ),
+                {"o": owner},
+            ).scalar_one()
+            link = conn.execute(
+                text(
+                    "INSERT INTO experiment_agents (experiment_id, agent_id)"
+                    " SELECT :e, id FROM agents WHERE slug = 'llm-momentum' RETURNING id"
+                ),
+                {"e": exp},
+            ).scalar_one()
+            conn.execute(
+                text(
+                    "INSERT INTO decisions (experiment_agent_id, day, target_weights, attempts,"
+                    " held_position) VALUES (:l, '2025-10-01', '{}', 3, true)"
+                ),
+                {"l": link},
+            )
+        command.upgrade(cfg, "head")
+        with db_engine.connect() as conn:
+            stored = "SELECT failures FROM decisions WHERE experiment_agent_id = :l"
+            assert conn.execute(text(stored), {"l": link}).scalar_one() == []
+    finally:
+        command.upgrade(cfg, "head")
+        with db_engine.begin() as conn:
+            conn.execute(text("DELETE FROM experiments WHERE name = 'Eski'"))
+            conn.execute(text("DELETE FROM users WHERE email = 'failures@mindex.dev'"))

@@ -264,6 +264,7 @@ def _record(db: Session, exp_id: uuid.UUID) -> dict[str, Any]:
                 d.regime,
                 d.attempts,
                 d.held_position,
+                d.failures,
             )
             for d in decisions
         ),
@@ -316,6 +317,9 @@ def test_run_writes_every_day_and_completes(
     retried = [d for d in llm if d[6] == 3]  # every attempt of day 4, 9, ... is invalid JSON
     assert retried
     assert all(d[7] for d in retried)  # ... so the agent held its position (NF2)
+    # Why each failed attempt failed; nothing for a first-try answer or a rule agent.
+    assert all(d[8] == ["invalid_json"] * 3 for d in retried)
+    assert all(d[8] == [] for d in rec["decisions"] if d[6] == 1)
     state = SimState.from_json(json.dumps(rec["checkpoint"]))
     assert state.books["buy-hold-btc"].equity[-1] == pytest.approx(
         float(next(s[2] for s in rec["snapshots"] if s[0] == "buy-hold-btc" and s[1] == END)),
@@ -746,8 +750,11 @@ def test_agent_detail(api: TestClient, viewer: dict[str, str], finished: uuid.UU
     first = d["decisions"][0]
     assert set(first) == {
         "id", "agentId", "day", "targetWeights", "confidence", "rationale", "regime",
-        "attempts", "heldPosition", "latencyMs", "memories", "forumMessageIds",
+        "attempts", "heldPosition", "failures", "latencyMs", "memories", "forumMessageIds",
     }  # fmt: skip
+    failed = [x for x in d["decisions"] if x["attempts"] == 3]
+    assert failed
+    assert all(x["failures"] == ["invalid_json"] * 3 for x in failed)
     assert d["trustGiven"] == d["trustReceived"] == []
     held = api.get(f"/api/experiments/{finished}/agents/buy-hold-btc", headers=viewer).json()
     kept = [x for x in held["decisions"] if x["heldPosition"]]
@@ -776,6 +783,14 @@ def test_report_uses_the_checkpoint(
     assert -1 <= r["herdCorrelation"] <= 1
     assert r["herdCorrelation"] != 0
     assert r["conditions"] == []
+    # Every failed decision attempt of the run, by kind (NF2): FakeChat only breaks the JSON.
+    failed = sum(len(d[8]) for d in _record(db_session, finished)["decisions"])
+    assert failed > 0
+    assert r["decisionFailures"] == {
+        "invalid_json": failed,
+        "schema_violation": 0,
+        "portfolio_violation": 0,
+    }
 
 
 def test_report_benchmark_is_simulated_when_missing(
