@@ -86,6 +86,46 @@ Aşağıdaki kısaltmalar: OHLCV günlük fiyat özeti (açılış, en yüksek, 
 | Ajanlar | `BaseAgent` arayüzü; kural tabanlı (3), PPO (1), LLM (4); hafıza, forum, post-mortem | PydanticAI, Stable-Baselines3, hmmlearn, pgvector |
 | Sunum / Protokol | REST, WebSocket, MCP; kimlik doğrulama; rapor | FastAPI, MCP SDK, React |
 
+## MCP sunucusu (F9, NF3)
+
+Dış ajanlar arenaya MCP sunucusu üzerinden bağlanır (`mindex.mcp`, resmî Python SDK, streamable HTTP, uç nokta `/mcp`). Sunucu tam üç araç sunar:
+
+| Araç | Girdi | Çıktı |
+|---|---|---|
+| `get_market_data` | yok | Gün numarası, Fear & Greed, işlem maliyeti ve varlık başına LLM ajanlarının gördüğü göstergeler (son 30 günün getirileri, oynaklık, MA uzaklıkları, funding) |
+| `get_portfolio` | yok | Çağıran ajanın özvarlığı, nakdi ve ağırlıkları (bugünün kapanışıyla) |
+| `place_order` | `allocations` (`asset` kodu + `weight`), `confidence`, `rationale` | Emrin kabulü; günün ilerleyip ilerlemediği |
+
+**Bağlanma:**
+
+```bash
+cd backend
+uv run mindex mcp token --agent mcp-guest          # ajanın token'ı (varsayılan 7 gün)
+uv run mindex mcp serve --agents mcp-guest          # http://127.0.0.1:8765/mcp, doğrulama dönemi
+```
+
+Dış ajan, MCP istemcisini `http://127.0.0.1:8765/mcp` adresine `Authorization: Bearer <token>` başlığıyla bağlar. Her gün için döngü: `get_market_data` → `get_portfolio` → `place_order`. Emir, yerel ajanların kararıyla aynı `Decision` doğrulamasından geçer (long-only, ağırlık toplamı ≤ 1, her varlık en çok bir kez, `confidence` 0–1, `rationale` 10–2000 karakter) ve simülatörün aynı adımıyla (`Simulator.step`) ertesi günün açılışında komisyon ve kaymayla gerçekleşir. Portföyü değiştirmemek için mevcut ağırlıklar yeniden gönderilir (özvarlığın %0,1'inden küçük farklar işlem yapmaz).
+
+**Oturum (`ArenaSession`):** `mindex mcp serve` seçilen dönemin bellekteki bir tekrarını (replay) açar; her ajanın 10 000 USDT ile başlayan ayrı bir portföyü vardır. Oturum sıra tabanlıdır: gün, oturumdaki **bütün** ajanlar o günün emrini verince ilerler; aynı gün yeniden verilen emir öncekinin yerine geçer. Oturum bir deney değildir: veritabanına yazmaz, sunucu yeniden başlayınca sıfırlanır.
+
+**Look-ahead:** Araçlar piyasayı yalnızca `MarketView` (bugünün kapanışına kadar) üzerinden okur; gelecekteki günleri değiştirmenin bugünkü yanıtı değiştirmediği testle kanıtlıdır. Yanıtlar LLM ajanlarının prompt'undaki biçimdedir: varlıklar `ASSET_A`…, tarih yerine gün numarası, fiyat düzeyi yerine getiriler (portföyde adet verilmez; adet + ağırlık fiyat düzeyini ele verirdi). `--split test` mühür nedeniyle reddedilir.
+
+**Yetkilendirme (NF3):**
+
+- Her ajanın kendi token'ı vardır: `MINDEX_JWT_SECRET` ile imzalı, kısa ömürlü bir JWT (HS256, algoritma sabit); `sub` ajanın kimliği, `aud` = `mindex-mcp`. Kullanıcı token'ı MCP'de, ajan token'ı REST API'de kabul edilmez (ikisi de testli).
+- Token'sız, bozuk, süresi dolmuş ya da oturumda olmayan bir ajana ait token'lı istek HTTP 401 alır.
+- Araçların hangi portföye dokunacağını yalnızca token belirler. `get_portfolio` ve `place_order`'daki isteğe bağlı `agent_id` başka bir ajanı gösterirse çağrı reddedilir ("Yetkisiz (403)"; MCP'de araç hataları HTTP durum kodu değil `isError` sonucu olarak döner) ve hiçbir portföy değişmez.
+- Token iptali yoktur: sızan token süresi dolana kadar geçerlidir; hepsini birden iptal etmek için `MINDEX_JWT_SECRET` değiştirilir. Token'lar veritabanında saklanmaz.
+- Sunucu varsayılan olarak yalnızca `127.0.0.1`'i dinler (SDK burada DNS rebinding korumasını açar). Geliştirme anahtarıyla (`change-me`) dışarıya açılmayı reddeder; dışarıya açılacaksa TLS sağlayan Caddy'nin arkasında çalıştırılmalıdır. Hız sınırlama henüz yoktur (NF3, #18).
+- `rationale` dış ajandan gelen güvenilmeyen metindir; şu an hiçbir prompt'a girmez.
+
+**Henüz yapılmayan: deney koşucusuna katılım.** MCP misafir ajanı kayıtlı bir deneyde (`mcp-guest`) hâlâ koşturulmaz; başlatma 422 verir. Neden: koşucu bir günü tek veritabanı işleminde, beklemeden işler ve yeniden başlatmada aynı sonucu bit bit üretir; dış ajanın emrini beklemek bu döngüye "gün başına bekleme" durumu ekler. Seçenekler:
+
+1. **Beklemeden:** koşucu o gün için verilmiş emir yoksa portföyü korur. Basit, ama tekrar koşusu saniyeler sürdüğünden dış ajan yetişemez; yalnızca canlı modda (İP7, günde bir adım) anlamlıdır.
+2. **Bekleyerek:** koşucu her gün misafirin emrini süre sınırıyla bekler, süre dolunca portföyü korur. Bunun için emirlerin veritabanında saklanması (yeni tablo ve migration), deneye `waiting` benzeri bir durum, token'ın deneye de bağlanması (`experiment_agent_id`) ve sürdürmede kayıtlı emirlerin yeniden oynatılması gerekir.
+
+`ArenaSession` bu işin sınırıdır: koşucu aynı arayüzü (bugünün görünümü, ajanın portföyü, emir verme) veritabanı destekli bir oturumla sağladığında araçlar ve yetkilendirme değişmeden kalır.
+
 ## Temel tasarım kararları (ADR özeti)
 
 ADR (*Architecture Decision Record*, mimari karar kaydı), her önemli tasarım kararını, gerekçesini ve neden başka bir yolun seçilmediğini kısaca yazan nottur. Tablodaki kısaltmalar: HNSW vektör aramasını hızlandıran indeks türü; MSW (*Mock Service Worker*) prototipin gerçek sunucu yokken sahte API ile çalışmasını sağlayan kütüphane; OWASP LLM01, LLM'lere yönelik en yaygın saldırı olan prompt injection (metne gizlenmiş talimatla modeli kandırma).
@@ -99,6 +139,7 @@ ADR (*Architecture Decision Record*, mimari karar kaydı), her önemli tasarım 
 | ADR-5 | Prototip MSW ile sahte API'ye bağlı | Aynı frontend kodu gerçek API'ye geçer; sözleşme önce tanımlanır | Statik HTML mock — atılır |
 | ADR-6 | Forum mesajları güvenilmeyen veri | OWASP LLM01 prompt injection | — |
 | ADR-7 | Kimlik: Argon2id parola özeti + kısa ömürlü JWT (HS256, algoritma sabit); İP8'e kadar `Authorization: Bearer` başlığı ve `sessionStorage` | Geliştirmede arayüz ile API ayrı origin'de; cookie için CORS + CSRF önlemi gerekirdi. `sessionStorage` sekme kapanınca silinir. İP8'de Caddy ikisini aynı origin'den sunduğunda httpOnly cookie'ye geçilir | Şimdiden httpOnly cookie — CSRF ve CORS yükü; `localStorage` — XSS'te kalıcı token |
+| ADR-8 | MCP yetkisi: ajan başına imzalı JWT (`aud` = `mindex-mcp`); kimlik yalnızca token'dan, araç girdisinden değil | Şema değişikliği gerektirmez; kullanıcı token'larıyla karışmaz; başka portföye erişim yapısal olarak kapalı | Veritabanında özetlenmiş API anahtarı — iptal edilebilir ama tablo + migration ister (koşucu entegrasyonuyla birlikte) |
 
 ---
 

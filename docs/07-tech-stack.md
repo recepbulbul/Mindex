@@ -18,7 +18,7 @@
 | Veri | ccxt · Polars · DuckDB · Parquet | Borsadan bağımsız API; hızlı kolonsal analiz, tekrarlanabilir veri anlık görüntüleri | **P3 ✔** (DuckDB EDA'da) |
 | RL ve rejim | Gymnasium · Stable-Baselines3 (PPO) · hmmlearn | Standart ve iyi belgelenmiş kütüphaneler | P4 |
 | Backend | FastAPI · Pydantic v2 · SQLAlchemy 2 + Alembic · Redis Streams işçisi | Asenkron API, otomatik OpenAPI; uzun deneyler API'den ayrı işçide | P4 |
-| Protokol | MCP sunucusu (resmî Python SDK) · A2A (esneme) | Dış ajanların standart araç arayüzüyle katılımı | P7 |
+| Protokol | MCP sunucusu (resmî Python SDK) · A2A (esneme) | Dış ajanların standart araç arayüzüyle katılımı | P7 (sunucu ve yetkilendirme hazır: [MCP sunucusu](02-architecture.md#mcp-sunucusu-f9-nf3); koşucuya katılım bekliyor) |
 | Frontend | React 19 · TypeScript · Vite · TanStack Query · Tailwind + shadcn/ui · Lightweight Charts v5 · MSW · Manrope (fontsource) | Prototip aynı kodla ürüne dönüşür (MSW ile sahte API); hafif finans grafikleri; görsel dil [tasarım sisteminde](09-design-system.md) sabit | **P2 ✔** |
 | Gözlemlenebilirlik | OpenTelemetry · Langfuse (self-host) · structlog | Her LLM çağrısının izi, prompt sürümleme, gecikme takibi | structlog **P1 ✔** |
 | Test ve kalite | pytest · Vitest + Testing Library · Playwright · k6 · Ruff · pyright · oxlint · Prettier · pre-commit | Birim/entegrasyon, uçtan uca ve WebSocket yük testi; statik analiz | **P1 ✔** (k6/Playwright P9) |
